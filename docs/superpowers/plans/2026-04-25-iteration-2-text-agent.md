@@ -681,7 +681,7 @@ git commit -m "feat(agent): add OpenAI agent with MCP tool-calling loop"
 - Create: `src/cli/chat.ts`
 - Modify: `package.json` (add script)
 
-- [ ] **Step 1: Implement `src/cli/chat.ts`**
+- [x] **Step 1: Implement `src/cli/chat.ts`**
 
 ```ts
 import OpenAI from 'openai';
@@ -742,7 +742,7 @@ main().catch((err) => {
 });
 ```
 
-- [ ] **Step 2: Add script to `package.json`**
+- [x] **Step 2: Add script to `package.json`**
 
 In `scripts`, add:
 
@@ -750,7 +750,7 @@ In `scripts`, add:
 "chat": "tsx src/cli/chat.ts",
 ```
 
-- [ ] **Step 3: Verify type-check**
+- [x] **Step 3: Verify type-check**
 
 ```bash
 npx tsc --noEmit
@@ -758,7 +758,7 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 4: Manual smoke test**
+- [x] **Step 4: Manual smoke test**
 
 Prerequisites: HA running, `.env` filled (including `OPENAI_API_KEY`).
 
@@ -777,7 +777,7 @@ Try:
 (expected: agent says it doesn't remember)
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/cli/chat.ts package.json
