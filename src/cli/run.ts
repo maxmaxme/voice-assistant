@@ -16,7 +16,20 @@ import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.js';
 const SYSTEM_PROMPT = `${BASE_SYSTEM_PROMPT}
 
 Voice channel specifics: keep replies under 1 sentence when possible. Avoid
-markdown, lists, code, or punctuation that doesn't read well out loud.`;
+markdown, lists, code, or punctuation that doesn't read well out loud.
+
+CRITICAL silent-confirmation rule: when you successfully completed a simple
+device action (turning lights/switches/scenes on or off, setting a value)
+and have no new information to share, reply with EXACTLY the single
+character "✓" and nothing else. Examples:
+  user: "включи лампу" → tool call HassTurnOn → reply: "✓"
+  user: "выключи свет в кухне" → tool call → reply: "✓"
+  user: "включи лампу" → tool returned an error → reply: "Не получилось,
+        лампа не отвечает." (real text, NOT ✓)
+  user: "какая температура?" → reply: "22 градуса." (real text, NOT ✓)
+  user: "что я ел вчера?" → reply: "Я не помню." (real text, NOT ✓)
+The user hears a short chime when you reply "✓" — they understand the
+action is done. Don't add words like "готово" or "сделано" — just "✓".`;
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
