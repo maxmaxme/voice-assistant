@@ -42,7 +42,7 @@ tests/
 
 The push-to-talk `NodeMicInput` from Iteration 3 collects chunks into a buffer. For wake-word we need a long-running stream of chunks while the process is alive.
 
-- [ ] **Step 1: Implement `src/audio/streamingMic.ts`**
+- [x] **Step 1: Implement `src/audio/streamingMic.ts`**
 
 ```ts
 import mic from 'mic';
@@ -106,7 +106,7 @@ export class StreamingMic {
 }
 ```
 
-- [ ] **Step 2: Verify type-check**
+- [x] **Step 2: Verify type-check**
 
 ```bash
 npx tsc --noEmit
@@ -114,7 +114,7 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/audio/streamingMic.ts
