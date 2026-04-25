@@ -4,10 +4,14 @@ export interface MicInput {
 }
 
 export interface SpeakerOutput {
-  /** Plays 16-bit mono PCM at the given sample rate. Resolves when playback ends or
-   *  when stop() is called from outside. */
-  play(buf: Buffer, opts: { sampleRate: number }): Promise<void>;
-  /** Aborts the in-flight play() (if any), cutting audio mid-buffer. No-op if idle. */
+  /** Plays a stream of 16-bit mono PCM chunks at the given sample rate.
+   *  Resolves when playback ends (all chunks consumed) or when aborted via
+   *  signal / stop(). On abort, resolves cleanly (no AbortError thrown). */
+  playStream(
+    stream: { chunks: AsyncIterable<Buffer>; sampleRate: number },
+    opts?: { signal?: AbortSignal },
+  ): Promise<void>;
+  /** Synchronous hard-cut. No-op if idle. */
   stop(): void;
 }
 
@@ -15,9 +19,14 @@ export interface Stt {
   transcribe(audio: Buffer, opts: { sampleRate: number; language?: string }): Promise<string>;
 }
 
+export interface TtsStream {
+  sampleRate: number;
+  chunks: AsyncIterable<Buffer>;
+}
+
 export interface Tts {
-  synthesize(text: string, opts?: { voice?: string; instructions?: string }): Promise<{
-    audio: Buffer;
-    sampleRate: number;
-  }>;
+  stream(
+    text: string,
+    opts?: { voice?: string; instructions?: string; signal?: AbortSignal },
+  ): TtsStream;
 }
