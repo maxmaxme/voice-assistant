@@ -8,7 +8,11 @@ export interface TransitionOptions {
   followUp?: boolean;
 }
 
-export function transition(state: State, event: Event, options: TransitionOptions = {}): Transition {
+export function transition(
+  state: State,
+  event: Event,
+  options: TransitionOptions = {},
+): Transition {
   if (event.type === 'error') {
     return { state: 'idle', effects: [{ type: 'log', level: 'error', message: event.message }] };
   }

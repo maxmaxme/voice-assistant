@@ -70,7 +70,12 @@ function textResponse(text: string, id = `resp_${Math.random().toString(36).slic
   };
 }
 
-function fnCallResponse(name: string, args: string, callId = `call_${name}`, id = `resp_${callId}`) {
+function fnCallResponse(
+  name: string,
+  args: string,
+  callId = `call_${name}`,
+  id = `resp_${callId}`,
+) {
   return {
     id,
     output: [

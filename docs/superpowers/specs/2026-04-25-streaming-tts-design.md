@@ -36,7 +36,7 @@ Streaming PCM от `gpt-4o-mini-tts` вместо ожидания полног�
 export interface Tts {
   stream(
     text: string,
-    opts?: { voice?: string; instructions?: string; signal?: AbortSignal }
+    opts?: { voice?: string; instructions?: string; signal?: AbortSignal },
   ): TtsStream;
 }
 
@@ -48,7 +48,7 @@ export interface TtsStream {
 export interface SpeakerOutput {
   playStream(
     stream: { chunks: AsyncIterable<Buffer>; sampleRate: number },
-    opts?: { signal?: AbortSignal }
+    opts?: { signal?: AbortSignal },
   ): Promise<void>;
   stop(): void; // синхронный hard-cut — оставляем
 }
@@ -113,8 +113,9 @@ export interface SpeakerOutput {
 — на `speak`-эффекте создаём `AbortController`, держим в
 `this.currentSpeechAbort`. Передаём `signal` в `tts.stream()` и
 `speaker.playStream()`. На stop-эффекте/событии: `controller.abort()`
-+ `speaker.stop()` (hard-cut на случай если playStream-цикл ещё не
-проснулся).
+
+- `speaker.stop()` (hard-cut на случай если playStream-цикл ещё не
+  проснулся).
 
 Helper `toStream(buf, sr)` оборачивает готовый Buffer (blip) в
 `{chunks: async function*() { yield buf; }, sampleRate: sr}` —

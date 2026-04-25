@@ -114,14 +114,14 @@ manual gates.
 
 ## Failure modes considered
 
-| What breaks | What happens |
-|---|---|
-| GHA build fails | Pi keeps running the old image. No update fires. GitHub emails on workflow failure. |
-| New image starts but unhealthy | `update.sh` rolls back to the previous digest, sends Telegram. |
+| What breaks                                       | What happens                                                                                                                   |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| GHA build fails                                   | Pi keeps running the old image. No update fires. GitHub emails on workflow failure.                                            |
+| New image starts but unhealthy                    | `update.sh` rolls back to the previous digest, sends Telegram.                                                                 |
 | New image starts healthy but is buggy in practice | Rollback is manual: ssh + `docker compose up -d` with `:sha-<good>`. The `:sha-<...>` tags retained on GHCR make this trivial. |
-| Pi offline at 4 AM | `Persistent=true` on the timer fires on next boot. |
-| GHCR rate-limits anonymous pulls | Docs say 60/hr unauthenticated, far above one-pull-a-day. If we ever hit it, add a read-only PAT to the Pi. |
-| Disk fills with old images | `update.sh` ends with `docker image prune -f --filter "until=720h"` (30 days), preserving recent rollback targets. |
+| Pi offline at 4 AM                                | `Persistent=true` on the timer fires on next boot.                                                                             |
+| GHCR rate-limits anonymous pulls                  | Docs say 60/hr unauthenticated, far above one-pull-a-day. If we ever hit it, add a read-only PAT to the Pi.                    |
+| Disk fills with old images                        | `update.sh` ends with `docker image prune -f --filter "until=720h"` (30 days), preserving recent rollback targets.             |
 
 ## Out of scope (deferred)
 
@@ -136,11 +136,13 @@ manual gates.
 ## Testing strategy
 
 CI build:
+
 - Lint the workflow with `actionlint` locally.
 - First merge to `main` is the live test — verify image lands in GHCR,
   is pullable on the Pi.
 
 Update script:
+
 - Unit-test the digest-comparison and rollback logic with `bats` or a
   plain shell test harness against `docker` in dry-run mode (mock
   `docker` and `curl` via `PATH` shimming).
@@ -148,6 +150,7 @@ Update script:
   commits and watching `journalctl -u voice-assistant-update`.
 
 Health verification:
+
 - After the first auto-update, intentionally push a commit that breaks
   the wake-word daemon (e.g. wrong `WAKE_WORD_PYTHON`), confirm rollback
   and Telegram message fire. Then revert.

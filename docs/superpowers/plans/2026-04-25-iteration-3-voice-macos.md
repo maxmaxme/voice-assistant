@@ -35,6 +35,7 @@ tests/
 ## Task 1: Install audio deps + types
 
 **Files:**
+
 - Modify: `package.json`
 - Create: `src/audio/types.ts`
 
@@ -65,7 +66,10 @@ export interface Stt {
 }
 
 export interface Tts {
-  synthesize(text: string, opts?: { voice?: string; instructions?: string }): Promise<{
+  synthesize(
+    text: string,
+    opts?: { voice?: string; instructions?: string },
+  ): Promise<{
     audio: Buffer;
     sampleRate: number;
   }>;
@@ -92,6 +96,7 @@ git commit -m "chore(audio): install mic/speaker, add audio interfaces"
 ## Task 2: OpenAI STT adapter
 
 **Files:**
+
 - Create: `src/audio/openaiStt.ts`
 - Test: `tests/audio/openaiStt.test.ts`
 
@@ -147,7 +152,10 @@ export class OpenAiStt implements Stt {
     this.model = opts.model ?? 'gpt-4o-transcribe';
   }
 
-  async transcribe(audio: Buffer, opts: { sampleRate: number; language?: string }): Promise<string> {
+  async transcribe(
+    audio: Buffer,
+    opts: { sampleRate: number; language?: string },
+  ): Promise<string> {
     const wav = pcmToWav(audio, opts.sampleRate);
     const file = await toFile(wav, 'audio.wav', { type: 'audio/wav' });
     // Only forward `language` when defined — older SDK versions can serialize
@@ -204,6 +212,7 @@ git commit -m "feat(audio): add OpenAI STT adapter (gpt-4o-transcribe)"
 ## Task 3: OpenAI TTS adapter
 
 **Files:**
+
 - Create: `src/audio/openaiTts.ts`
 - Test: `tests/audio/openaiTts.test.ts`
 
@@ -219,7 +228,8 @@ describe('OpenAiTts', () => {
   it('returns 16-bit PCM audio at 24kHz', async () => {
     const fakePcm = Buffer.alloc(2400 * 2);
     const create = vi.fn().mockResolvedValue({
-      arrayBuffer: async () => fakePcm.buffer.slice(fakePcm.byteOffset, fakePcm.byteOffset + fakePcm.byteLength),
+      arrayBuffer: async () =>
+        fakePcm.buffer.slice(fakePcm.byteOffset, fakePcm.byteOffset + fakePcm.byteLength),
     });
     const fakeClient = { audio: { speech: { create } } } as never;
     const tts = new OpenAiTts({ client: fakeClient, model: 'gpt-4o-mini-tts', voice: 'alloy' });
@@ -301,6 +311,7 @@ git commit -m "feat(audio): add OpenAI TTS adapter (gpt-4o-mini-tts)"
 These are thin wrappers around hardware libraries. Verifying them needs an actual microphone and speaker, so they're tested manually in Task 5.
 
 **Files:**
+
 - Create: `src/audio/micInput.ts`
 - Create: `src/audio/speakerOutput.ts`
 - Create: `src/types/speaker.d.ts` (if no @types/speaker)
@@ -354,7 +365,7 @@ export class NodeMicInput implements MicInput {
 }
 ```
 
-The fix vs. the naive version: the data listener is detached on resolve so late chunks don't sneak in after we've already returned a buffer; the timeout is a *fallback* (not a race), and the timer is cleared when `'end'` fires; both `'end'` and `'error'` are observed.
+The fix vs. the naive version: the data listener is detached on resolve so late chunks don't sneak in after we've already returned a buffer; the timeout is a _fallback_ (not a race), and the timer is cleared when `'end'` fires; both `'end'` and `'error'` are observed.
 
 - [x] **Step 2: Implement `src/audio/speakerOutput.ts`**
 
@@ -422,6 +433,7 @@ git commit -m "feat(audio): add mic input and speaker output wrappers"
 ## Task 5: Push-to-talk CLI
 
 **Files:**
+
 - Create: `src/cli/voice.ts`
 - Modify: `package.json`
 
@@ -472,7 +484,9 @@ async function main(): Promise<void> {
   const tts = new OpenAiTts({ client: llm });
 
   const rl = readline.createInterface({ input, output });
-  console.log('Voice push-to-talk. Press Enter to start recording, Enter again to stop. Ctrl+C to quit.');
+  console.log(
+    'Voice push-to-talk. Press Enter to start recording, Enter again to stop. Ctrl+C to quit.',
+  );
 
   try {
     while (true) {
@@ -483,7 +497,9 @@ async function main(): Promise<void> {
       const audio = await session.stop();
       console.log(`Captured ${audio.length} bytes; transcribing...`);
 
-      const text = (await stt.transcribe(audio, { sampleRate: MIC_SAMPLE_RATE, language: 'ru' })).trim();
+      const text = (
+        await stt.transcribe(audio, { sampleRate: MIC_SAMPLE_RATE, language: 'ru' })
+      ).trim();
       if (!text) {
         console.log('(no speech detected)');
         continue;
@@ -528,6 +544,7 @@ Expected: exits 0.
 - [ ] **Step 4: Manual end-to-end test on macOS** (skipped — human will run)
 
 Prerequisites:
+
 - HA running with Test Lamp exposed (`docker compose up -d`).
 - `.env` populated.
 - macOS will prompt for microphone permission on first run — allow it.
@@ -537,6 +554,7 @@ npm run voice
 ```
 
 Test path:
+
 1. Press Enter → say «включи лампу» → press Enter.
 2. Expected: console shows transcript, Test Lamp turns on in HA UI, you hear the assistant confirm.
 3. Press Enter → say «а теперь выключи» → Enter. Lamp turns off.

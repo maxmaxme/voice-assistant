@@ -35,6 +35,7 @@ tests/
 ## Task 1: Install OpenAI SDK + extend config
 
 **Files:**
+
 - Modify: `package.json`
 - Modify: `src/config.ts`
 - Modify: `tests/config.test.ts`
@@ -51,20 +52,20 @@ npm install openai
 Append to existing test file inside the `describe('loadConfig')` block:
 
 ```ts
-  it('reads openai api key', () => {
-    process.env.HA_URL = 'http://localhost:8123';
-    process.env.HA_TOKEN = 'tok_abc';
-    process.env.OPENAI_API_KEY = 'sk-xxx';
-    const cfg = loadConfig();
-    expect(cfg.openai.apiKey).toBe('sk-xxx');
-  });
+it('reads openai api key', () => {
+  process.env.HA_URL = 'http://localhost:8123';
+  process.env.HA_TOKEN = 'tok_abc';
+  process.env.OPENAI_API_KEY = 'sk-xxx';
+  const cfg = loadConfig();
+  expect(cfg.openai.apiKey).toBe('sk-xxx');
+});
 
-  it('throws when OPENAI_API_KEY is missing', () => {
-    process.env.HA_URL = 'http://localhost:8123';
-    process.env.HA_TOKEN = 'tok_abc';
-    delete process.env.OPENAI_API_KEY;
-    expect(() => loadConfig()).toThrow(/openai/i);
-  });
+it('throws when OPENAI_API_KEY is missing', () => {
+  process.env.HA_URL = 'http://localhost:8123';
+  process.env.HA_TOKEN = 'tok_abc';
+  delete process.env.OPENAI_API_KEY;
+  expect(() => loadConfig()).toThrow(/openai/i);
+});
 ```
 
 Add `delete process.env.OPENAI_API_KEY;` to `beforeEach`.
@@ -139,6 +140,7 @@ git commit -m "feat(config): add OpenAI configuration"
 ## Task 2: Conversation store with idle timeout
 
 **Files:**
+
 - Create: `src/agent/types.ts`
 - Create: `src/agent/conversationStore.ts`
 - Test: `tests/agent/conversationStore.test.ts`
@@ -309,6 +311,7 @@ git commit -m "feat(agent): add conversation store with idle timeout and trim"
 ## Task 3: Tool bridge — convert MCP tools ↔ OpenAI tools
 
 **Files:**
+
 - Create: `src/agent/toolBridge.ts`
 - Test: `tests/agent/toolBridge.test.ts`
 
@@ -411,6 +414,7 @@ git commit -m "feat(agent): add MCP→OpenAI tool format bridge"
 ## Task 4: OpenAI agent — tool-calling loop
 
 **Files:**
+
 - Create: `src/agent/openaiAgent.ts`
 - Test: `tests/agent/openaiAgent.test.ts`
 
@@ -613,9 +617,7 @@ export class OpenAiAgent implements Agent {
             args = {};
           }
           const result = await mcp.callTool(tc.function.name, args);
-          const text = result.content
-            .map((c) => (c.type === 'text' ? c.text : ''))
-            .join('\n');
+          const text = result.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n');
           store.append({
             role: 'tool',
             toolCallId: tc.id,
@@ -678,6 +680,7 @@ git commit -m "feat(agent): add OpenAI agent with MCP tool-calling loop"
 ## Task 5: REPL CLI
 
 **Files:**
+
 - Create: `src/cli/chat.ts`
 - Modify: `package.json` (add script)
 
@@ -767,6 +770,7 @@ npm run chat
 ```
 
 Try:
+
 ```
 > включи лампу
 (expected: turns on Test Lamp, agent confirms)

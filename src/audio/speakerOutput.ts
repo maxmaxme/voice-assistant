@@ -27,15 +27,7 @@ const APLAY: PlayerSpec = {
 
 const SOX_PLAY: PlayerSpec = {
   cmd: 'play',
-  args: (sr) => [
-    '-q',
-    '-t', 'raw',
-    '-e', 'signed',
-    '-b', '16',
-    '-c', '1',
-    '-r', String(sr),
-    '-',
-  ],
+  args: (sr) => ['-q', '-t', 'raw', '-e', 'signed', '-b', '16', '-c', '1', '-r', String(sr), '-'],
 };
 
 export class NodeSpeakerOutput implements SpeakerOutput {

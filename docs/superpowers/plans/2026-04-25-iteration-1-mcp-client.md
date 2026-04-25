@@ -39,6 +39,7 @@ voice-assistant/
 ```
 
 **Responsibility split:**
+
 - `src/mcp/types.ts` — pure types/interfaces, no runtime code. The contract.
 - `src/mcp/haMcpClient.ts` — only place that imports `@modelcontextprotocol/sdk`. Replaceable.
 - `src/config.ts` — only place that reads `process.env`. Validates on startup.
@@ -49,6 +50,7 @@ voice-assistant/
 ## Task 1: Project tooling — TypeScript, Vitest, scripts
 
 **Files:**
+
 - Modify: `package.json`
 - Create: `tsconfig.json`
 - Create: `vitest.config.ts`
@@ -159,6 +161,7 @@ git commit -m "chore: bootstrap TypeScript + Vitest toolchain"
 ## Task 2: Config loader
 
 **Files:**
+
 - Create: `src/config.ts`
 - Create: `.env.example`
 - Test: `tests/config.test.ts`
@@ -270,6 +273,7 @@ git commit -m "feat(config): add env-based config loader with zod validation"
 ## Task 3: McpClient interface (the contract)
 
 **Files:**
+
 - Create: `src/mcp/types.ts`
 
 - [x] **Step 1: Define the interface**
@@ -318,6 +322,7 @@ git commit -m "feat(mcp): add McpClient interface and types"
 ## Task 4: HA MCP client adapter — unit-tested skeleton
 
 **Files:**
+
 - Create: `src/mcp/haMcpClient.ts`
 - Test: `tests/mcp/haMcpClient.unit.test.ts`
 
@@ -441,10 +446,7 @@ function defaultSdkClientFactory({ url, token }: { url: string; token: string })
       headers: { Authorization: `Bearer ${token}` },
     },
   });
-  const client = new Client(
-    { name: 'voice-assistant', version: '0.1.0' },
-    { capabilities: {} },
-  );
+  const client = new Client({ name: 'voice-assistant', version: '0.1.0' }, { capabilities: {} });
   return {
     connect: () => client.connect(transport),
     close: () => client.close(),
@@ -508,6 +510,7 @@ git commit -m "feat(mcp): add HaMcpClient adapter over @modelcontextprotocol/sdk
 ## Task 5: Home Assistant in Docker
 
 **Files:**
+
 - Create: `docker/docker-compose.yml`
 - Create: `docker/homeassistant/configuration.yaml`
 - Create: `docs/home-assistant-setup.md`
@@ -525,7 +528,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
     ports:
-      - "8123:8123"
+      - '8123:8123'
 ```
 
 - [x] **Step 2: Create `docker/homeassistant/configuration.yaml`**
@@ -646,6 +649,7 @@ git commit -m "chore(ha): add Docker Compose for Home Assistant + setup docs"
 ## Task 6: CLI entry point
 
 **Files:**
+
 - Create: `src/cli/mcp-call.ts`
 
 This task has no automated tests — it's a thin composition over already-tested modules, and its real test is the integration test in Task 7.
@@ -735,6 +739,7 @@ git commit -m "feat(cli): add mcp-call CLI for listing tools and invoking them"
 ## Task 7: Integration test against real HA
 
 **Files:**
+
 - Test: `tests/mcp/haMcpClient.integration.test.ts`
 
 Gated behind an env var so it doesn't run in normal `npm test`. Engineer runs it manually after completing the HA setup in `docs/home-assistant-setup.md`.
@@ -788,6 +793,7 @@ RUN_INTEGRATION=1 npx vitest run tests/mcp/haMcpClient.integration.test.ts
 ```
 
 Expected: 1 passed. If it fails:
+
 - 401 → token wrong or revoked
 - 404 → MCP Server integration not added in HA UI
 - Tool `HassTurnOn` missing → `input_boolean.test_lamp` not exposed to Assist
@@ -820,6 +826,7 @@ git commit -m "test(mcp): add gated integration test against real HA"
 ## Task 8: README pointer
 
 **Files:**
+
 - Create: `README.md`
 
 - [x] **Step 1: Create minimal `README.md`**
@@ -845,7 +852,7 @@ Iteration 1 in progress: MCP client against Home Assistant in Docker.
 
 \`\`\`bash
 npm install
-cp .env.example .env  # then fill HA_URL and HA_TOKEN
+cp .env.example .env # then fill HA_URL and HA_TOKEN
 docker compose -f docker/docker-compose.yml up -d
 npm run mcp:call -- list
 \`\`\`
@@ -853,8 +860,8 @@ npm run mcp:call -- list
 ## Tests
 
 \`\`\`bash
-npm test                       # unit tests only
-RUN_INTEGRATION=1 npm test     # plus integration tests against running HA
+npm test # unit tests only
+RUN_INTEGRATION=1 npm test # plus integration tests against running HA
 \`\`\`
 ```
 

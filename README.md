@@ -14,6 +14,7 @@ shipped: `deploy/Dockerfile`, `deploy/docker-compose.yml` (HA bundled),
 `deploy/install.sh`. Live testing on Pi pending.
 
 Working features:
+
 - HA control via natural language (text and voice channels)
 - Wake-word + VAD always-listening pipeline (English builtins; Russian
   via custom-trained `.onnx`)

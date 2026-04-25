@@ -15,6 +15,7 @@
 ## File Structure
 
 **New files:**
+
 - `.github/workflows/build-image.yml` — CI build + push.
 - `deploy/update.sh` — pull / restart / rollback / notify orchestrator. Bash, runs on Pi host.
 - `deploy/voice-assistant-update.service` — systemd oneshot for the script.
@@ -24,6 +25,7 @@
 - `tests/fixtures/update/bin/curl` — fake `curl` used by bats.
 
 **Modified files:**
+
 - `deploy/docker-compose.yml` — replace `build:` with `image:`; add `build` profile to keep ad-hoc local builds available.
 - `deploy/install.sh` — install systemd unit + timer, drop the `docker compose build` step.
 - `package.json` — add `test:shell` script (`bats tests/update.bats`).
@@ -37,6 +39,7 @@
 ## Task 1: GitHub Actions workflow
 
 **Files:**
+
 - Create: `.github/workflows/build-image.yml`
 
 - [ ] **Step 1: Add the workflow file**
@@ -106,6 +109,7 @@ git commit -m "ci: arm64 image build to GHCR"
 ## Task 2: Switch compose to remote image, keep build profile
 
 **Files:**
+
 - Modify: `deploy/docker-compose.yml` — `voice-assistant` service top half.
 
 - [ ] **Step 1: Edit `deploy/docker-compose.yml`**
@@ -120,7 +124,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    profiles: ["", "build"]
+    profiles: ['', 'build']
     container_name: voice-assistant
     restart: unless-stopped
     # ... rest unchanged ...
@@ -147,6 +151,7 @@ git commit -m "deploy: track ghcr image, gate local build behind profile"
 We write the tests first so each subsequent task targets a concrete failing case.
 
 **Files:**
+
 - Create: `tests/update.bats`
 - Create: `tests/fixtures/update/bin/docker`
 - Create: `tests/fixtures/update/bin/curl`
@@ -300,6 +305,7 @@ git commit -m "test(deploy): bats harness for update.sh"
 ## Task 4: `update.sh` — happy path (digest compare + restart)
 
 **Files:**
+
 - Create: `deploy/update.sh`
 
 - [ ] **Step 1: Write the script targeting tests 1 and 2**
@@ -389,6 +395,7 @@ git commit -m "deploy: update.sh — pull, restart on digest change"
 ## Task 5: `update.sh` — healthcheck wait + rollback
 
 **Files:**
+
 - Modify: `deploy/update.sh` — append.
 
 - [ ] **Step 1: Append rollback logic**
@@ -455,6 +462,7 @@ git commit -m "deploy: update.sh — healthcheck wait + rollback + telegram"
 ## Task 6: systemd unit + timer
 
 **Files:**
+
 - Create: `deploy/voice-assistant-update.service`
 - Create: `deploy/voice-assistant-update.timer`
 
@@ -512,6 +520,7 @@ git commit -m "deploy: systemd unit + timer for auto-update"
 ## Task 7: Extend `install.sh`
 
 **Files:**
+
 - Modify: `deploy/install.sh`
 
 - [ ] **Step 1: Replace the build-and-start step (currently step 8)**
@@ -562,6 +571,7 @@ git commit -m "deploy: install.sh — pull image, install update timer"
 ## Task 8: Doc updates
 
 **Files:**
+
 - Modify: `CLAUDE.md` — Commands section + new "Auto-update" subsection in Architecture.
 - Modify: `README.md` — Status / deployment.
 - Modify: `docs/raspberry-pi-setup.md` — install description, Updating section, Troubleshooting.
@@ -601,7 +611,7 @@ a) Replace the bullet on line 81 (`- builds the image and starts the container`)
 
 b) Replace the entire `## Updating` section (lines 122–128) with:
 
-```markdown
+````markdown
 ## Updating
 
 The `voice-assistant-update.timer` systemd unit fires `deploy/update.sh`
@@ -617,6 +627,7 @@ Inspect:
 systemctl list-timers voice-assistant-update.timer
 journalctl -u voice-assistant-update -n 100 --no-pager
 ```
+````
 
 Force an update right now:
 
@@ -643,7 +654,8 @@ cd /opt/voice-assistant/deploy
 sudo -u pi docker compose --profile build build voice-assistant
 sudo -u pi docker compose up -d voice-assistant
 ```
-```
+
+````
 
 c) Append to `## Troubleshooting`:
 
@@ -654,7 +666,7 @@ c) Append to `## Troubleshooting`:
   message in Telegram means the new image started but its healthcheck
   never went green within 90 s — the previous image is now active. Fix
   the breaking commit, push again, and the next 04:00 run picks it up.
-```
+````
 
 - [ ] **Step 5: Commit**
 
@@ -749,6 +761,7 @@ From the Mac, push a comment-only change to `main`. Wait for GHA to finish. On t
 ## Self-Review Notes
 
 **Spec coverage.**
+
 - CI build (spec §1) — Task 1.
 - Pi update script with digest check, healthcheck wait, rollback, Telegram (spec §2) — Tasks 4, 5.
 - Pi schedule (spec §3) — Task 6.
@@ -759,6 +772,7 @@ From the Mac, push a comment-only change to `main`. Wait for GHA to finish. On t
 - Deferred items (idle-gating, multi-Pi, Sentry rollback) — explicitly out of scope, no tasks.
 
 **Type / name consistency.**
+
 - Image name `ghcr.io/maxmaxme/voice-assistant` is used identically in workflow, compose, update.sh, install.sh, and docs.
 - `:latest`, `:sha-<short>`, `:rollback` tag triplet referenced consistently.
 - `voice-assistant-update.{service,timer}` names match across install.sh and the unit files.

@@ -7,4 +7,4 @@ services:
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
     ports:
-      - "8123:8123"
+      - '8123:8123'

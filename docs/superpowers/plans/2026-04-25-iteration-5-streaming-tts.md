@@ -41,6 +41,7 @@ Note: There's no existing `tests/audio/speakerOutput.test.ts` — speaker was pr
 ## Task 1: Update Tts and SpeakerOutput interfaces
 
 **Files:**
+
 - Modify: `src/audio/types.ts`
 
 - [ ] **Step 1: Replace the interfaces**
@@ -99,6 +100,7 @@ git commit -m "refactor(audio): switch Tts/Speaker interfaces to streaming"
 ## Task 2: Add stream helpers
 
 **Files:**
+
 - Create: `src/audio/streamHelpers.ts`
 - Test: `tests/audio/streamHelpers.test.ts`
 
@@ -187,6 +189,7 @@ git commit -m "feat(audio): add bufferToStream and isAbortError helpers"
 ## Task 3: Rewrite OpenAiTts as streaming
 
 **Files:**
+
 - Modify: `src/audio/openaiTts.ts`
 - Test: `tests/audio/openaiTts.test.ts` (rewrite)
 
@@ -343,6 +346,7 @@ git commit -m "feat(tts): stream PCM chunks from OpenAI instead of buffering"
 ## Task 4: Rewrite NodeSpeakerOutput.playStream() — Linux/aplay path
 
 **Files:**
+
 - Modify: `src/audio/speakerOutput.ts`
 - Test: `tests/audio/speakerOutput.test.ts` (create)
 
@@ -392,7 +396,10 @@ function makeFakeProc(): FakeProc {
   return proc;
 }
 
-async function streamFrom(chunks: Buffer[], sampleRate = 24000): Promise<{
+async function streamFrom(
+  chunks: Buffer[],
+  sampleRate = 24000,
+): Promise<{
   chunks: AsyncIterable<Buffer>;
   sampleRate: number;
 }> {
@@ -634,6 +641,7 @@ git commit -m "feat(speaker): streaming playback via aplay (Linux path)"
 ## Task 5: Add macOS streaming path (`speaker` npm)
 
 **Files:**
+
 - Modify: `src/audio/speakerOutput.ts`
 
 No new test — `speaker` npm is heavy native code that doesn't lend itself to unit-mocking. Linux path has full coverage; macOS path is verified by the manual smoke test in Task 8.
@@ -720,6 +728,7 @@ git commit -m "feat(speaker): streaming playback via speaker npm (macOS path)"
 ## Task 6: Wire orchestrator with AbortController per speak
 
 **Files:**
+
 - Modify: `src/orchestrator/orchestrator.ts:1-12`, `:115-189` (runEffect / speak case)
 
 - [ ] **Step 1: Update imports and add field**
@@ -755,9 +764,7 @@ this.opts.speaker.play(LISTEN_BLIP, { sampleRate: BLIP_SAMPLE_RATE }).catch(() =
 with:
 
 ```ts
-this.opts.speaker
-  .playStream(bufferToStream(LISTEN_BLIP, BLIP_SAMPLE_RATE))
-  .catch(() => {});
+this.opts.speaker.playStream(bufferToStream(LISTEN_BLIP, BLIP_SAMPLE_RATE)).catch(() => {});
 ```
 
 - [ ] **Step 3: Update the `stopSpeaking` effect**
@@ -837,6 +844,7 @@ git commit -m "feat(orchestrator): abort signal per speak; barge-in cancels TTS 
 ## Task 7: Migrate voice CLI to streaming
 
 **Files:**
+
 - Modify: `src/cli/voice.ts:69-70`
 
 - [ ] **Step 1: Replace synthesize+play with stream+playStream**

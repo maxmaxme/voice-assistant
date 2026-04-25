@@ -15,7 +15,10 @@ export class OpenAiStt implements Stt {
     this.model = opts.model ?? 'gpt-4o-transcribe';
   }
 
-  async transcribe(audio: Buffer, opts: { sampleRate: number; language?: string }): Promise<string> {
+  async transcribe(
+    audio: Buffer,
+    opts: { sampleRate: number; language?: string },
+  ): Promise<string> {
     const wav = pcmToWav(audio, opts.sampleRate);
     const file = await toFile(wav, 'audio.wav', { type: 'audio/wav' });
     // Only forward `language` when defined — older SDK versions can serialize

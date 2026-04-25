@@ -37,7 +37,10 @@ function makeFakeProc(): FakeProc {
   return proc;
 }
 
-async function streamFrom(chunks: Buffer[], sampleRate = 24000): Promise<{
+async function streamFrom(
+  chunks: Buffer[],
+  sampleRate = 24000,
+): Promise<{
   chunks: AsyncIterable<Buffer>;
   sampleRate: number;
 }> {
