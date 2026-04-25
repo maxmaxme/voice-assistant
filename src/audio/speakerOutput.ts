@@ -3,77 +3,50 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import type { SpeakerOutput, TtsStream } from './types.ts';
 import { isAbortError } from './streamHelpers.ts';
 
+/**
+ * 16-bit mono PCM playback by piping into a subprocess that owns the audio
+ * device. Linux uses `aplay` (alsa-utils); macOS / others use SoX `play`
+ * (`brew install sox`). Both have generous internal buffers that keep the
+ * audio device fed across network jitter from streaming TTS, and both
+ * release the device cleanly under SIGTERM — which the previous `speaker`
+ * npm backend on macOS did not, leaving coreaudio in a flaky state on
+ * barge-in.
+ */
+
 const IS_LINUX = platform() === 'linux';
 
-interface SpeakerLike {
-  on(event: string, cb: (arg?: unknown) => void): unknown;
-  removeAllListeners(event: string): unknown;
-  write(buf: Buffer, cb: (err?: Error) => void): boolean;
-  end(): unknown;
-  destroy(): unknown;
+interface PlayerSpec {
+  cmd: string;
+  args(sampleRate: number): string[];
 }
 
-interface SpeakerCtor {
-  new (opts: { channels: number; bitDepth: number; sampleRate: number }): SpeakerLike;
-}
+const APLAY: PlayerSpec = {
+  cmd: 'aplay',
+  args: (sr) => ['-q', '-t', 'raw', '-f', 'S16_LE', '-r', String(sr), '-c', '1'],
+};
 
-let speakerCtorCache: SpeakerCtor | null | undefined;
-
-async function loadSpeakerCtor(): Promise<SpeakerCtor | null> {
-  if (speakerCtorCache !== undefined) return speakerCtorCache;
-  try {
-    const mod = (await import('speaker')) as unknown as { default: SpeakerCtor };
-    speakerCtorCache = mod.default;
-  } catch {
-    speakerCtorCache = null;
-  }
-  return speakerCtorCache;
-}
+const SOX_PLAY: PlayerSpec = {
+  cmd: 'play',
+  args: (sr) => [
+    '-q',
+    '-t', 'raw',
+    '-e', 'signed',
+    '-b', '16',
+    '-c', '1',
+    '-r', String(sr),
+    '-',
+  ],
+};
 
 export class NodeSpeakerOutput implements SpeakerOutput {
   private currentProc: ChildProcess | null = null;
-  private currentSpeaker: SpeakerLike | null = null;
 
   async playStream(stream: TtsStream, opts?: { signal?: AbortSignal }): Promise<void> {
     this.stop();
-    if (IS_LINUX) return this.playStreamViaAplay(stream, opts);
-    return this.playStreamViaSpeakerNpm(stream, opts);
-  }
-
-  stop(): void {
-    if (this.currentProc) {
-      const p = this.currentProc;
-      this.currentProc = null;
-      try {
-        p.stdin?.destroy();
-        p.kill('SIGTERM');
-      } catch {
-        // best-effort
-      }
-    }
-    if (this.currentSpeaker) {
-      const s = this.currentSpeaker;
-      this.currentSpeaker = null;
-      try {
-        s.removeAllListeners('error');
-        s.on('error', () => {});
-        s.end();
-        s.destroy();
-      } catch {
-        // best-effort
-      }
-    }
-  }
-
-  private async playStreamViaAplay(
-    stream: TtsStream,
-    opts?: { signal?: AbortSignal },
-  ): Promise<void> {
-    const proc = spawn(
-      'aplay',
-      ['-q', '-t', 'raw', '-f', 'S16_LE', '-r', String(stream.sampleRate), '-c', '1'],
-      { stdio: ['pipe', 'ignore', 'inherit'] },
-    );
+    const player = IS_LINUX ? APLAY : SOX_PLAY;
+    const proc = spawn(player.cmd, player.args(stream.sampleRate), {
+      stdio: ['pipe', 'ignore', 'inherit'],
+    });
     this.currentProc = proc;
 
     const onAbort = (): void => this.stop();
@@ -116,7 +89,6 @@ export class NodeSpeakerOutput implements SpeakerOutput {
       proc.stdin?.end();
       await exited;
     } catch (err) {
-      // AbortError from the upstream TTS iterator is normal cancellation.
       if (!isAbortError(err)) throw err;
     } finally {
       opts?.signal?.removeEventListener('abort', onAbort);
@@ -124,65 +96,16 @@ export class NodeSpeakerOutput implements SpeakerOutput {
     }
   }
 
-  private async playStreamViaSpeakerNpm(
-    stream: TtsStream,
-    opts?: { signal?: AbortSignal },
-  ): Promise<void> {
-    const Ctor = await loadSpeakerCtor();
-    if (!Ctor) {
-      throw new Error(
-        "Audio playback unavailable: 'speaker' npm package failed to load and " +
-          'this is not a Linux host (no `aplay` fallback). Install `sox` or ' +
-          'rebuild speaker for your platform.',
-      );
-    }
-
-    const speaker = new Ctor({
-      channels: 1,
-      bitDepth: 16,
-      sampleRate: stream.sampleRate,
-    });
-    this.currentSpeaker = speaker;
-
-    const onAbort = (): void => this.stop();
-    opts?.signal?.addEventListener('abort', onAbort, { once: true });
-
-    // Soak up async errors from the speaker so they don't crash the process
-    // if stop() races with a write.
-    let speakerError: Error | null = null;
-    speaker.on('error', (err) => {
-      speakerError = err instanceof Error ? err : new Error(String(err));
-    });
-
-    const closed = new Promise<void>((resolve) => {
-      speaker.on('close', () => resolve());
-    });
-
-    try {
-      for await (const chunk of stream.chunks) {
-        if (opts?.signal?.aborted) break;
-        if (this.currentSpeaker !== speaker) break; // stop() replaced us
-        await new Promise<void>((resolve, reject) => {
-          const ok = speaker.write(chunk, (err?: Error) => {
-            if (err) reject(err);
-            else resolve(); // drain callback fires when chunk has been flushed
-          });
-          if (ok) resolve();
-          // Safety net: if stop() fires mid-write the speaker emits 'close'
-          // before the write callback ever runs. Resolving on 'close' too
-          // prevents an indefinite hang. Analogous to the aplay path
-          // resolving the drain-await on proc 'exit'.
-          closed.then(resolve);
-        });
+  stop(): void {
+    if (this.currentProc) {
+      const p = this.currentProc;
+      this.currentProc = null;
+      try {
+        p.stdin?.destroy();
+        p.kill('SIGTERM');
+      } catch {
+        // best-effort
       }
-      speaker.end();
-      await closed;
-      if (speakerError) throw speakerError;
-    } catch (err) {
-      if (!isAbortError(err)) throw err;
-    } finally {
-      opts?.signal?.removeEventListener('abort', onAbort);
-      if (this.currentSpeaker === speaker) this.currentSpeaker = null;
     }
   }
 }
