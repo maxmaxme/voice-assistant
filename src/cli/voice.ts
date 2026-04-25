@@ -13,10 +13,13 @@ import { NodeSpeakerOutput } from '../audio/speakerOutput.js';
 import { OpenAiStt } from '../audio/openaiStt.js';
 import { OpenAiTts } from '../audio/openaiTts.js';
 
-const SYSTEM_PROMPT = `You are a smart-home voice assistant.
-You control devices through Home Assistant tools.
-Long-term user profile is available via remember/recall/forget.
-Be concise (1-2 sentences). Speak Russian if the user does.`;
+import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.js';
+
+// Voice channel: keep replies short — TTS reads them out loud, long answers feel slow.
+const SYSTEM_PROMPT = `${BASE_SYSTEM_PROMPT}
+
+Voice channel specifics: keep replies under 1 sentence when possible. Avoid
+markdown, lists, code, or punctuation that doesn't read well out loud.`;
 
 const MIC_SAMPLE_RATE = 16000;
 
