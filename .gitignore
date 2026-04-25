@@ -21,3 +21,4 @@ data/
 *.db-wal
 *.db-shm
 .venv/
+dist/
