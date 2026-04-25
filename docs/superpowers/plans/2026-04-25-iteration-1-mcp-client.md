@@ -822,7 +822,7 @@ git commit -m "test(mcp): add gated integration test against real HA"
 **Files:**
 - Create: `README.md`
 
-- [ ] **Step 1: Create minimal `README.md`**
+- [x] **Step 1: Create minimal `README.md`**
 
 ```markdown
 # voice-assistant
@@ -858,7 +858,7 @@ RUN_INTEGRATION=1 npm test     # plus integration tests against running HA
 \`\`\`
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add README.md
