@@ -1,0 +1,19 @@
+export type State = 'idle' | 'listening' | 'thinking' | 'speaking';
+
+export type Event =
+  | { type: 'wake' }
+  | { type: 'utteranceEnd'; audio: Buffer }
+  | { type: 'agentReplied'; text: string }
+  | { type: 'speechFinished' }
+  | { type: 'error'; message: string };
+
+export type Effect =
+  | { type: 'startCapture' }
+  | { type: 'transcribeAndAsk'; audio: Buffer }
+  | { type: 'speak'; text: string }
+  | { type: 'log'; level: 'info' | 'error'; message: string };
+
+export interface Transition {
+  state: State;
+  effects: Effect[];
+}
