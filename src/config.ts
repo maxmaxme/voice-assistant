@@ -18,6 +18,10 @@ const ConfigSchema = z.object({
     scriptPath: z.string().default('scripts/wake_word_daemon.py'),
     keyword: z.string().default('hey_jarvis'),
     threshold: z.coerce.number().min(0).max(1).default(0.5),
+    debug: z
+      .union([z.string(), z.boolean()])
+      .default(false)
+      .transform((v) => v === true || v === '1' || v === 'true'),
   }),
 });
 
@@ -53,6 +57,7 @@ export function loadConfig(): Config {
       scriptPath: process.env.WAKE_WORD_SCRIPT,
       keyword: process.env.WAKE_WORD_KEYWORD,
       threshold: process.env.WAKE_WORD_THRESHOLD,
+      debug: process.env.WAKE_WORD_DEBUG,
     },
   };
   const parsed = ConfigSchema.safeParse(raw);

@@ -41,6 +41,7 @@ async function main(): Promise<void> {
     scriptPath: cfg.wakeWord.scriptPath,
     keyword: cfg.wakeWord.keyword,
     threshold: cfg.wakeWord.threshold,
+    debug: cfg.wakeWord.debug,
   });
 
   const orch = new Orchestrator({

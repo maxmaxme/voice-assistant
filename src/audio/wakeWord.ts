@@ -21,6 +21,8 @@ export interface OpenWakeWordOptions {
   keyword: string;
   /** Detection threshold 0..1 (default 0.5) */
   threshold?: number;
+  /** Print per-frame diagnostics from the daemon to stderr (default false) */
+  debug?: boolean;
   /** Inject a custom spawn for tests */
   spawnFn?: typeof spawn;
 }
@@ -46,12 +48,18 @@ export class OpenWakeWord implements WakeWord {
       '--threshold',
       String(this.opts.threshold ?? 0.5),
     ];
+    if (this.opts.debug) args.push('--debug');
     const spawnFn = this.opts.spawnFn ?? spawn;
     this.proc = spawnFn(this.opts.pythonPath, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
     if (!this.proc.stdout) throw new Error('wake-word daemon has no stdout');
+    // Forward daemon stderr to our stderr so model-load errors and
+    // --debug diagnostics are visible.
+    this.proc.stderr?.on('data', (chunk: Buffer) => {
+      process.stderr.write(chunk);
+    });
     const rl = readline.createInterface({ input: this.proc.stdout });
     rl.on('line', (line) => {
       let evt: { type?: string; keyword?: string; score?: number };
