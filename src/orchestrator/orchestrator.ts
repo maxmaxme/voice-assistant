@@ -15,12 +15,20 @@ export interface OrchestratorOptions {
   sampleRate: number;
 }
 
+const DEFAULT_VAD_THRESHOLD = 300;
+const DEFAULT_VAD_SILENCE_MS = 800;
+/** If the user goes silent immediately after the wake word and never crosses
+ * the VAD threshold, we'd otherwise wait forever. Abort after this long. */
+const NO_SPEECH_TIMEOUT_MS = 5000;
+
 export class Orchestrator {
   private state: State = 'idle';
   private mic: StreamingMic;
   private vad: RmsVad;
   private captureBuffer: Buffer[] = [];
   private capturing = false;
+  private speechSeen = false;
+  private noSpeechTimer: NodeJS.Timeout | null = null;
 
   constructor(private readonly opts: OrchestratorOptions) {
     this.mic = new StreamingMic({
@@ -30,23 +38,26 @@ export class Orchestrator {
     this.vad = new RmsVad({
       sampleRate: opts.sampleRate,
       frameLength: opts.wake.frameLength,
-      threshold: 800,
-      silenceMs: 800,
+      threshold: DEFAULT_VAD_THRESHOLD,
+      silenceMs: DEFAULT_VAD_SILENCE_MS,
     });
   }
 
   async run(): Promise<void> {
     await this.opts.wake.start();
     this.opts.wake.onWake((kw, score) => {
+      if (this.state !== 'idle') return;
       console.log(`[wake] ${kw} score=${score.toFixed(2)} → listening (say your command)`);
       this.dispatch({ type: 'wake' });
     });
+    this.vad.onSpeech(() => {
+      if (!this.capturing) return;
+      this.speechSeen = true;
+      this.clearNoSpeechTimer();
+    });
     this.vad.onSilence(() => {
       if (!this.capturing) return;
-      this.capturing = false;
-      const audio = Buffer.concat(this.captureBuffer);
-      this.captureBuffer = [];
-      this.dispatch({ type: 'utteranceEnd', audio });
+      this.endCapture();
     });
 
     this.mic.onFrame((frame) => {
@@ -62,6 +73,21 @@ export class Orchestrator {
     await new Promise(() => {}); // run forever
   }
 
+  private endCapture(): void {
+    this.capturing = false;
+    this.clearNoSpeechTimer();
+    const audio = Buffer.concat(this.captureBuffer);
+    this.captureBuffer = [];
+    this.dispatch({ type: 'utteranceEnd', audio });
+  }
+
+  private clearNoSpeechTimer(): void {
+    if (this.noSpeechTimer) {
+      clearTimeout(this.noSpeechTimer);
+      this.noSpeechTimer = null;
+    }
+  }
+
   private async dispatch(event: Event): Promise<void> {
     const { state, effects } = transition(this.state, event);
     this.state = state;
@@ -74,6 +100,13 @@ export class Orchestrator {
         this.capturing = true;
         this.captureBuffer = [];
         this.vad.reset();
+        this.speechSeen = false;
+        this.clearNoSpeechTimer();
+        this.noSpeechTimer = setTimeout(() => {
+          if (!this.capturing || this.speechSeen) return;
+          console.log('[no command heard within 5s — returning to idle]');
+          this.endCapture();
+        }, NO_SPEECH_TIMEOUT_MS);
         return;
       case 'transcribeAndAsk':
         try {
