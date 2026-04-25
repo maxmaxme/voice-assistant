@@ -1,0 +1,12 @@
+node_modules
+.git
+.env
+.env.*
+!.env.example
+*.log
+.vscode
+.idea
+data
+.venv
+docs/superpowers
+docker/homeassistant
