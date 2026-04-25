@@ -9,6 +9,7 @@ export type Event =
 
 export type Effect =
   | { type: 'startCapture' }
+  | { type: 'stopSpeaking' }
   | { type: 'transcribeAndAsk'; audio: Buffer }
   | { type: 'speak'; text: string }
   | { type: 'log'; level: 'info' | 'error'; message: string };
