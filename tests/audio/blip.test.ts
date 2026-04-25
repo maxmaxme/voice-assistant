@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { generateConfirmBlip, isAckOnly, ACK_MARKER } from '../../src/audio/blip.js';
+import {
+  generateConfirmBlip,
+  generateListenBlip,
+  isAckOnly,
+  isQuestion,
+  ACK_MARKER,
+} from '../../src/audio/blip.js';
 
 describe('blip', () => {
   it('generateConfirmBlip returns PCM of expected size at 24kHz', () => {
@@ -25,5 +31,22 @@ describe('blip', () => {
     expect(isAckOnly('Готово')).toBe(false);
     expect(isAckOnly('лампа включена')).toBe(false);
     expect(isAckOnly('')).toBe(false);
+  });
+
+  it('generateListenBlip returns non-empty PCM and starts at low amplitude (attack)', () => {
+    const buf = generateListenBlip(24000);
+    expect(buf.length).toBeGreaterThan(0);
+    // First sample is in the attack ramp, should be tiny.
+    expect(Math.abs(buf.readInt16LE(0))).toBeLessThan(2000);
+  });
+
+  it('isQuestion detects trailing question marks (incl. Russian punctuation)', () => {
+    expect(isQuestion('Что вы хотите сделать?')).toBe(true);
+    expect(isQuestion('Что вы хотите сделать?  ')).toBe(true);
+    expect(isQuestion('Что вы хотите?»')).toBe(true);
+    expect(isQuestion('Какой?\n')).toBe(true);
+    expect(isQuestion('Готово.')).toBe(false);
+    expect(isQuestion('Лампа включена.')).toBe(false);
+    expect(isQuestion('')).toBe(false);
   });
 });
