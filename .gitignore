@@ -5,6 +5,7 @@ node_modules/
 *.log
 
 # Home Assistant runtime data
+docker/homeassistant/
 docker/homeassistant/.storage/
 docker/homeassistant/.cloud/
 docker/homeassistant/home-assistant*.log*
