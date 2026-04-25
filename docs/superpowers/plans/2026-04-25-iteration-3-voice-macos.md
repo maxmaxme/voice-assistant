@@ -305,7 +305,7 @@ These are thin wrappers around hardware libraries. Verifying them needs an actua
 - Create: `src/audio/speakerOutput.ts`
 - Create: `src/types/speaker.d.ts` (if no @types/speaker)
 
-- [ ] **Step 1: Implement `src/audio/micInput.ts`**
+- [x] **Step 1: Implement `src/audio/micInput.ts`**
 
 ```ts
 import mic from 'mic';
@@ -356,7 +356,7 @@ export class NodeMicInput implements MicInput {
 
 The fix vs. the naive version: the data listener is detached on resolve so late chunks don't sneak in after we've already returned a buffer; the timeout is a *fallback* (not a race), and the timer is cleared when `'end'` fires; both `'end'` and `'error'` are observed.
 
-- [ ] **Step 2: Implement `src/audio/speakerOutput.ts`**
+- [x] **Step 2: Implement `src/audio/speakerOutput.ts`**
 
 ```ts
 import Speaker from 'speaker';
@@ -381,7 +381,7 @@ export class NodeSpeakerOutput implements SpeakerOutput {
 }
 ```
 
-- [ ] **Step 3: If `@types/speaker` is missing, add ambient declaration**
+- [x] **Step 3: If `@types/speaker` is missing, add ambient declaration**
 
 `src/types/speaker.d.ts`:
 
@@ -402,7 +402,7 @@ declare module 'speaker' {
 
 Add to `tsconfig.json`'s `include`: `"src/**/*"` already covers it.
 
-- [ ] **Step 4: Verify type-check**
+- [x] **Step 4: Verify type-check**
 
 ```bash
 npx tsc --noEmit
