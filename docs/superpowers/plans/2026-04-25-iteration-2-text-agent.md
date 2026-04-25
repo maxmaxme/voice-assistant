@@ -40,13 +40,13 @@ tests/
 - Modify: `tests/config.test.ts`
 - Modify: `.env.example`
 
-- [ ] **Step 1: Install**
+- [x] **Step 1: Install**
 
 ```bash
 npm install openai
 ```
 
-- [ ] **Step 2: Update `tests/config.test.ts` — add OpenAI key check**
+- [x] **Step 2: Update `tests/config.test.ts` — add OpenAI key check**
 
 Append to existing test file inside the `describe('loadConfig')` block:
 
@@ -69,7 +69,7 @@ Append to existing test file inside the `describe('loadConfig')` block:
 
 Add `delete process.env.OPENAI_API_KEY;` to `beforeEach`.
 
-- [ ] **Step 3: Run tests to verify failure**
+- [x] **Step 3: Run tests to verify failure**
 
 ```bash
 npx vitest run tests/config.test.ts
@@ -77,7 +77,7 @@ npx vitest run tests/config.test.ts
 
 Expected: 2 new tests fail (no `cfg.openai`).
 
-- [ ] **Step 4: Update `src/config.ts`**
+- [x] **Step 4: Update `src/config.ts`**
 
 Replace the `ConfigSchema` block:
 
@@ -109,7 +109,7 @@ const raw = {
 };
 ```
 
-- [ ] **Step 5: Update `.env.example`**
+- [x] **Step 5: Update `.env.example`**
 
 Append:
 
@@ -119,7 +119,7 @@ OPENAI_API_KEY=sk-replace-me
 OPENAI_MODEL=gpt-4o
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 ```bash
 npx vitest run tests/config.test.ts
@@ -127,7 +127,7 @@ npx vitest run tests/config.test.ts
 
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add package.json package-lock.json src/config.ts tests/config.test.ts .env.example
