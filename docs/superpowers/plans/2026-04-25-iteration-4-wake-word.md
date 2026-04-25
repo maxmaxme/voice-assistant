@@ -131,7 +131,7 @@ A simple amplitude-based VAD is enough for v1: crosses the threshold = speech, s
 - Create: `src/audio/vad.ts`
 - Test: `tests/audio/vad.test.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 `tests/audio/vad.test.ts`:
 
@@ -176,7 +176,7 @@ describe('RmsVad', () => {
 });
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 ```bash
 npx vitest run tests/audio/vad.test.ts
@@ -184,7 +184,7 @@ npx vitest run tests/audio/vad.test.ts
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `src/audio/vad.ts`**
+- [x] **Step 3: Implement `src/audio/vad.ts`**
 
 ```ts
 export interface RmsVadOptions {
@@ -239,7 +239,7 @@ export class RmsVad {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 npx vitest run tests/audio/vad.test.ts
@@ -247,7 +247,7 @@ npx vitest run tests/audio/vad.test.ts
 
 Expected: 2 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/audio/vad.ts tests/audio/vad.test.ts
