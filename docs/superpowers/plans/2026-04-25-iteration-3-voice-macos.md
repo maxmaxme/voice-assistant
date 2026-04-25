@@ -38,7 +38,7 @@ tests/
 - Modify: `package.json`
 - Create: `src/audio/types.ts`
 
-- [ ] **Step 1: Install**
+- [x] **Step 1: Install**
 
 ```bash
 npm install mic speaker
@@ -47,7 +47,7 @@ npm install --save-dev @types/mic
 
 If `@types/speaker` is missing, declare it locally — see Task 4 step 3.
 
-- [ ] **Step 2: Create `src/audio/types.ts`**
+- [x] **Step 2: Create `src/audio/types.ts`**
 
 ```ts
 export interface MicInput {
@@ -72,7 +72,7 @@ export interface Tts {
 }
 ```
 
-- [ ] **Step 3: Verify type-check**
+- [x] **Step 3: Verify type-check**
 
 ```bash
 npx tsc --noEmit
@@ -80,7 +80,7 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add package.json package-lock.json src/audio/types.ts
