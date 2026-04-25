@@ -564,6 +564,7 @@ git commit -m "deploy: install.sh — pull image, install update timer"
 **Files:**
 - Modify: `CLAUDE.md` — Commands section + new "Auto-update" subsection in Architecture.
 - Modify: `README.md` — Status / deployment.
+- Modify: `docs/raspberry-pi-setup.md` — install description, Updating section, Troubleshooting.
 
 - [ ] **Step 1: Update `CLAUDE.md` Commands section**
 
@@ -587,10 +588,78 @@ CI (`.github/workflows/build-image.yml`) cross-builds an arm64 image on every pu
 
 Add a bullet under the existing iteration list noting that auto-update via GHA + GHCR is live.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Update `docs/raspberry-pi-setup.md`**
+
+Three edits:
+
+a) Replace the bullet on line 81 (`- builds the image and starts the container`) with:
+
+```
+- pulls the prebuilt image from GHCR and starts the container
+- installs and enables the `voice-assistant-update.timer` systemd timer
+```
+
+b) Replace the entire `## Updating` section (lines 122–128) with:
+
+```markdown
+## Updating
+
+The `voice-assistant-update.timer` systemd unit fires `deploy/update.sh`
+daily at 04:00 (with up to 10 min jitter). The script pulls
+`ghcr.io/maxmaxme/voice-assistant:latest`, restarts the container if the
+digest changed, waits up to 90 s for the healthcheck, and rolls back to
+the previous image on failure. Outcome (success or rollback) is posted
+to the same Telegram bot the agent uses.
+
+Inspect:
 
 ```bash
-git add CLAUDE.md README.md
+systemctl list-timers voice-assistant-update.timer
+journalctl -u voice-assistant-update -n 100 --no-pager
+```
+
+Force an update right now:
+
+```bash
+sudo systemctl start voice-assistant-update.service
+```
+
+Manual rollback to the previous image (kept locally as `:rollback`):
+
+```bash
+cd /opt/voice-assistant/deploy
+sudo -u pi docker compose -f docker-compose.yml \
+  up -d --no-deps \
+  --pull never \
+  voice-assistant
+# then edit the image: line back to :latest after fixing CI
+```
+
+Build locally on the Pi (no GHCR roundtrip — useful when iterating
+on a hot-fix):
+
+```bash
+cd /opt/voice-assistant/deploy
+sudo -u pi docker compose --profile build build voice-assistant
+sudo -u pi docker compose up -d voice-assistant
+```
+```
+
+c) Append to `## Troubleshooting`:
+
+```markdown
+- **Auto-update didn't fire / rolled back.** Check the timer and journal:
+  `systemctl list-timers voice-assistant-update.timer` and
+  `journalctl -u voice-assistant-update -n 200 --no-pager`. A rollback
+  message in Telegram means the new image started but its healthcheck
+  never went green within 90 s — the previous image is now active. Fix
+  the breaking commit, push again, and the next 04:00 run picks it up.
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add CLAUDE.md README.md docs/raspberry-pi-setup.md
 git commit -m "docs: auto-update flow"
 ```
 
