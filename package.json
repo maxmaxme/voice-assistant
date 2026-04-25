@@ -29,8 +29,5 @@
     "mic": "^2.1.2",
     "openai": "^6.34.0",
     "zod": "^4.3.6"
-  },
-  "optionalDependencies": {
-    "speaker": "^0.5.5"
   }
 }
