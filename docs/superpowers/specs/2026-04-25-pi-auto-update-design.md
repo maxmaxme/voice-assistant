@@ -34,7 +34,7 @@ Workflow `.github/workflows/build-image.yml`.
   the sole target, multi-arch wastes minutes.
 - **Auth:** the workflow's default `GITHUB_TOKEN` with
   `packages: write` permission. No PATs, no secrets.
-- **Tags pushed to `ghcr.io/<owner>/voice-assistant`:**
+- **Tags pushed to `ghcr.io/maxmaxme/voice-assistant`:**
   - `:latest` — moving pointer the Pi follows
   - `:sha-<short-git-sha>` — immutable, used for rollback
 - **Cache:** GHA cache backend (`type=gha`) so incremental builds
@@ -91,7 +91,7 @@ notifications still work even when the Node app is broken.
 `deploy/docker-compose.yml`:
 
 - Replace the `build:` block on `voice-assistant` with
-  `image: ghcr.io/<owner>/voice-assistant:latest`.
+  `image: ghcr.io/maxmaxme/voice-assistant:latest`.
 - Keep the `build:` definition available behind a `profiles: ["build"]`
   toggle, so a developer on the Pi can still
   `docker compose --profile build build` when iterating without CI.
