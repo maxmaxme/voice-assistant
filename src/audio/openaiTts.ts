@@ -1,5 +1,5 @@
 import type OpenAI from 'openai';
-import type { Tts } from './types.ts';
+import type { Tts, TtsStream } from './types.ts';
 
 export interface OpenAiTtsOptions {
   client: OpenAI;
@@ -20,15 +20,47 @@ export class OpenAiTts implements Tts {
     this.voice = opts.voice ?? 'alloy';
   }
 
-  async synthesize(text: string, opts?: { voice?: string; instructions?: string }) {
-    const res = await this.opts.client.audio.speech.create({
-      model: this.model,
-      voice: opts?.voice ?? this.voice,
-      input: text,
-      response_format: 'pcm',
-      instructions: opts?.instructions,
-    } as never);
-    const ab = await (res as unknown as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer();
-    return { audio: Buffer.from(ab), sampleRate: SAMPLE_RATE };
+  stream(
+    text: string,
+    opts?: { voice?: string; instructions?: string; signal?: AbortSignal },
+  ): TtsStream {
+    return {
+      sampleRate: SAMPLE_RATE,
+      chunks: this.fetchChunks(text, opts),
+    };
+  }
+
+  private async *fetchChunks(
+    text: string,
+    opts?: { voice?: string; instructions?: string; signal?: AbortSignal },
+  ): AsyncGenerator<Buffer> {
+    const res = await this.opts.client.audio.speech.create(
+      {
+        model: this.model,
+        voice: opts?.voice ?? this.voice,
+        input: text,
+        response_format: 'pcm',
+        instructions: opts?.instructions,
+      } as never,
+      { signal: opts?.signal },
+    );
+
+    const body = (res as unknown as { body: ReadableStream<Uint8Array> | null }).body;
+    if (!body) return;
+
+    const reader = body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        if (value && value.byteLength > 0) yield Buffer.from(value);
+      }
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        // releaseLock throws if the reader is already errored — safe to ignore
+      }
+    }
   }
 }
