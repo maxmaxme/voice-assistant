@@ -165,17 +165,14 @@ export class NodeSpeakerOutput implements SpeakerOutput {
         await new Promise<void>((resolve, reject) => {
           const ok = speaker.write(chunk, (err?: Error) => {
             if (err) reject(err);
-            // If write() returned true the data was accepted synchronously and
-            // we resolve right away in the `if (ok)` branch below.
+            else resolve(); // drain callback fires when chunk has been flushed
           });
-          if (ok) {
-            resolve();
-          } else {
-            // Safety net: if stop() fires mid-write (emitting 'close'),
-            // unblock the drain-await so we don't hang indefinitely.
-            // Analogous to the aplay path resolving on proc 'exit'.
-            closed.then(resolve);
-          }
+          if (ok) resolve();
+          // Safety net: if stop() fires mid-write the speaker emits 'close'
+          // before the write callback ever runs. Resolving on 'close' too
+          // prevents an indefinite hang. Analogous to the aplay path
+          // resolving the drain-await on proc 'exit'.
+          closed.then(resolve);
         });
       }
       speaker.end();
