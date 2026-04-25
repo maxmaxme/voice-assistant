@@ -42,14 +42,14 @@ data/                            # gitignored, created at runtime
 - Modify: `.gitignore`
 - Create: `src/memory/types.ts`
 
-- [ ] **Step 1: Install**
+- [x] **Step 1: Install**
 
 ```bash
 npm install better-sqlite3
 npm install --save-dev @types/better-sqlite3
 ```
 
-- [ ] **Step 2: Update `.gitignore`**
+- [x] **Step 2: Update `.gitignore`**
 
 Append:
 
@@ -62,7 +62,7 @@ data/
 *.db-shm
 ```
 
-- [ ] **Step 3: Create `src/memory/types.ts`**
+- [x] **Step 3: Create `src/memory/types.ts`**
 
 ```ts
 export type ProfileFacts = Record<string, unknown>;
@@ -75,7 +75,7 @@ export interface MemoryAdapter {
 }
 ```
 
-- [ ] **Step 4: Verify type-check**
+- [x] **Step 4: Verify type-check**
 
 ```bash
 npx tsc --noEmit
@@ -83,7 +83,7 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add package.json package-lock.json .gitignore src/memory/types.ts
