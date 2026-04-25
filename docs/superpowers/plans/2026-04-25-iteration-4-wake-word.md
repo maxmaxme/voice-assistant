@@ -627,7 +627,7 @@ git commit -m "feat(audio): add openWakeWord adapter via Python subprocess"
 
 The FSM is pure: takes events, returns the new state and a list of side-effects to execute. Side-effects are described as data, not callbacks — that makes it trivially testable.
 
-- [ ] **Step 1: Create types**
+- [x] **Step 1: Create types**
 
 `src/orchestrator/types.ts`:
 
@@ -653,7 +653,7 @@ export interface Transition {
 }
 ```
 
-- [ ] **Step 2: Write failing tests**
+- [x] **Step 2: Write failing tests**
 
 `tests/orchestrator/fsm.test.ts`:
 
@@ -703,7 +703,7 @@ describe('FSM', () => {
 });
 ```
 
-- [ ] **Step 3: Verify failure**
+- [x] **Step 3: Verify failure**
 
 ```bash
 npx vitest run tests/orchestrator/fsm.test.ts
@@ -711,7 +711,7 @@ npx vitest run tests/orchestrator/fsm.test.ts
 
 Expected: FAIL.
 
-- [ ] **Step 4: Implement `src/orchestrator/fsm.ts`**
+- [x] **Step 4: Implement `src/orchestrator/fsm.ts`**
 
 ```ts
 import type { State, Event, Transition } from './types.js';
@@ -745,7 +745,7 @@ export function transition(state: State, event: Event): Transition {
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 npx vitest run tests/orchestrator/fsm.test.ts
@@ -753,7 +753,7 @@ npx vitest run tests/orchestrator/fsm.test.ts
 
 Expected: 6 passed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/orchestrator/types.ts src/orchestrator/fsm.ts tests/orchestrator/fsm.test.ts
