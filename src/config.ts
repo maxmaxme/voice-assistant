@@ -13,6 +13,12 @@ const ConfigSchema = z.object({
   memory: z.object({
     dbPath: z.string().default('data/assistant.db'),
   }),
+  wakeWord: z.object({
+    pythonPath: z.string().default('.venv/bin/python'),
+    scriptPath: z.string().default('scripts/wake_word_daemon.py'),
+    keyword: z.string().default('hey_jarvis'),
+    threshold: z.coerce.number().min(0).max(1).default(0.5),
+  }),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -23,6 +29,10 @@ const PATH_TO_ENV: Record<string, string> = {
   'openai.apiKey': 'OPENAI_API_KEY',
   'openai.model': 'OPENAI_MODEL',
   'memory.dbPath': 'MEMORY_DB_PATH',
+  'wakeWord.pythonPath': 'WAKE_WORD_PYTHON',
+  'wakeWord.scriptPath': 'WAKE_WORD_SCRIPT',
+  'wakeWord.keyword': 'WAKE_WORD_KEYWORD',
+  'wakeWord.threshold': 'WAKE_WORD_THRESHOLD',
 };
 
 export function loadConfig(): Config {
@@ -37,6 +47,12 @@ export function loadConfig(): Config {
     },
     memory: {
       dbPath: process.env.MEMORY_DB_PATH,
+    },
+    wakeWord: {
+      pythonPath: process.env.WAKE_WORD_PYTHON,
+      scriptPath: process.env.WAKE_WORD_SCRIPT,
+      keyword: process.env.WAKE_WORD_KEYWORD,
+      threshold: process.env.WAKE_WORD_THRESHOLD,
     },
   };
   const parsed = ConfigSchema.safeParse(raw);

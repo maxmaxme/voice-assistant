@@ -20,3 +20,4 @@ data/
 *.db-journal
 *.db-wal
 *.db-shm
+.venv/

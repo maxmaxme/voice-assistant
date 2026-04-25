@@ -272,7 +272,7 @@ can drop in without touching the orchestrator.
 - Create: `tests/audio/wakeWord.test.ts` — uses a fake daemon binary
 - Modify: `src/config.ts`, `.env.example`
 
-- [ ] **Step 1: Set up Python environment**
+- [x] **Step 1: Set up Python environment**
 
 ```bash
 # macOS dev: uses the system python3 + a per-project venv to avoid global pollution
@@ -284,13 +284,13 @@ python3 -m venv .venv
 The first time `openwakeword` runs it will download its three small models
 (~10 MB total) into `~/.cache/openwakeword/`. That's expected.
 
-- [ ] **Step 2: Add `.venv/` to `.gitignore`**
+- [x] **Step 2: Add `.venv/` to `.gitignore`**
 
 ```bash
 grep -qxF '.venv/' .gitignore || echo '.venv/' >> .gitignore
 ```
 
-- [ ] **Step 3: Create `scripts/wake_word_daemon.py`**
+- [x] **Step 3: Create `scripts/wake_word_daemon.py`**
 
 The protocol: stdin = raw 16-bit little-endian mono PCM at 16 kHz, fed in
 1280-sample frames (80 ms). stdout = newline-delimited JSON events:
@@ -357,7 +357,7 @@ Make it executable:
 chmod +x scripts/wake_word_daemon.py
 ```
 
-- [ ] **Step 4: Smoke-run the daemon to confirm Python deps**
+- [x] **Step 4: Smoke-run the daemon to confirm Python deps**
 
 Verify the script can import its deps and announce readiness without crashing.
 Pipe one frame of silence and EOF:
@@ -372,7 +372,7 @@ Expected: `{"type": "ready", "keyword": "hey_jarvis", "threshold": 0.5}`.
 
 If it fails: `pip install openwakeword` again, or check Python version (need 3.10+).
 
-- [ ] **Step 5: Define the `WakeWord` interface and adapter**
+- [x] **Step 5: Define the `WakeWord` interface and adapter**
 
 `src/audio/wakeWord.ts`:
 
@@ -484,7 +484,7 @@ export class OpenWakeWord implements WakeWord {
 }
 ```
 
-- [ ] **Step 6: Write a unit test using a fake spawn**
+- [x] **Step 6: Write a unit test using a fake spawn**
 
 `tests/audio/wakeWord.test.ts`:
 
@@ -552,7 +552,7 @@ describe('OpenWakeWord', () => {
 });
 ```
 
-- [ ] **Step 7: Run the test (must fail first, then implement, then pass)**
+- [x] **Step 7: Run the test (must fail first, then implement, then pass)**
 
 ```bash
 npx vitest run tests/audio/wakeWord.test.ts
@@ -562,7 +562,7 @@ If you implement Step 5 before this step, the test should pass on first run.
 That's acceptable here — the contract is the protocol, not the implementation
 sequence.
 
-- [ ] **Step 8: Add config entries**
+- [x] **Step 8: Add config entries**
 
 In `src/config.ts` schema:
 
@@ -600,7 +600,7 @@ Available builtin keywords from openwakeword: `hey_jarvis`, `alexa`,
 `hey_mycroft`, `hey_rhasspy`, `ok_nabu`, `weatherman`, `timer`. Pick a
 phonetically distinctive one — `hey_jarvis` is the strongest default.
 
-- [ ] **Step 9: Verify type-check**
+- [x] **Step 9: Verify type-check**
 
 ```bash
 npx tsc --noEmit
@@ -608,7 +608,7 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add scripts/wake_word_daemon.py src/audio/wakeWord.ts tests/audio/wakeWord.test.ts \
