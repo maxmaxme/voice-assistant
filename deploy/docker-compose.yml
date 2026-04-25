@@ -1,8 +1,11 @@
 services:
   voice-assistant:
+    image: ghcr.io/maxmaxme/voice-assistant:latest
+    pull_policy: always
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+    profiles: ['', 'build']
     container_name: voice-assistant
     restart: unless-stopped
     devices:
