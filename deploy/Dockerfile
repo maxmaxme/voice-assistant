@@ -1,12 +1,18 @@
 # syntax=docker/dockerfile:1.7
 FROM node:24-bookworm-slim
 
-# Native module build deps (in case of arm64 prebuild gaps),
-# ALSA runtime + arecord (the `mic` npm package shells to it),
-# Python + pip (for the openWakeWord daemon spawned from Node).
+# Native module build deps:
+# - build-essential, autoconf/automake/libtool — for `speaker`'s bundled
+#   mpg123 (no arm64/Node 24 prebuild ⇒ compile from source).
+# - libasound2-dev, pkg-config — ALSA headers for the `speaker` build.
+# - libasound2, alsa-utils — runtime ALSA + arecord (the `mic` npm package
+#   shells to it).
+# - python3 + pip — for the openWakeWord daemon spawned from Node.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential python3 python3-pip python3-venv \
-      libasound2 alsa-utils \
+      build-essential autoconf automake libtool pkg-config \
+      python3 python3-pip python3-venv \
+      libasound2 libasound2-dev alsa-utils \
+      libmpg123-dev \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
