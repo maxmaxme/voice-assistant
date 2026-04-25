@@ -155,6 +155,46 @@ describe('OpenAiAgent', () => {
     memory.close();
   });
 
+  it('ask tool ends the turn and sets expectsFollowUp=true', async () => {
+    const mcp = fakeMcp();
+    const llm = fakeLlm([
+      {
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'ask_1',
+                  type: 'function',
+                  function: {
+                    name: 'ask',
+                    arguments: '{"text":"Где включить — на кухне или в спальне?"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ]);
+    const agent = new OpenAiAgent({
+      mcp,
+      store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+    });
+    const res = await agent.respond('включи свет');
+    expect(res.text).toBe('Где включить — на кухне или в спальне?');
+    expect(res.expectsFollowUp).toBe(true);
+    // The ask tool short-circuits — MCP should not have been called.
+    expect(mcp.callTool).not.toHaveBeenCalled();
+    // And the LLM should have been called only once (no tool-result loop).
+    expect(llm.chat.completions.create).toHaveBeenCalledOnce();
+  });
+
   it('throws after max iterations to avoid infinite tool-loops', async () => {
     const looping = {
       choices: [

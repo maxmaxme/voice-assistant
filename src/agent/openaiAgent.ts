@@ -5,6 +5,7 @@ import type { MemoryAdapter } from '../memory/types.ts';
 import { ConversationStore } from './conversationStore.ts';
 import { mcpToolsToOpenAi } from './toolBridge.ts';
 import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
+import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 
 export interface OpenAiAgentOptions {
   mcp: McpClient;
@@ -34,7 +35,11 @@ export class OpenAiAgent implements Agent {
       store.append({ role: 'user', content: userText });
 
       const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
-      const tools = this.opts.memory ? [...mcpTools, ...buildMemoryTools()] : mcpTools;
+      const tools = [
+        ...mcpTools,
+        ...(this.opts.memory ? buildMemoryTools() : []),
+        buildAskTool(),
+      ];
 
       for (let i = 0; i < this.maxIters; i++) {
       const completion = await llmClient.chat.completions.create({
@@ -49,6 +54,18 @@ export class OpenAiAgent implements Agent {
           tc.type === 'function' || (tc as { function?: unknown }).function !== undefined,
       );
       if (fnCalls.length > 0) {
+        // Special-case the `ask` tool: it's terminal — calling it ends the
+        // agent turn with the question text as the final reply, signalling
+        // that the orchestrator should reopen capture for the user's answer.
+        const askCall = fnCalls.find((tc) => tc.function.name === ASK_TOOL_NAME);
+        if (askCall) {
+          const args = this.parseArgs(askCall.function.arguments);
+          const text = typeof args.text === 'string' ? args.text : '';
+          process.stderr.write(`[tool] ask(${JSON.stringify(args)}) → reopen capture\n`);
+          store.append({ role: 'assistant', content: text });
+          return { text, expectsFollowUp: true };
+        }
+
         store.append({
           role: 'assistant',
           content: choice.content ?? '',

@@ -3,7 +3,6 @@ import {
   generateConfirmBlip,
   generateListenBlip,
   isAckOnly,
-  isQuestion,
   ACK_MARKER,
 } from '../../src/audio/blip.ts';
 
@@ -38,15 +37,5 @@ describe('blip', () => {
     expect(buf.length).toBeGreaterThan(0);
     // First sample is in the attack ramp, should be tiny.
     expect(Math.abs(buf.readInt16LE(0))).toBeLessThan(2000);
-  });
-
-  it('isQuestion detects trailing question marks (incl. Russian punctuation)', () => {
-    expect(isQuestion('Что вы хотите сделать?')).toBe(true);
-    expect(isQuestion('Что вы хотите сделать?  ')).toBe(true);
-    expect(isQuestion('Что вы хотите?»')).toBe(true);
-    expect(isQuestion('Какой?\n')).toBe(true);
-    expect(isQuestion('Готово.')).toBe(false);
-    expect(isQuestion('Лампа включена.')).toBe(false);
-    expect(isQuestion('')).toBe(false);
   });
 });
