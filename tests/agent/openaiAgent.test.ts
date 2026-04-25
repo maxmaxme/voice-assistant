@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.js';
 import { ConversationStore } from '../../src/agent/conversationStore.js';
+import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.js';
 import type { McpClient } from '../../src/mcp/types.js';
 
 function fakeMcp(): McpClient {
@@ -109,6 +110,49 @@ describe('OpenAiAgent', () => {
     const before = store.length();
     await expect(agent.respond('hi')).rejects.toThrow(/boom/);
     expect(store.length()).toBe(before);
+  });
+
+  it('routes memory-tool calls to MemoryAdapter, not MCP', async () => {
+    const mcp = fakeMcp();
+    const memory = new SqliteProfileMemory({ dbPath: ':memory:' });
+    const llm = fakeLlm([
+      {
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'mem_1',
+                  type: 'function',
+                  function: {
+                    name: 'remember',
+                    arguments: '{"key":"name","value":"Maxim"}',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        choices: [{ message: { role: 'assistant', content: 'Got it.' } }],
+      },
+    ]);
+    const agent = new OpenAiAgent({
+      mcp,
+      memory,
+      store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
+      systemPrompt: 'You are helpful.',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+    });
+    const res = await agent.respond('меня зовут Максим');
+    expect(res.text).toBe('Got it.');
+    expect(memory.recall()).toEqual({ name: 'Maxim' });
+    expect(mcp.callTool).not.toHaveBeenCalled();
+    memory.close();
   });
 
   it('throws after max iterations to avoid infinite tool-loops', async () => {

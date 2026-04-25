@@ -27,6 +27,15 @@ export class ConversationStore {
     return [...this.messages];
   }
 
+  replaceSystem(content: string): void {
+    if (this.messages.length > 0 && this.messages[0].role === 'system') {
+      this.messages[0] = { role: 'system', content };
+    } else {
+      this.messages.unshift({ role: 'system', content });
+      this.lastTouch = this.opts.now();
+    }
+  }
+
   reset(): void {
     this.messages = [];
     this.lastTouch = 0;
