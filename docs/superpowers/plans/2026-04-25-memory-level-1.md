@@ -505,7 +505,7 @@ git commit -m "feat(memory): add remember/recall/forget tools for the agent"
 
 Goal: agent accepts an optional `MemoryAdapter`, merges memory tools with MCP tools, and routes tool calls to either MCP or memory based on tool name. Profile content is appended to system prompt at the start of each turn.
 
-- [ ] **Step 1: Add a test for memory tool routing**
+- [x] **Step 1: Add a test for memory tool routing**
 
 Append to `tests/agent/openaiAgent.test.ts`:
 
@@ -556,7 +556,7 @@ it('routes memory-tool calls to MemoryAdapter, not MCP', async () => {
 });
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 ```bash
 npx vitest run tests/agent/openaiAgent.test.ts
@@ -564,7 +564,7 @@ npx vitest run tests/agent/openaiAgent.test.ts
 
 Expected: FAIL — `OpenAiAgentOptions` does not accept `memory`.
 
-- [ ] **Step 3a: Add `replaceSystem` to `ConversationStore`**
+- [x] **Step 3a: Add `replaceSystem` to `ConversationStore`**
 
 In `src/agent/conversationStore.ts`, add this method to the class:
 
@@ -581,7 +581,7 @@ replaceSystem(content: string): void {
 
 This avoids the issue that `history()` returns a copy — the agent cannot mutate it directly.
 
-- [ ] **Step 3b: Replace `src/agent/openaiAgent.ts` with the final version**
+- [x] **Step 3b: Replace `src/agent/openaiAgent.ts` with the final version**
 
 Overwrite the file completely. This supersedes the version produced in Iteration 2 Task 4 — the Iteration 2 version did the system-prompt seeding in the constructor; this version moves it into `respond()` so it can refresh from current memory state on every turn.
 
@@ -713,11 +713,11 @@ export class OpenAiAgent implements Agent {
 }
 ```
 
-- [ ] **Step 3c: Update Iteration 2 tests that depended on constructor-seeded system prompt**
+- [x] **Step 3c: Update Iteration 2 tests that depended on constructor-seeded system prompt**
 
 The Iteration 2 test "returns assistant text when no tool calls" was written when the constructor seeded the system message. After this rewrite the system message is appended on the first `respond()` call. Existing assertions (`res.text === 'Hi there'`, `create` called once) still hold — this test should keep passing without changes. If it doesn't, run it and inspect what changed; the most likely fix is that the LLM now sees a slightly different message list, but the LLM is mocked and ignores the messages, so the assertion outcome is unaffected.
 
-- [ ] **Step 4: Run all tests**
+- [x] **Step 4: Run all tests**
 
 ```bash
 npx vitest run
@@ -725,7 +725,7 @@ npx vitest run
 
 Expected: all pass, including the new memory-routing test and the updated existing ones. If existing test "returns assistant text when no tool calls" fails because it expected the constructor to seed system, fix the assertion to inspect history *after* `respond()` is called.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent/openaiAgent.ts src/agent/conversationStore.ts tests/agent/openaiAgent.test.ts
