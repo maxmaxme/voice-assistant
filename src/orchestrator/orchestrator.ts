@@ -46,8 +46,13 @@ export class Orchestrator {
   async run(): Promise<void> {
     await this.opts.wake.start();
     this.opts.wake.onWake((kw, score) => {
-      if (this.state !== 'idle') return;
-      console.log(`[wake] ${kw} score=${score.toFixed(2)} → listening (say your command)`);
+      // FSM decides whether to act on this:
+      //   idle      → wake → listening (normal start)
+      //   speaking  → wake → listening (barge-in: stop TTS, start fresh capture)
+      //   listening → wake → ignored (already capturing)
+      //   thinking  → wake → ignored (LLM in flight)
+      const tag = this.state === 'speaking' ? 'barge-in' : 'wake';
+      console.log(`[${tag}] ${kw} score=${score.toFixed(2)}`);
       this.dispatch({ type: 'wake' });
     });
     this.vad.onSpeech(() => {
@@ -107,6 +112,9 @@ export class Orchestrator {
           console.log('[no command heard within 5s — returning to idle]');
           this.endCapture();
         }, NO_SPEECH_TIMEOUT_MS);
+        return;
+      case 'stopSpeaking':
+        this.opts.speaker.stop();
         return;
       case 'transcribeAndAsk':
         try {

@@ -21,8 +21,17 @@ export function transition(state: State, event: Event): Transition {
       }
       return { state, effects: [] };
     case 'speaking':
+      // Barge-in: user says the wake word while we're talking.
+      if (event.type === 'wake') {
+        return {
+          state: 'listening',
+          effects: [{ type: 'stopSpeaking' }, { type: 'startCapture' }],
+        };
+      }
+      // Natural end of the assistant's reply: stay listening for a follow-up
+      // (no second wake-word required) — same FSM machinery as a fresh wake.
       if (event.type === 'speechFinished') {
-        return { state: 'idle', effects: [] };
+        return { state: 'listening', effects: [{ type: 'startCapture' }] };
       }
       return { state, effects: [] };
   }

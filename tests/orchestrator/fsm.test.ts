@@ -21,14 +21,20 @@ describe('FSM', () => {
     expect(r.effects).toEqual([{ type: 'speak', text: 'ok' }]);
   });
 
-  it('speaking + speechFinished → idle', () => {
+  it('speaking + speechFinished → listening (follow-up window)', () => {
     const r = transition('speaking', { type: 'speechFinished' });
-    expect(r.state).toBe('idle');
-    expect(r.effects).toEqual([]);
+    expect(r.state).toBe('listening');
+    expect(r.effects).toEqual([{ type: 'startCapture' }]);
   });
 
-  it('wake while not idle is ignored (no barge-in)', () => {
-    for (const s of ['listening', 'thinking', 'speaking'] as const) {
+  it('speaking + wake → listening (barge-in: stop TTS and start capture)', () => {
+    const r = transition('speaking', { type: 'wake' });
+    expect(r.state).toBe('listening');
+    expect(r.effects).toEqual([{ type: 'stopSpeaking' }, { type: 'startCapture' }]);
+  });
+
+  it('wake during listening or thinking is still ignored', () => {
+    for (const s of ['listening', 'thinking'] as const) {
       const r = transition(s, { type: 'wake' });
       expect(r.state).toBe(s);
       expect(r.effects).toEqual([]);
