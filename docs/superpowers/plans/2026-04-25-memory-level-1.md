@@ -213,7 +213,7 @@ git commit -m "feat(memory): add SQLite migration runner with profile schema"
 - Create: `src/memory/sqliteProfileMemory.ts`
 - Test: `tests/memory/sqliteProfileMemory.test.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 `tests/memory/sqliteProfileMemory.test.ts`:
 
@@ -268,7 +268,7 @@ describe('SqliteProfileMemory', () => {
 });
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 ```bash
 npx vitest run tests/memory/sqliteProfileMemory.test.ts
@@ -276,7 +276,7 @@ npx vitest run tests/memory/sqliteProfileMemory.test.ts
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `src/memory/sqliteProfileMemory.ts`**
+- [x] **Step 3: Implement `src/memory/sqliteProfileMemory.ts`**
 
 ```ts
 import Database from 'better-sqlite3';
@@ -333,7 +333,7 @@ export class SqliteProfileMemory implements MemoryAdapter {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 npx vitest run tests/memory/sqliteProfileMemory.test.ts
@@ -341,7 +341,7 @@ npx vitest run tests/memory/sqliteProfileMemory.test.ts
 
 Expected: 7 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/memory/sqliteProfileMemory.ts tests/memory/sqliteProfileMemory.test.ts
