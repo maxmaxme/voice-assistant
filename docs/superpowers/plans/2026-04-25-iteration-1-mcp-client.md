@@ -513,7 +513,7 @@ git commit -m "feat(mcp): add HaMcpClient adapter over @modelcontextprotocol/sdk
 - Create: `docs/home-assistant-setup.md`
 - Modify: `.gitignore`
 
-- [ ] **Step 1: Create `docker/docker-compose.yml`**
+- [x] **Step 1: Create `docker/docker-compose.yml`**
 
 ```yaml
 services:
@@ -528,7 +528,7 @@ services:
       - "8123:8123"
 ```
 
-- [ ] **Step 2: Create `docker/homeassistant/configuration.yaml`**
+- [x] **Step 2: Create `docker/homeassistant/configuration.yaml`**
 
 ```yaml
 default_config:
@@ -547,7 +547,7 @@ http:
     - 192.168.0.0/16
 ```
 
-- [ ] **Step 3: Update `.gitignore`**
+- [x] **Step 3: Update `.gitignore`**
 
 Append to existing `.gitignore`:
 
@@ -562,7 +562,7 @@ docker/homeassistant/tts/
 docker/homeassistant/.HA_VERSION
 ```
 
-- [ ] **Step 4: Create `docs/home-assistant-setup.md`**
+- [x] **Step 4: Create `docs/home-assistant-setup.md`**
 
 ```markdown
 # Home Assistant Setup (one-time, manual)
@@ -622,7 +622,7 @@ npm run mcp:call -- list
 You should see a list of tools including `HassTurnOn`, `HassTurnOff`, and others.
 ```
 
-- [ ] **Step 5: Smoke-test the docker setup**
+- [ ] **Step 5: Smoke-test the docker setup** (skipped in this run — Docker may not be installed; HA onboarding cannot be automated)
 
 ```bash
 cd docker && docker compose up -d
@@ -634,7 +634,7 @@ cd ..
 
 Expected: curl returns HTML containing `<title>Home Assistant</title>` or similar. If timeouts, increase the sleep or check `docker compose logs homeassistant`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docker/docker-compose.yml docker/homeassistant/configuration.yaml docs/home-assistant-setup.md .gitignore
