@@ -24,8 +24,10 @@ run_update() {
   export DIGEST_NEXT="sha256:same"
   run run_update
   [ "$status" -eq 0 ]
-  ! grep -q "compose up" "$DOCKER_LOG"
-  ! grep -q "sendMessage" "$CURL_LOG"
+  run grep -q "compose up" "$DOCKER_LOG"
+  [ "$status" -ne 0 ]
+  run grep -q "sendMessage" "$CURL_LOG"
+  [ "$status" -ne 0 ]
 }
 
 @test "restart and notify when digest changes and health goes green" {
@@ -36,6 +38,7 @@ run_update() {
   [ "$status" -eq 0 ]
   grep -q "compose up -d voice-assistant" "$DOCKER_LOG"
   grep -q "sendMessage" "$CURL_LOG"
+  grep -q "✓" "$CURL_LOG"
   grep -q "updated" "$CURL_LOG"
 }
 
@@ -46,5 +49,6 @@ run_update() {
   run run_update
   [ "$status" -ne 0 ]
   grep -q "image tag" "$DOCKER_LOG"        # rollback retag
+  grep -q "✗" "$CURL_LOG"
   grep -q "rolled back" "$CURL_LOG"
 }

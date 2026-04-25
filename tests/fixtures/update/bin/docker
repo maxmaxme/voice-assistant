@@ -4,25 +4,29 @@
 set -euo pipefail
 echo "$@" >> "${DOCKER_LOG:-/dev/null}"
 
-case "$1 $2" in
-  "inspect --format='{{index")
-    if [[ -f "${DIGEST_STATE_FILE:-}" ]]; then
-      cat "$DIGEST_STATE_FILE"
-    else
-      echo "${DIGEST_PREV:-sha256:aaa}"
+case "$1" in
+  inspect)
+    if [[ "${*:2}" == *RepoDigests* ]]; then
+      # Digest probe. We use a side-channel file because env vars
+      # don't survive across separate docker process invocations
+      # spawned by the parent update.sh.
+      if [[ -f "${DIGEST_STATE_FILE:-}" ]]; then
+        cat "$DIGEST_STATE_FILE"
+      else
+        echo "${DIGEST_PREV:-sha256:aaa}"
+      fi
+    elif [[ "${*:2}" == *Health.Status* ]]; then
+      echo "${HEALTH_STATUS:-healthy}"
     fi
     ;;
-  "compose pull")
-    echo "${DIGEST_NEXT:-${DIGEST_PREV:-sha256:aaa}}" > "$DIGEST_STATE_FILE"
+  compose)
+    if [[ "$2" == "pull" ]]; then
+      echo "${DIGEST_NEXT:-${DIGEST_PREV:-sha256:aaa}}" > "${DIGEST_STATE_FILE:?DIGEST_STATE_FILE required}"
+    fi
+    # compose up / compose -f .../override up: no-op success
     ;;
-  "compose up")
-    : # no-op, success
-    ;;
-  "inspect --format='{{.State.Health.Status}}'")
-    echo "${HEALTH_STATUS:-healthy}"
-    ;;
-  "image tag" | "image prune")
-    : # no-op
+  image)
+    : # tag / prune / etc. — no-op success
     ;;
   *)
     : # default success
