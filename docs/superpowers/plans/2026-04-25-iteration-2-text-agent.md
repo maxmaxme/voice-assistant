@@ -143,7 +143,7 @@ git commit -m "feat(config): add OpenAI configuration"
 - Create: `src/agent/conversationStore.ts`
 - Test: `tests/agent/conversationStore.test.ts`
 
-- [ ] **Step 1: Define types**
+- [x] **Step 1: Define types**
 
 `src/agent/types.ts`:
 
@@ -170,7 +170,7 @@ export interface Agent {
 }
 ```
 
-- [ ] **Step 2: Write failing tests**
+- [x] **Step 2: Write failing tests**
 
 `tests/agent/conversationStore.test.ts`:
 
@@ -226,7 +226,7 @@ describe('ConversationStore', () => {
 });
 ```
 
-- [ ] **Step 3: Verify failure**
+- [x] **Step 3: Verify failure**
 
 ```bash
 npx vitest run tests/agent/conversationStore.test.ts
@@ -234,7 +234,7 @@ npx vitest run tests/agent/conversationStore.test.ts
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 4: Implement `src/agent/conversationStore.ts`**
+- [x] **Step 4: Implement `src/agent/conversationStore.ts`**
 
 ```ts
 import type { Message } from './types.js';
@@ -289,7 +289,7 @@ export class ConversationStore {
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 npx vitest run tests/agent/conversationStore.test.ts
@@ -297,7 +297,7 @@ npx vitest run tests/agent/conversationStore.test.ts
 
 Expected: 5 passed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/agent/types.ts src/agent/conversationStore.ts tests/agent/conversationStore.test.ts
