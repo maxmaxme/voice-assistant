@@ -1,0 +1,14 @@
+[Unit]
+Description=Pull latest voice-assistant image and restart with rollback
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=pi
+Group=docker
+WorkingDirectory=/opt/voice-assistant
+ExecStart=/opt/voice-assistant/deploy/update.sh
+StandardOutput=journal
+StandardError=journal
