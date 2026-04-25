@@ -13,6 +13,10 @@ export interface OrchestratorOptions {
   speaker: SpeakerOutput;
   wake: WakeWord;
   sampleRate: number;
+  /** Reopen listening after the assistant speaks (no extra wake word needed).
+   * Off by default — speaker echo into the mic causes the assistant to talk
+   * to itself. Safe to enable with headphones or proper acoustic isolation. */
+  followUp?: boolean;
 }
 
 const DEFAULT_VAD_THRESHOLD = 300;
@@ -94,7 +98,9 @@ export class Orchestrator {
   }
 
   private async dispatch(event: Event): Promise<void> {
-    const { state, effects } = transition(this.state, event);
+    const { state, effects } = transition(this.state, event, {
+      followUp: this.opts.followUp ?? false,
+    });
     this.state = state;
     for (const eff of effects) await this.runEffect(eff);
   }

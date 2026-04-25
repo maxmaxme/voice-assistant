@@ -22,6 +22,10 @@ const ConfigSchema = z.object({
       .union([z.string(), z.boolean()])
       .default(false)
       .transform((v) => v === true || v === '1' || v === 'true'),
+    followUp: z
+      .union([z.string(), z.boolean()])
+      .default(false)
+      .transform((v) => v === true || v === '1' || v === 'true'),
   }),
 });
 
@@ -58,6 +62,7 @@ export function loadConfig(): Config {
       keyword: process.env.WAKE_WORD_KEYWORD,
       threshold: process.env.WAKE_WORD_THRESHOLD,
       debug: process.env.WAKE_WORD_DEBUG,
+      followUp: process.env.WAKE_WORD_FOLLOWUP,
     },
   };
   const parsed = ConfigSchema.safeParse(raw);

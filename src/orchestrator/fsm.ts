@@ -1,6 +1,14 @@
 import type { State, Event, Transition } from './types.js';
 
-export function transition(state: State, event: Event): Transition {
+export interface TransitionOptions {
+  /** When true, after the assistant finishes speaking, automatically reopen
+   * listening for a follow-up command (no wake-word needed). Default false:
+   * acoustic echo from the speakers can leak into the mic and cause the
+   * assistant to converse with itself. Safe to enable with headphones. */
+  followUp?: boolean;
+}
+
+export function transition(state: State, event: Event, options: TransitionOptions = {}): Transition {
   if (event.type === 'error') {
     return { state: 'idle', effects: [{ type: 'log', level: 'error', message: event.message }] };
   }
@@ -28,10 +36,13 @@ export function transition(state: State, event: Event): Transition {
           effects: [{ type: 'stopSpeaking' }, { type: 'startCapture' }],
         };
       }
-      // Natural end of the assistant's reply: stay listening for a follow-up
-      // (no second wake-word required) — same FSM machinery as a fresh wake.
       if (event.type === 'speechFinished') {
-        return { state: 'listening', effects: [{ type: 'startCapture' }] };
+        // Follow-up listening: only enabled with the option, since speaker
+        // echo into the mic otherwise causes the assistant to talk to itself.
+        if (options.followUp) {
+          return { state: 'listening', effects: [{ type: 'startCapture' }] };
+        }
+        return { state: 'idle', effects: [] };
       }
       return { state, effects: [] };
   }

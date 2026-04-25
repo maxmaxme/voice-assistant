@@ -21,8 +21,14 @@ describe('FSM', () => {
     expect(r.effects).toEqual([{ type: 'speak', text: 'ok' }]);
   });
 
-  it('speaking + speechFinished → listening (follow-up window)', () => {
+  it('speaking + speechFinished → idle (default; follow-up disabled)', () => {
     const r = transition('speaking', { type: 'speechFinished' });
+    expect(r.state).toBe('idle');
+    expect(r.effects).toEqual([]);
+  });
+
+  it('speaking + speechFinished → listening when followUp option is on', () => {
+    const r = transition('speaking', { type: 'speechFinished' }, { followUp: true });
     expect(r.state).toBe('listening');
     expect(r.effects).toEqual([{ type: 'startCapture' }]);
   });
