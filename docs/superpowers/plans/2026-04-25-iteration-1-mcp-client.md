@@ -739,7 +739,7 @@ git commit -m "feat(cli): add mcp-call CLI for listing tools and invoking them"
 
 Gated behind an env var so it doesn't run in normal `npm test`. Engineer runs it manually after completing the HA setup in `docs/home-assistant-setup.md`.
 
-- [ ] **Step 1: Write the integration test**
+- [x] **Step 1: Write the integration test**
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -771,7 +771,7 @@ describe.runIf(RUN)('HaMcpClient (integration)', () => {
 });
 ```
 
-- [ ] **Step 2: Run unit tests still pass**
+- [x] **Step 2: Run unit tests still pass**
 
 ```bash
 npx vitest run
@@ -779,7 +779,7 @@ npx vitest run
 
 Expected: all unit tests pass; integration test is skipped (no `RUN_INTEGRATION=1`).
 
-- [ ] **Step 3: Manual integration run**
+- [ ] **Step 3: Manual integration run** (skipped — no live HA available in this run)
 
 Prerequisites: completed `docs/home-assistant-setup.md`, `.env` populated, `docker compose up -d` is running.
 
@@ -793,7 +793,7 @@ Expected: 1 passed. If it fails:
 - Tool `HassTurnOn` missing → `input_boolean.test_lamp` not exposed to Assist
 - Tool runs but lamp state didn't change → check Settings → Voice assistants → Expose
 
-- [ ] **Step 4: Manual CLI verification**
+- [ ] **Step 4: Manual CLI verification** (skipped — no live HA available in this run)
 
 ```bash
 npm run mcp:call -- list
@@ -808,7 +808,7 @@ npm run mcp:call -- call HassTurnOff '{"name":"Test Lamp"}'
 
 Check it shows OFF.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/mcp/haMcpClient.integration.test.ts
