@@ -75,6 +75,12 @@ export class OpenAiAgent implements Agent {
             resultText = result.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n');
             isError = result.isError;
           }
+          // Make tool calls visible. Truncate long bodies so a HassTurnOff
+          // returning a 1KB JSON state list doesn't drown out the trace.
+          const argsStr = JSON.stringify(args);
+          const summary = resultText.length > 200 ? resultText.slice(0, 200) + '…' : resultText;
+          const tag = isError ? 'tool✗' : 'tool';
+          process.stderr.write(`[${tag}] ${tc.function.name}(${argsStr}) → ${summary}\n`);
           store.append({
             role: 'tool',
             toolCallId: tc.id,
