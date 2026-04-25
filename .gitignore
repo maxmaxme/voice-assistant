@@ -26,3 +26,6 @@ dist/
 # Wake-word custom models (large binaries, regenerated via openWakeWord training)
 models/*.onnx
 models/*.tflite
+
+# Bundled HA config on Pi (deploy/docker-compose.yml mounts ../ha-data)
+ha-data/
