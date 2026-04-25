@@ -60,9 +60,3 @@ export const ACK_MARKER = '✓';
 export function isAckOnly(text: string): boolean {
   return text.trim() === ACK_MARKER;
 }
-
-/** True if the agent reply ends with a question mark — i.e., it expects an answer. */
-export function isQuestion(text: string): boolean {
-  // Match Latin ? and Russian/Asian variants, possibly trailed by whitespace/quotes.
-  return /[?？]['"»)\]]?\s*$/.test(text.trim());
-}

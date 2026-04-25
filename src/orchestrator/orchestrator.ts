@@ -5,7 +5,7 @@ import { transition } from './fsm.ts';
 import { StreamingMic } from '../audio/streamingMic.ts';
 import type { WakeWord } from '../audio/wakeWord.ts';
 import { RmsVad } from '../audio/vad.ts';
-import { generateConfirmBlip, generateListenBlip, isAckOnly, isQuestion } from '../audio/blip.ts';
+import { generateConfirmBlip, generateListenBlip, isAckOnly } from '../audio/blip.ts';
 
 const BLIP_SAMPLE_RATE = 24000;
 const CONFIRM_BLIP = generateConfirmBlip(BLIP_SAMPLE_RATE);
@@ -148,7 +148,11 @@ export class Orchestrator {
           }
           console.log(`User: ${text}`);
           const reply = await this.opts.agent.respond(text);
-          await this.dispatch({ type: 'agentReplied', text: reply.text });
+          await this.dispatch({
+            type: 'agentReplied',
+            text: reply.text,
+            expectsFollowUp: reply.expectsFollowUp,
+          });
         } catch (e) {
           await this.dispatch({ type: 'error', message: e instanceof Error ? e.message : String(e) });
         }
@@ -166,10 +170,11 @@ export class Orchestrator {
         } catch (e) {
           console.error('TTS error', e);
         } finally {
-          // If the assistant asked a clarifying question, auto-reopen
-          // capture so the user can answer without saying the wake word
-          // again. Otherwise: normal end-of-turn.
-          if (!isAckOnly(eff.text) && isQuestion(eff.text)) {
+          // The agent signals "I asked the user something" by calling the
+          // `ask` tool, which propagates as `expectsFollowUp` on the speak
+          // effect. When set, reopen capture so the user can answer
+          // without saying the wake word again.
+          if (eff.expectsFollowUp) {
             await this.dispatch({ type: 'followUpRequested' });
           } else {
             await this.dispatch({ type: 'speechFinished' });

@@ -13,6 +13,10 @@ export interface Message {
 
 export interface AgentResponse {
   text: string;
+  /** True when the agent is asking the user a clarifying question and
+   * expects an immediate verbal answer (set when the LLM calls the `ask`
+   * tool, or as a fallback when the reply text ends with a question mark). */
+  expectsFollowUp?: boolean;
 }
 
 export interface Agent {

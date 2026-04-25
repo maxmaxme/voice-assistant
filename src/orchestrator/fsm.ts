@@ -25,7 +25,10 @@ export function transition(state: State, event: Event, options: TransitionOption
       return { state, effects: [] };
     case 'thinking':
       if (event.type === 'agentReplied') {
-        return { state: 'speaking', effects: [{ type: 'speak', text: event.text }] };
+        return {
+          state: 'speaking',
+          effects: [{ type: 'speak', text: event.text, expectsFollowUp: event.expectsFollowUp }],
+        };
       }
       return { state, effects: [] };
     case 'speaking':
