@@ -125,10 +125,67 @@ export class NodeSpeakerOutput implements SpeakerOutput {
   }
 
   private async playStreamViaSpeakerNpm(
-    _stream: TtsStream,
-    _opts?: { signal?: AbortSignal },
+    stream: TtsStream,
+    opts?: { signal?: AbortSignal },
   ): Promise<void> {
-    // Implemented in Task 5.
-    throw new Error('macOS speaker path not yet implemented');
+    const Ctor = await loadSpeakerCtor();
+    if (!Ctor) {
+      throw new Error(
+        "Audio playback unavailable: 'speaker' npm package failed to load and " +
+          'this is not a Linux host (no `aplay` fallback). Install `sox` or ' +
+          'rebuild speaker for your platform.',
+      );
+    }
+
+    const speaker = new Ctor({
+      channels: 1,
+      bitDepth: 16,
+      sampleRate: stream.sampleRate,
+    });
+    this.currentSpeaker = speaker;
+
+    const onAbort = (): void => this.stop();
+    opts?.signal?.addEventListener('abort', onAbort, { once: true });
+
+    // Soak up async errors from the speaker so they don't crash the process
+    // if stop() races with a write.
+    let speakerError: Error | null = null;
+    speaker.on('error', (err) => {
+      speakerError = err instanceof Error ? err : new Error(String(err));
+    });
+
+    const closed = new Promise<void>((resolve) => {
+      speaker.on('close', () => resolve());
+    });
+
+    try {
+      for await (const chunk of stream.chunks) {
+        if (opts?.signal?.aborted) break;
+        if (this.currentSpeaker !== speaker) break; // stop() replaced us
+        await new Promise<void>((resolve, reject) => {
+          const ok = speaker.write(chunk, (err?: Error) => {
+            if (err) reject(err);
+            // If write() returned true the data was accepted synchronously and
+            // we resolve right away in the `if (ok)` branch below.
+          });
+          if (ok) {
+            resolve();
+          } else {
+            // Safety net: if stop() fires mid-write (emitting 'close'),
+            // unblock the drain-await so we don't hang indefinitely.
+            // Analogous to the aplay path resolving on proc 'exit'.
+            closed.then(resolve);
+          }
+        });
+      }
+      speaker.end();
+      await closed;
+      if (speakerError) throw speakerError;
+    } catch (err) {
+      if (!isAbortError(err)) throw err;
+    } finally {
+      opts?.signal?.removeEventListener('abort', onAbort);
+      if (this.currentSpeaker === speaker) this.currentSpeaker = null;
+    }
   }
 }
