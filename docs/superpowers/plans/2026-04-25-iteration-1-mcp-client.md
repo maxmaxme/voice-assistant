@@ -650,7 +650,7 @@ git commit -m "chore(ha): add Docker Compose for Home Assistant + setup docs"
 
 This task has no automated tests — it's a thin composition over already-tested modules, and its real test is the integration test in Task 7.
 
-- [ ] **Step 1: Implement `src/cli/mcp-call.ts`**
+- [x] **Step 1: Implement `src/cli/mcp-call.ts`**
 
 ```ts
 import { loadConfig } from '../config.js';
@@ -707,7 +707,7 @@ main().catch((err) => {
 });
 ```
 
-- [ ] **Step 2: Verify type-check**
+- [x] **Step 2: Verify type-check**
 
 ```bash
 npx tsc --noEmit
@@ -715,7 +715,7 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 3: Smoke-run with bad config**
+- [x] **Step 3: Smoke-run with bad config**
 
 ```bash
 HA_URL= HA_TOKEN= npm run mcp:call -- list
@@ -723,7 +723,7 @@ HA_URL= HA_TOKEN= npm run mcp:call -- list
 
 Expected: exits non-zero with config validation error mentioning `ha.url` or `ha.token`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/cli/mcp-call.ts
