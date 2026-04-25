@@ -5,7 +5,7 @@ import { loadConfig } from '../../src/config.ts';
 const RUN = process.env.RUN_INTEGRATION === '1';
 
 describe.runIf(RUN)('HaMcpClient (integration)', () => {
-  it('connects, lists tools, and toggles the test lamp', async () => {
+  it('connects, lists tools, and toggles a mock light', async () => {
     const cfg = loadConfig();
     const client = new HaMcpClient({ url: cfg.ha.url, token: cfg.ha.token });
     await client.connect();
@@ -15,10 +15,10 @@ describe.runIf(RUN)('HaMcpClient (integration)', () => {
       const hasTurnOn = tools.some((t) => t.name === 'HassTurnOn');
       expect(hasTurnOn).toBe(true);
 
-      const onResult = await client.callTool('HassTurnOn', { name: 'Test Lamp' });
+      const onResult = await client.callTool('HassTurnOn', { name: 'Свет на кухне' });
       expect(onResult.isError).toBe(false);
 
-      const offResult = await client.callTool('HassTurnOff', { name: 'Test Lamp' });
+      const offResult = await client.callTool('HassTurnOff', { name: 'Свет на кухне' });
       expect(offResult.isError).toBe(false);
     } finally {
       await client.disconnect();
