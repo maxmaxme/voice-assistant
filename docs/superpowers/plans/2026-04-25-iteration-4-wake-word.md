@@ -4,9 +4,9 @@
 
 **Goal:** Replace push-to-talk with always-listening: a local wake-word detector triggers recording, voice-activity detection (VAD) ends the utterance automatically. The orchestrator becomes a state machine (`idle` / `listening` / `thinking` / `speaking`).
 
-**Architecture:** Continuous PCM stream from `MicInput` is fanned out: every chunk goes through Porcupine (wake-word). On detection, subsequent chunks are accumulated and fed to a VAD that signals end-of-utterance after N ms of silence. The orchestrator FSM owns transitions and rejects mic input while speaking (no barge-in in this iteration).
+**Architecture:** Continuous PCM stream from `MicInput` is fanned out: every 80ms frame (1280 samples @ 16kHz) is forwarded to the wake-word daemon via stdin. On detection, subsequent chunks are accumulated and fed to a VAD that signals end-of-utterance after N ms of silence. The orchestrator FSM owns transitions and rejects mic input while speaking (no barge-in in this iteration).
 
-**Tech Stack:** `@picovoice/porcupine-node`, `@picovoice/pvrecorder-node` (or reuse `mic` with chunk fanout), Silero VAD via `silero-vad-node` or simple RMS-based VAD as a fallback, TypeScript, Vitest.
+**Tech Stack:** [openWakeWord](https://github.com/dscripka/openWakeWord) (Apache 2.0) running as a Python subprocess we communicate with over stdin/stdout, RMS-based VAD in Node, TypeScript, Vitest. Picovoice Porcupine was the original choice but Picovoice no longer issues free personal AccessKeys, so we switched to openWakeWord.
 
 **Prerequisite:** Iteration 3 complete (push-to-talk voice works end-to-end).
 
@@ -17,7 +17,7 @@
 ```
 src/
 ├── audio/
-│   ├── wakeWord.ts              # Porcupine adapter
+│   ├── wakeWord.ts              # openWakeWord adapter (spawns Python daemon)
 │   ├── vad.ts                   # VAD adapter (RMS-based to start)
 │   └── streamingMic.ts          # continuous PCM stream + chunk fanout
 ├── orchestrator/
@@ -49,7 +49,7 @@ import mic from 'mic';
 
 export interface StreamingMicOptions {
   sampleRate: number;
-  /** PCM chunk size in 16-bit samples. Porcupine expects 512 at 16kHz. */
+  /** PCM chunk size in 16-bit samples. openWakeWord expects 1280 at 16kHz (80ms). */
   frameLength: number;
 }
 
@@ -256,99 +256,351 @@ git commit -m "feat(audio): add RMS-based VAD"
 
 ---
 
-## Task 3: Wake-word adapter (Porcupine)
+## Task 3: Wake-word adapter (openWakeWord via Python subprocess)
+
+**Why subprocess instead of pure Node:** openWakeWord's pipeline is three chained
+ONNX models (mel-spectrogram → embedding → per-keyword classifier) plus a
+sliding window over embeddings. The Python `openwakeword` package handles all
+of it, including model download and caching. Reimplementing the pipeline in
+Node with `onnxruntime-node` is doable but takes ~10x the effort. We keep the
+adapter boundary clean (`WakeWord` interface) so a future pure-Node implementation
+can drop in without touching the orchestrator.
 
 **Files:**
-- Modify: `package.json`
-- Create: `src/audio/wakeWord.ts`
+- Create: `scripts/wake_word_daemon.py` — long-running Python process
+- Create: `src/audio/wakeWord.ts` — Node adapter that spawns and talks to the daemon
+- Create: `tests/audio/wakeWord.test.ts` — uses a fake daemon binary
+- Modify: `src/config.ts`, `.env.example`
 
-- [ ] **Step 1: Install**
+- [ ] **Step 1: Set up Python environment**
 
 ```bash
-npm install @picovoice/porcupine-node
+# macOS dev: uses the system python3 + a per-project venv to avoid global pollution
+python3 -m venv .venv
+.venv/bin/pip install --upgrade pip
+.venv/bin/pip install openwakeword
 ```
 
-- [ ] **Step 2: Implement `src/audio/wakeWord.ts`**
+The first time `openwakeword` runs it will download its three small models
+(~10 MB total) into `~/.cache/openwakeword/`. That's expected.
+
+- [ ] **Step 2: Add `.venv/` to `.gitignore`**
+
+```bash
+grep -qxF '.venv/' .gitignore || echo '.venv/' >> .gitignore
+```
+
+- [ ] **Step 3: Create `scripts/wake_word_daemon.py`**
+
+The protocol: stdin = raw 16-bit little-endian mono PCM at 16 kHz, fed in
+1280-sample frames (80 ms). stdout = newline-delimited JSON events:
+`{"type":"ready"}` once at startup, then `{"type":"wake","keyword":"...","score":0.83}`
+on each detection. stderr = human-readable diagnostics.
+
+```python
+#!/usr/bin/env python3
+"""Wake-word daemon. Reads raw 16-bit mono 16kHz PCM from stdin in 1280-sample
+(80ms) frames and emits JSON wake events on stdout. Designed to be spawned by
+the Node parent."""
+import json
+import struct
+import sys
+import argparse
+import numpy as np
+from openwakeword.model import Model
+
+FRAME_SAMPLES = 1280
+FRAME_BYTES = FRAME_SAMPLES * 2
+
+def emit(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+def log(msg):
+    sys.stderr.write(f"[wake] {msg}\n")
+    sys.stderr.flush()
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--keyword", default="hey_jarvis", help="openwakeword model name")
+    ap.add_argument("--threshold", type=float, default=0.5)
+    args = ap.parse_args()
+
+    log(f"loading model: {args.keyword}")
+    model = Model(wakeword_models=[args.keyword])
+    emit({"type": "ready", "keyword": args.keyword, "threshold": args.threshold})
+
+    cooldown_frames = 0
+    while True:
+        data = sys.stdin.buffer.read(FRAME_BYTES)
+        if len(data) < FRAME_BYTES:
+            break
+        audio = np.frombuffer(data, dtype=np.int16)
+        scores = model.predict(audio)
+        if cooldown_frames > 0:
+            cooldown_frames -= 1
+            continue
+        for kw, score in scores.items():
+            if score >= args.threshold:
+                emit({"type": "wake", "keyword": kw, "score": float(score)})
+                # ~1 s cooldown to avoid double-fires from the same utterance
+                cooldown_frames = 12
+                break
+
+if __name__ == "__main__":
+    main()
+```
+
+Make it executable:
+
+```bash
+chmod +x scripts/wake_word_daemon.py
+```
+
+- [ ] **Step 4: Smoke-run the daemon to confirm Python deps**
+
+Verify the script can import its deps and announce readiness without crashing.
+Pipe one frame of silence and EOF:
+
+```bash
+python3 -c "import sys; sys.stdout.buffer.write(b'\\0' * 2560)" \
+  | .venv/bin/python scripts/wake_word_daemon.py --keyword hey_jarvis 2>/dev/null \
+  | head -1
+```
+
+Expected: `{"type": "ready", "keyword": "hey_jarvis", "threshold": 0.5}`.
+
+If it fails: `pip install openwakeword` again, or check Python version (need 3.10+).
+
+- [ ] **Step 5: Define the `WakeWord` interface and adapter**
+
+`src/audio/wakeWord.ts`:
 
 ```ts
-import { Porcupine, BuiltinKeyword } from '@picovoice/porcupine-node';
+import { spawn, type ChildProcess } from 'node:child_process';
+import * as readline from 'node:readline';
 
-export interface WakeWordOptions {
-  accessKey: string;
-  /** Path to a .ppn keyword file, or a built-in keyword. */
-  keyword: string | BuiltinKeyword;
-  sensitivity?: number;
+export interface WakeWord {
+  /** Frame length in samples that should be fed via feed(). */
+  readonly frameLength: number;
+  /** Audio sample rate the wake-word expects (Hz). */
+  readonly sampleRate: number;
+  start(): Promise<void>;
+  feed(frame: Int16Array): void;
+  onWake(cb: (keyword: string, score: number) => void): void;
+  stop(): Promise<void>;
 }
 
-export class PorcupineWakeWord {
-  private porcupine: Porcupine;
-  private cb: () => void = () => {};
+export interface OpenWakeWordOptions {
+  /** Python interpreter path — usually `.venv/bin/python` */
+  pythonPath: string;
+  /** Path to scripts/wake_word_daemon.py */
+  scriptPath: string;
+  /** openwakeword model name, e.g. "hey_jarvis" */
+  keyword: string;
+  /** Detection threshold 0..1 (default 0.5) */
+  threshold?: number;
+  /** Inject a custom spawn for tests */
+  spawnFn?: typeof spawn;
+}
 
-  constructor(opts: WakeWordOptions) {
-    const keywordPaths = typeof opts.keyword === 'string' ? [opts.keyword] : undefined;
-    const builtin = typeof opts.keyword !== 'string' ? [opts.keyword] : undefined;
-    this.porcupine = new Porcupine(
-      opts.accessKey,
-      (keywordPaths ?? builtin) as never,
-      [opts.sensitivity ?? 0.5],
-    );
+const FRAME_LENGTH = 1280;
+const SAMPLE_RATE = 16_000;
+
+export class OpenWakeWord implements WakeWord {
+  readonly frameLength = FRAME_LENGTH;
+  readonly sampleRate = SAMPLE_RATE;
+  private proc: ChildProcess | null = null;
+  private cb: (keyword: string, score: number) => void = () => {};
+  private ready = false;
+  private readyResolve: (() => void) | null = null;
+
+  constructor(private readonly opts: OpenWakeWordOptions) {}
+
+  async start(): Promise<void> {
+    const args = [
+      this.opts.scriptPath,
+      '--keyword',
+      this.opts.keyword,
+      '--threshold',
+      String(this.opts.threshold ?? 0.5),
+    ];
+    const spawnFn = this.opts.spawnFn ?? spawn;
+    this.proc = spawnFn(this.opts.pythonPath, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    if (!this.proc.stdout) throw new Error('wake-word daemon has no stdout');
+    const rl = readline.createInterface({ input: this.proc.stdout });
+    rl.on('line', (line) => {
+      let evt: { type?: string; keyword?: string; score?: number };
+      try {
+        evt = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (evt.type === 'ready') {
+        this.ready = true;
+        this.readyResolve?.();
+      } else if (evt.type === 'wake' && evt.keyword) {
+        this.cb(evt.keyword, evt.score ?? 0);
+      }
+    });
+
+    this.proc.on('exit', (code) => {
+      if (!this.ready) {
+        // Surface startup failures as a rejected ready promise.
+        this.readyResolve?.();
+      }
+      this.proc = null;
+    });
+
+    await new Promise<void>((resolve) => {
+      if (this.ready) resolve();
+      else this.readyResolve = resolve;
+    });
+    if (!this.ready) {
+      throw new Error('wake-word daemon failed to start (see stderr)');
+    }
   }
-
-  /** Required input frame length (samples at 16kHz, 16-bit mono). */
-  get frameLength(): number {
-    return this.porcupine.frameLength;
-  }
-
-  get sampleRate(): number {
-    return this.porcupine.sampleRate;
-  }
-
-  onWake(cb: () => void): void { this.cb = cb; }
 
   feed(frame: Int16Array): void {
-    if (frame.length !== this.porcupine.frameLength) return;
-    const idx = this.porcupine.process(frame);
-    if (idx >= 0) this.cb();
+    if (!this.proc || !this.proc.stdin || frame.length !== FRAME_LENGTH) return;
+    const buf = Buffer.alloc(FRAME_LENGTH * 2);
+    for (let i = 0; i < FRAME_LENGTH; i++) buf.writeInt16LE(frame[i], i * 2);
+    this.proc.stdin.write(buf);
   }
 
-  release(): void {
-    this.porcupine.release();
+  onWake(cb: (keyword: string, score: number) => void): void {
+    this.cb = cb;
+  }
+
+  async stop(): Promise<void> {
+    if (!this.proc) return;
+    this.proc.stdin?.end();
+    this.proc.kill('SIGTERM');
+    this.proc = null;
   }
 }
 ```
 
-- [ ] **Step 3: Add config for Porcupine**
+- [ ] **Step 6: Write a unit test using a fake spawn**
+
+`tests/audio/wakeWord.test.ts`:
+
+```ts
+import { describe, it, expect, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { Readable, Writable } from 'node:stream';
+import { OpenWakeWord } from '../../src/audio/wakeWord.js';
+
+function fakeProc(scriptedStdout: string[]) {
+  const stdout = new Readable({ read() {} });
+  const stdin = new Writable({ write(_c, _e, cb) { cb(); } });
+  const proc = new EventEmitter() as EventEmitter & {
+    stdin: Writable;
+    stdout: Readable;
+    stderr: Readable;
+    kill: (sig?: string) => void;
+  };
+  proc.stdin = stdin;
+  proc.stdout = stdout;
+  proc.stderr = new Readable({ read() {} });
+  proc.kill = () => {};
+  // Push scripted lines on next tick so callers have time to attach listeners.
+  setImmediate(() => {
+    for (const line of scriptedStdout) stdout.push(line + '\n');
+  });
+  return proc;
+}
+
+describe('OpenWakeWord', () => {
+  it('resolves start() once the daemon prints ready', async () => {
+    const spawnFn = vi.fn(() =>
+      fakeProc([JSON.stringify({ type: 'ready', keyword: 'hey_jarvis', threshold: 0.5 })]),
+    );
+    const ww = new OpenWakeWord({
+      pythonPath: '/x/python',
+      scriptPath: '/x/script.py',
+      keyword: 'hey_jarvis',
+      spawnFn: spawnFn as never,
+    });
+    await ww.start();
+    expect(spawnFn).toHaveBeenCalledOnce();
+  });
+
+  it('fires onWake when the daemon reports a detection', async () => {
+    const spawnFn = vi.fn(() =>
+      fakeProc([
+        JSON.stringify({ type: 'ready', keyword: 'hey_jarvis', threshold: 0.5 }),
+        JSON.stringify({ type: 'wake', keyword: 'hey_jarvis', score: 0.91 }),
+      ]),
+    );
+    const ww = new OpenWakeWord({
+      pythonPath: '/x/python',
+      scriptPath: '/x/script.py',
+      keyword: 'hey_jarvis',
+      spawnFn: spawnFn as never,
+    });
+    const events: Array<[string, number]> = [];
+    ww.onWake((k, s) => events.push([k, s]));
+    await ww.start();
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    expect(events).toEqual([['hey_jarvis', 0.91]]);
+  });
+});
+```
+
+- [ ] **Step 7: Run the test (must fail first, then implement, then pass)**
+
+```bash
+npx vitest run tests/audio/wakeWord.test.ts
+```
+
+If you implement Step 5 before this step, the test should pass on first run.
+That's acceptable here — the contract is the protocol, not the implementation
+sequence.
+
+- [ ] **Step 8: Add config entries**
 
 In `src/config.ts` schema:
 
 ```ts
-porcupine: z.object({
-  accessKey: z.string().min(1),
-  keyword: z.string().default('jarvis'),
-  sensitivity: z.coerce.number().min(0).max(1).default(0.5),
+wakeWord: z.object({
+  pythonPath: z.string().default('.venv/bin/python'),
+  scriptPath: z.string().default('scripts/wake_word_daemon.py'),
+  keyword: z.string().default('hey_jarvis'),
+  threshold: z.coerce.number().min(0).max(1).default(0.5),
 }),
 ```
 
 In `raw`:
 
 ```ts
-porcupine: {
-  accessKey: process.env.PORCUPINE_ACCESS_KEY,
-  keyword: process.env.PORCUPINE_KEYWORD,
-  sensitivity: process.env.PORCUPINE_SENSITIVITY,
+wakeWord: {
+  pythonPath: process.env.WAKE_WORD_PYTHON,
+  scriptPath: process.env.WAKE_WORD_SCRIPT,
+  keyword: process.env.WAKE_WORD_KEYWORD,
+  threshold: process.env.WAKE_WORD_THRESHOLD,
 },
 ```
 
 Append to `.env.example`:
 
 ```
-# Porcupine wake-word
-PORCUPINE_ACCESS_KEY=replace_with_picovoice_key
-PORCUPINE_KEYWORD=jarvis
-PORCUPINE_SENSITIVITY=0.5
+# Wake-word (openWakeWord via Python subprocess)
+WAKE_WORD_PYTHON=.venv/bin/python
+WAKE_WORD_SCRIPT=scripts/wake_word_daemon.py
+WAKE_WORD_KEYWORD=hey_jarvis
+WAKE_WORD_THRESHOLD=0.5
 ```
 
-- [ ] **Step 4: Verify type-check**
+Available builtin keywords from openwakeword: `hey_jarvis`, `alexa`,
+`hey_mycroft`, `hey_rhasspy`, `ok_nabu`, `weatherman`, `timer`. Pick a
+phonetically distinctive one — `hey_jarvis` is the strongest default.
+
+- [ ] **Step 9: Verify type-check**
 
 ```bash
 npx tsc --noEmit
@@ -356,11 +608,12 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add package.json package-lock.json src/audio/wakeWord.ts src/config.ts .env.example
-git commit -m "feat(audio): add Porcupine wake-word adapter"
+git add scripts/wake_word_daemon.py src/audio/wakeWord.ts tests/audio/wakeWord.test.ts \
+        src/config.ts .env.example .gitignore
+git commit -m "feat(audio): add openWakeWord adapter via Python subprocess"
 ```
 
 ---
@@ -524,7 +777,7 @@ import type { Stt, Tts, SpeakerOutput } from '../audio/types.js';
 import type { State, Event, Effect } from './types.js';
 import { transition } from './fsm.js';
 import { StreamingMic } from '../audio/streamingMic.js';
-import { PorcupineWakeWord } from '../audio/wakeWord.js';
+import type { WakeWord } from '../audio/wakeWord.js';
 import { RmsVad } from '../audio/vad.js';
 
 export interface OrchestratorOptions {
@@ -532,7 +785,7 @@ export interface OrchestratorOptions {
   stt: Stt;
   tts: Tts;
   speaker: SpeakerOutput;
-  wake: PorcupineWakeWord;
+  wake: WakeWord;
   sampleRate: number;
 }
 
@@ -557,6 +810,7 @@ export class Orchestrator {
   }
 
   async run(): Promise<void> {
+    await this.opts.wake.start();
     this.opts.wake.onWake(() => this.dispatch({ type: 'wake' }));
     this.vad.onSilence(() => {
       if (!this.capturing) return;
@@ -637,7 +891,6 @@ export class Orchestrator {
 import OpenAI from 'openai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { BuiltinKeyword } from '@picovoice/porcupine-node';
 import { loadConfig } from '../config.js';
 import { HaMcpClient } from '../mcp/haMcpClient.js';
 import { OpenAiAgent } from '../agent/openaiAgent.js';
@@ -646,12 +899,14 @@ import { SqliteProfileMemory } from '../memory/sqliteProfileMemory.js';
 import { NodeSpeakerOutput } from '../audio/speakerOutput.js';
 import { OpenAiStt } from '../audio/openaiStt.js';
 import { OpenAiTts } from '../audio/openaiTts.js';
-import { PorcupineWakeWord } from '../audio/wakeWord.js';
+import { OpenWakeWord } from '../audio/wakeWord.js';
 import { Orchestrator } from '../orchestrator/orchestrator.js';
+import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.js';
 
-const SYSTEM_PROMPT = `You are a smart-home voice assistant.
-Control devices via Home Assistant tools. Long-term profile via remember/recall/forget.
-Be concise (1-2 sentences). Speak Russian if the user does.`;
+const SYSTEM_PROMPT = `${BASE_SYSTEM_PROMPT}
+
+Voice channel specifics: keep replies under 1 sentence when possible. Avoid
+markdown, lists, code, or punctuation that doesn't read well out loud.`;
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
@@ -671,27 +926,11 @@ async function main(): Promise<void> {
     llmClient: llm,
   });
 
-  // Resolve keyword: if it matches a Porcupine built-in name, use the enum value;
-  // otherwise treat it as a filesystem path to a custom .ppn keyword file.
-  // Built-ins are uppercase enum keys like JARVIS, COMPUTER, ALEXA, BLUEBERRY, etc.
-  // Custom names with hyphens (e.g. "okay-home") MUST be a path to a .ppn file
-  // produced via Picovoice Console (https://console.picovoice.ai/).
-  const enumKey = cfg.porcupine.keyword.toUpperCase().replace(/-/g, '_');
-  const builtinValue = (BuiltinKeyword as unknown as Record<string, unknown>)[enumKey] as
-    | BuiltinKeyword
-    | undefined;
-  const keyword: string | BuiltinKeyword = builtinValue ?? cfg.porcupine.keyword;
-  if (!builtinValue && !cfg.porcupine.keyword.endsWith('.ppn')) {
-    throw new Error(
-      `PORCUPINE_KEYWORD="${cfg.porcupine.keyword}" is neither a built-in keyword name ` +
-        `nor a path to a .ppn file. See https://console.picovoice.ai/ to generate custom keywords.`,
-    );
-  }
-
-  const wake = new PorcupineWakeWord({
-    accessKey: cfg.porcupine.accessKey,
-    keyword,
-    sensitivity: cfg.porcupine.sensitivity,
+  const wake = new OpenWakeWord({
+    pythonPath: cfg.wakeWord.pythonPath,
+    scriptPath: cfg.wakeWord.scriptPath,
+    keyword: cfg.wakeWord.keyword,
+    threshold: cfg.wakeWord.threshold,
   });
 
   const orch = new Orchestrator({
@@ -704,9 +943,9 @@ async function main(): Promise<void> {
   });
 
   process.on('SIGINT', async () => {
+    await wake.stop();
     await mcp.disconnect();
     memory.close();
-    wake.release();
     process.exit(0);
   });
 
@@ -749,7 +988,7 @@ Test:
 3. While the assistant is speaking, say "Jarvis" — should be ignored (no barge-in).
 4. After it finishes, say "Jarvis" → "выключи".
 
-If wake-word never fires: try `sensitivity = 0.7`. Check the mic level — Porcupine needs reasonably clean 16kHz audio.
+If wake-word never fires: lower `WAKE_WORD_THRESHOLD` from 0.5 to 0.3. Check that the daemon's stderr shows it loaded the model. Check the mic level — openWakeWord needs reasonably clean 16kHz audio. Try a different keyword (e.g. `alexa`) to rule out the model itself.
 
 - [ ] **Step 6: Commit**
 
@@ -765,5 +1004,5 @@ git commit -m "feat(orchestrator): always-listening voice loop with wake-word an
 - All unit tests pass.
 - `npm start` runs as a daemon: wake-word activates listening, VAD ends utterance, full pipeline executes, returns to idle.
 - Barge-in is correctly ignored (wake-word during `speaking` does nothing).
-- `Ctrl+C` shuts down cleanly (releases Porcupine, closes DB, disconnects MCP).
-- Idle CPU on macOS is reasonable (Porcupine alone is ~1-3% on M-series).
+- `Ctrl+C` shuts down cleanly (kills the wake-word daemon, closes DB, disconnects MCP).
+- Idle CPU on macOS is reasonable (openWakeWord daemon alone is ~3-7% on M-series; higher than Porcupine but acceptable).
