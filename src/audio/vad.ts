@@ -11,8 +11,10 @@ export class RmsVad {
   private readonly silenceFramesNeeded: number;
   private speechCb: () => void = () => {};
   private silenceCb: () => void = () => {};
+  private readonly opts: RmsVadOptions;
 
-  constructor(private readonly opts: RmsVadOptions) {
+  constructor(opts: RmsVadOptions) {
+    this.opts = opts;
     const frameMs = (opts.frameLength / opts.sampleRate) * 1000;
     this.silenceFramesNeeded = Math.ceil(opts.silenceMs / frameMs);
   }

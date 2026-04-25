@@ -10,8 +10,11 @@ export class StreamingMic {
   private m: ReturnType<typeof mic> | null = null;
   private listeners = new Set<(frame: Int16Array) => void>();
   private leftover = Buffer.alloc(0);
+  private readonly opts: StreamingMicOptions;
 
-  constructor(private readonly opts: StreamingMicOptions) {}
+  constructor(opts: StreamingMicOptions) {
+    this.opts = opts;
+  }
 
   start(): void {
     if (this.m) return;

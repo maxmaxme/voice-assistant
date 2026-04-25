@@ -38,8 +38,10 @@ export class Orchestrator {
   private capturing = false;
   private speechSeen = false;
   private noSpeechTimer: NodeJS.Timeout | null = null;
+  private readonly opts: OrchestratorOptions;
 
-  constructor(private readonly opts: OrchestratorOptions) {
+  constructor(opts: OrchestratorOptions) {
+    this.opts = opts;
     this.mic = new StreamingMic({
       sampleRate: opts.sampleRate,
       frameLength: opts.wake.frameLength,

@@ -37,8 +37,11 @@ export class OpenWakeWord implements WakeWord {
   private cb: (keyword: string, score: number) => void = () => {};
   private ready = false;
   private readyResolve: (() => void) | null = null;
+  private readonly opts: OpenWakeWordOptions;
 
-  constructor(private readonly opts: OpenWakeWordOptions) {}
+  constructor(opts: OpenWakeWordOptions) {
+    this.opts = opts;
+  }
 
   async start(): Promise<void> {
     const args = [
