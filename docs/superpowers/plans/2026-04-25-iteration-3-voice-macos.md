@@ -95,7 +95,7 @@ git commit -m "chore(audio): install mic/speaker, add audio interfaces"
 - Create: `src/audio/openaiStt.ts`
 - Test: `tests/audio/openaiStt.test.ts`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 `tests/audio/openaiStt.test.ts`:
 
@@ -121,7 +121,7 @@ describe('OpenAiStt', () => {
 });
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 ```bash
 npx vitest run tests/audio/openaiStt.test.ts
@@ -129,7 +129,7 @@ npx vitest run tests/audio/openaiStt.test.ts
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `src/audio/openaiStt.ts`**
+- [x] **Step 3: Implement `src/audio/openaiStt.ts`**
 
 ```ts
 import type OpenAI from 'openai';
@@ -184,7 +184,7 @@ function pcmToWav(pcm: Buffer, sampleRate: number): Buffer {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 npx vitest run tests/audio/openaiStt.test.ts
@@ -192,7 +192,7 @@ npx vitest run tests/audio/openaiStt.test.ts
 
 Expected: 1 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/audio/openaiStt.ts tests/audio/openaiStt.test.ts
@@ -207,7 +207,7 @@ git commit -m "feat(audio): add OpenAI STT adapter (gpt-4o-transcribe)"
 - Create: `src/audio/openaiTts.ts`
 - Test: `tests/audio/openaiTts.test.ts`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 `tests/audio/openaiTts.test.ts`:
 
@@ -232,7 +232,7 @@ describe('OpenAiTts', () => {
 });
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 ```bash
 npx vitest run tests/audio/openaiTts.test.ts
@@ -279,7 +279,7 @@ export class OpenAiTts implements Tts {
 
 Note: `gpt-4o-mini-tts` outputs 24kHz 16-bit mono PCM with `response_format: 'pcm'`. The `instructions` field lets you steer tone ("speak warmly, slightly excited").
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 npx vitest run tests/audio/openaiTts.test.ts
@@ -287,7 +287,7 @@ npx vitest run tests/audio/openaiTts.test.ts
 
 Expected: 1 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/audio/openaiTts.ts tests/audio/openaiTts.test.ts
@@ -410,7 +410,7 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/audio/micInput.ts src/audio/speakerOutput.ts src/types
@@ -544,7 +544,7 @@ Test path:
 
 If mic doesn't capture: check `sox` is installed (`brew install sox`) — `mic` shells out to `sox`/`rec`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/cli/voice.ts package.json
