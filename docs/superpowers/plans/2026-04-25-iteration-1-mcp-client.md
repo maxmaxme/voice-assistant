@@ -54,7 +54,7 @@ voice-assistant/
 - Create: `vitest.config.ts`
 - Create: `src/.gitkeep`, `tests/.gitkeep`
 
-- [ ] **Step 1: Install dependencies**
+- [x] **Step 1: Install dependencies**
 
 ```bash
 cd /Users/mlepekha/Developer/voice-assistant
@@ -62,7 +62,7 @@ npm install --save-dev typescript tsx vitest @types/node
 npm install @modelcontextprotocol/sdk dotenv zod
 ```
 
-- [ ] **Step 1b: Verify MCP SDK import paths up-front**
+- [x] **Step 1b: Verify MCP SDK import paths up-front**
 
 The SDK's subpath exports change between releases. Confirm the two paths used in Task 4 actually exist in the version that just got installed:
 
@@ -73,7 +73,7 @@ ls node_modules/@modelcontextprotocol/sdk/dist/esm/client/
 
 Expected: the `exports` listing includes `./client/index.js` and `./client/streamableHttp.js` (or equivalent). If the layout differs, update the import lines in Task 4 Step 3 before writing the file. **Do not skip this** — getting it wrong wastes the rest of Task 4.
 
-- [ ] **Step 2: Create `tsconfig.json`**
+- [x] **Step 2: Create `tsconfig.json`**
 
 ```json
 {
@@ -95,7 +95,7 @@ Expected: the `exports` listing includes `./client/index.js` and `./client/strea
 }
 ```
 
-- [ ] **Step 3: Create `vitest.config.ts`**
+- [x] **Step 3: Create `vitest.config.ts`**
 
 ```ts
 import { defineConfig } from 'vitest/config';
@@ -108,7 +108,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 4: Update `package.json`**
+- [x] **Step 4: Update `package.json`**
 
 Replace the contents of `package.json` with:
 
@@ -131,14 +131,14 @@ Replace the contents of `package.json` with:
 
 Note: switching from `commonjs` to `type: module`. The original `package.json` was empty boilerplate. ESM is the path forward and the MCP SDK ships ESM-first.
 
-- [ ] **Step 5: Create empty source dirs**
+- [x] **Step 5: Create empty source dirs**
 
 ```bash
 mkdir -p src/mcp src/cli tests/mcp
 touch src/.gitkeep tests/.gitkeep
 ```
 
-- [ ] **Step 6: Verify toolchain works**
+- [x] **Step 6: Verify toolchain works**
 
 ```bash
 npx tsc --noEmit
@@ -147,7 +147,7 @@ npx vitest run
 
 Expected: `tsc` exits 0. `vitest` exits 0 with "No test files found" — that's fine, tests come next.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add package.json package-lock.json tsconfig.json vitest.config.ts src tests
