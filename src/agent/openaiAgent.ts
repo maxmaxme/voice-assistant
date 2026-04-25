@@ -1,10 +1,10 @@
 import type OpenAI from 'openai';
-import type { Agent, AgentResponse, Message } from './types.js';
-import type { McpClient } from '../mcp/types.js';
-import type { MemoryAdapter } from '../memory/types.js';
-import { ConversationStore } from './conversationStore.js';
-import { mcpToolsToOpenAi } from './toolBridge.js';
-import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.js';
+import type { Agent, AgentResponse, Message } from './types.ts';
+import type { McpClient } from '../mcp/types.ts';
+import type { MemoryAdapter } from '../memory/types.ts';
+import { ConversationStore } from './conversationStore.ts';
+import { mcpToolsToOpenAi } from './toolBridge.ts';
+import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
 
 export interface OpenAiAgentOptions {
   mcp: McpClient;

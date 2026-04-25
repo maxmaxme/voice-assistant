@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { McpClient, McpTool, McpToolResult } from './types.js';
+import type { McpClient, McpTool, McpToolResult } from './types.ts';
 
 interface SdkLike {
   connect: (transport?: unknown) => Promise<void>;

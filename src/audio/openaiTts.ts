@@ -1,5 +1,5 @@
 import type OpenAI from 'openai';
-import type { Tts } from './types.js';
+import type { Tts } from './types.ts';
 
 export interface OpenAiTtsOptions {
   client: OpenAI;

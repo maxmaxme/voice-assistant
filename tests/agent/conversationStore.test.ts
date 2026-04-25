@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ConversationStore } from '../../src/agent/conversationStore.js';
+import { ConversationStore } from '../../src/agent/conversationStore.ts';
 
 describe('ConversationStore', () => {
   beforeEach(() => vi.useFakeTimers());

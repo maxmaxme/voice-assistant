@@ -4,20 +4,21 @@
   "description": "Voice assistant for smart home control via Home Assistant MCP",
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "mcp:call": "tsx src/cli/mcp-call.ts",
-    "chat": "tsx src/cli/chat.ts",
-    "voice": "tsx src/cli/voice.ts",
-    "start": "tsx src/cli/run.ts"
+    "mcp:call": "node src/cli/mcp-call.ts",
+    "chat": "node src/cli/chat.ts",
+    "voice": "node src/cli/voice.ts",
+    "start": "node src/cli/run.ts"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   },
   "license": "ISC",
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.6.0",
-    "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"
   },

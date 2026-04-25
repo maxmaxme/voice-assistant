@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
-import { OpenWakeWord } from '../../src/audio/wakeWord.js';
+import { OpenWakeWord } from '../../src/audio/wakeWord.ts';
 
 function fakeProc(scriptedStdout: string[]) {
   const stdout = new Readable({ read() {} });

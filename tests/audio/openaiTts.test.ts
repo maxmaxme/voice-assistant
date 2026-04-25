@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { OpenAiTts } from '../../src/audio/openaiTts.js';
+import { OpenAiTts } from '../../src/audio/openaiTts.ts';
 
 describe('OpenAiTts', () => {
   it('returns 16-bit PCM audio at 24kHz', async () => {

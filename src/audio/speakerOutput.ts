@@ -1,5 +1,5 @@
 import Speaker from 'speaker';
-import type { SpeakerOutput } from './types.js';
+import type { SpeakerOutput } from './types.ts';
 
 export class NodeSpeakerOutput implements SpeakerOutput {
   private current: Speaker | null = null;

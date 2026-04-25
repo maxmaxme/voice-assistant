@@ -1,11 +1,11 @@
-import type { Agent } from '../agent/types.js';
-import type { Stt, Tts, SpeakerOutput } from '../audio/types.js';
-import type { State, Event, Effect } from './types.js';
-import { transition } from './fsm.js';
-import { StreamingMic } from '../audio/streamingMic.js';
-import type { WakeWord } from '../audio/wakeWord.js';
-import { RmsVad } from '../audio/vad.js';
-import { generateConfirmBlip, generateListenBlip, isAckOnly, isQuestion } from '../audio/blip.js';
+import type { Agent } from '../agent/types.ts';
+import type { Stt, Tts, SpeakerOutput } from '../audio/types.ts';
+import type { State, Event, Effect } from './types.ts';
+import { transition } from './fsm.ts';
+import { StreamingMic } from '../audio/streamingMic.ts';
+import type { WakeWord } from '../audio/wakeWord.ts';
+import { RmsVad } from '../audio/vad.ts';
+import { generateConfirmBlip, generateListenBlip, isAckOnly, isQuestion } from '../audio/blip.ts';
 
 const BLIP_SAMPLE_RATE = 24000;
 const CONFIRM_BLIP = generateConfirmBlip(BLIP_SAMPLE_RATE);

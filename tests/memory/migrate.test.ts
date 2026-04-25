@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { runMigrations } from '../../src/memory/migrate.js';
+import { runMigrations } from '../../src/memory/migrate.ts';
 
 describe('runMigrations', () => {
   let db: Database.Database;

@@ -1,4 +1,4 @@
-import type { McpTool } from '../mcp/types.js';
+import type { McpTool } from '../mcp/types.ts';
 
 export interface OpenAiFunctionTool {
   type: 'function';

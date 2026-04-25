@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { OpenAiStt } from '../../src/audio/openaiStt.js';
+import { OpenAiStt } from '../../src/audio/openaiStt.ts';
 
 describe('OpenAiStt', () => {
   it('sends a WAV file to the audio.transcriptions endpoint and returns text', async () => {

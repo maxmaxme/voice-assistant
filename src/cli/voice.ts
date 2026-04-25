@@ -3,17 +3,17 @@ import * as readline from 'node:readline/promises';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
-import { loadConfig } from '../config.js';
-import { HaMcpClient } from '../mcp/haMcpClient.js';
-import { OpenAiAgent } from '../agent/openaiAgent.js';
-import { ConversationStore } from '../agent/conversationStore.js';
-import { SqliteProfileMemory } from '../memory/sqliteProfileMemory.js';
-import { NodeMicInput } from '../audio/micInput.js';
-import { NodeSpeakerOutput } from '../audio/speakerOutput.js';
-import { OpenAiStt } from '../audio/openaiStt.js';
-import { OpenAiTts } from '../audio/openaiTts.js';
+import { loadConfig } from '../config.ts';
+import { HaMcpClient } from '../mcp/haMcpClient.ts';
+import { OpenAiAgent } from '../agent/openaiAgent.ts';
+import { ConversationStore } from '../agent/conversationStore.ts';
+import { SqliteProfileMemory } from '../memory/sqliteProfileMemory.ts';
+import { NodeMicInput } from '../audio/micInput.ts';
+import { NodeSpeakerOutput } from '../audio/speakerOutput.ts';
+import { OpenAiStt } from '../audio/openaiStt.ts';
+import { OpenAiTts } from '../audio/openaiTts.ts';
 
-import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.js';
+import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
 
 // Voice channel: keep replies short — TTS reads them out loud, long answers feel slow.
 const SYSTEM_PROMPT = `${BASE_SYSTEM_PROMPT}
