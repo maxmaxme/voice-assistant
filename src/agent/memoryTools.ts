@@ -1,5 +1,5 @@
-import type { MemoryAdapter } from '../memory/types.js';
-import type { OpenAiFunctionTool } from './toolBridge.js';
+import type { MemoryAdapter } from '../memory/types.ts';
+import type { OpenAiFunctionTool } from './toolBridge.ts';
 
 export const MEMORY_TOOL_NAMES = new Set(['remember', 'recall', 'forget']);
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RmsVad } from '../../src/audio/vad.js';
+import { RmsVad } from '../../src/audio/vad.ts';
 
 function frame(value: number, n = 512): Int16Array {
   const a = new Int16Array(n);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { mcpToolsToOpenAi } from '../../src/agent/toolBridge.js';
-import type { McpTool } from '../../src/mcp/types.js';
+import { mcpToolsToOpenAi } from '../../src/agent/toolBridge.ts';
+import type { McpTool } from '../../src/mcp/types.ts';
 
 describe('mcpToolsToOpenAi', () => {
   it('maps name, description, and inputSchema to OpenAI function format', () => {

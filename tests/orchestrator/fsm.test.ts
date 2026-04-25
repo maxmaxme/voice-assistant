@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { transition } from '../../src/orchestrator/fsm.js';
+import { transition } from '../../src/orchestrator/fsm.ts';
 
 describe('FSM', () => {
   it('idle + wake → listening with startCapture', () => {

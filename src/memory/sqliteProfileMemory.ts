@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
-import { runMigrations } from './migrate.js';
-import type { MemoryAdapter, ProfileFacts } from './types.js';
+import { runMigrations } from './migrate.ts';
+import type { MemoryAdapter, ProfileFacts } from './types.ts';
 
 export interface SqliteProfileMemoryOptions {
   dbPath: string;

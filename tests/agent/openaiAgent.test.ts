@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { OpenAiAgent } from '../../src/agent/openaiAgent.js';
-import { ConversationStore } from '../../src/agent/conversationStore.js';
-import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.js';
-import type { McpClient } from '../../src/mcp/types.js';
+import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
+import { ConversationStore } from '../../src/agent/conversationStore.ts';
+import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
+import type { McpClient } from '../../src/mcp/types.ts';
 
 function fakeMcp(): McpClient {
   return {

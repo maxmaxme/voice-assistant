@@ -1,4 +1,4 @@
-import type { State, Event, Transition } from './types.js';
+import type { State, Event, Transition } from './types.ts';
 
 export interface TransitionOptions {
   /** When true, after the assistant finishes speaking, automatically reopen

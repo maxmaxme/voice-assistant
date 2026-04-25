@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.js';
+import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 
 describe('SqliteProfileMemory', () => {
   let m: SqliteProfileMemory;

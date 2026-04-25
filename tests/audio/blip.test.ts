@@ -5,7 +5,7 @@ import {
   isAckOnly,
   isQuestion,
   ACK_MARKER,
-} from '../../src/audio/blip.js';
+} from '../../src/audio/blip.ts';
 
 describe('blip', () => {
   it('generateConfirmBlip returns PCM of expected size at 24kHz', () => {

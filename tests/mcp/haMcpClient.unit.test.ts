@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { HaMcpClient } from '../../src/mcp/haMcpClient.js';
+import { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
 
 function makeFakeSdkClient() {
   return {

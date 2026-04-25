@@ -1,5 +1,5 @@
 import mic from 'mic';
-import type { MicInput } from './types.js';
+import type { MicInput } from './types.ts';
 
 const STOP_FALLBACK_MS = 1500;
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildMemoryTools, executeMemoryTool } from '../../src/agent/memoryTools.js';
-import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.js';
+import { buildMemoryTools, executeMemoryTool } from '../../src/agent/memoryTools.ts';
+import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 
 describe('memoryTools', () => {
   it('exposes three function tools with sensible names', () => {

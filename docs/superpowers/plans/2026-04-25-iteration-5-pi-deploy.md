@@ -1,14 +1,26 @@
-# Iteration 5: Raspberry Pi Deployment — Implementation Plan
+# Iteration 5: Raspberry Pi Deployment (Docker) — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Deploy the voice assistant to a Raspberry Pi 4 or 5 (64-bit Raspberry Pi OS Bookworm) as a systemd service. Audio works via ALSA. The Pi runs the assistant; Home Assistant runs anywhere reachable on the LAN.
+**Goal:** Deploy the voice assistant to a Raspberry Pi 5 (8GB, Raspberry Pi OS Bookworm 64-bit) as a Docker container managed by `docker compose`. Audio works via ALSA passthrough. Home Assistant runs anywhere reachable on the LAN.
 
-**Architecture:** No new code paths — only packaging, deployment artifacts, and an ARM-compatibility audit of native modules. The same Node.js application from Iteration 4 runs on the Pi.
+**Architecture:** No application code changes — only packaging artifacts. The container runs Node.js 24 directly against the TypeScript sources using Node's native type stripping; there is no `tsc` build step and no `dist/` directory.
 
-**Tech Stack:** Raspberry Pi OS 64-bit, Node.js 20 LTS, systemd, ALSA, USB microphone + USB speaker (or 3.5mm + DAC).
+**Tech Stack:** Raspberry Pi OS 64-bit, Docker + docker compose, Node.js 24 LTS (inside container), ALSA passthrough, USB microphone + USB speaker (or 3.5mm).
 
-**Prerequisite:** Iteration 4 complete and tested on macOS.
+**Prerequisite:** Iteration 4 complete and tested on macOS. `package.json` scripts run `.ts` directly via `node` (no `tsx`, no `tsc`).
+
+---
+
+## Why Docker, not systemd
+
+The Pi host stays clean: only `docker` and `docker compose` are installed. No NodeSource repo, no `build-essential`, no system-wide Node.js, no `npm` cache piling up under `/root` or `/home/pi`. Updates are a single `docker compose up -d --build`. Removal is `docker compose down && docker volume rm`.
+
+## Why Node 24, not 20
+
+Node 24 (and 23.6+) ships native TypeScript type stripping as a stable feature: `node src/cli/run.ts` works without flags. This eliminates the `tsc` build step, the `dist/` directory, and `tsx` as a dev dependency. The same command runs in dev (on macOS) and in prod (in the container on the Pi).
+
+Caveat: type stripping does not transform enums, namespaces, or experimental decorators. The project uses none of these. NodeNext modules with explicit `.js` imports continue to work — the runtime ignores the `.js`/`.ts` distinction once types are stripped.
 
 ---
 
@@ -16,141 +28,178 @@
 
 ```
 deploy/
-├── voice-assistant.service       # systemd unit
-├── install.sh                    # bootstrap on a fresh Pi
+├── Dockerfile                   # single-stage: node:24-bookworm-slim + native deps
+├── docker-compose.yml           # service, /dev/snd passthrough, audio gid, volumes
+├── .dockerignore
+├── install.sh                   # installs docker on a fresh Pi, brings up the stack
 └── uninstall.sh
 docs/
-└── raspberry-pi-setup.md         # one-time host setup instructions
+└── raspberry-pi-setup.md        # one-time host setup + audio verification
 ```
 
-No application code changes are expected. If any are needed (compatibility shims), they go in their existing modules.
+No application code changes. No `dist/`. No `build` script.
 
 ---
 
-## Task 1: ARM compatibility audit
+## Task 1: ARM compatibility audit (inside the container)
 
-Goal: confirm every native module has prebuilt Linux arm64 binaries, document any source-build fallbacks.
+Goal: confirm every native module builds or has prebuilds for `linux/arm64`, and that the container image runs on Pi 5.
 
 - [ ] **Step 1: List native deps**
 
-Run on macOS:
-
 ```bash
-npm ls --omit=dev --parseable | xargs -I{} sh -c 'test -d "{}/build" || test -f "{}/binding.gyp" && echo "{}"' 2>/dev/null
+npm ls --omit=dev --parseable | xargs -I{} sh -c 'test -f "{}/binding.gyp" && echo "{}"' 2>/dev/null
 ```
 
-Expected to surface: `better-sqlite3`, `speaker`, `mic`, `@picovoice/porcupine-node`. The `mic` package is pure JS — it shells out to `arecord` on Linux.
+Expected: `better-sqlite3`, `speaker`, `@picovoice/porcupine-node`. The `mic` package is pure JS — it shells out to `arecord` (provided inside the container via `alsa-utils`).
 
-- [ ] **Step 2: Confirm prebuilt arm64 binaries exist**
+- [ ] **Step 2: Confirm prebuilt arm64 binaries**
 
-For each package, check:
+- `better-sqlite3` v12: ships `prebuild-install`, arm64 supported.
+- `speaker` v0.5: prebuilds via `prebuild-install`, arm64 supported.
+- `@picovoice/porcupine-node`: ships `linux-arm64` native binary in-package.
 
-- `better-sqlite3`: ships prebuilds via `prebuild-install`. arm64 supported since v9.
-- `speaker`: prebuilds via `prebuild-install`. arm64 supported.
-- `@picovoice/porcupine-node`: ships native binaries for `linux-arm64` inside the package.
+If a prebuild is missing, the Dockerfile installs `build-essential python3` to allow source compilation. Image size cost is paid once.
 
-Verify in `node_modules` after install on the Pi (Task 2 step 5). If any package falls back to compile, the Pi will need `build-essential` and `python3` — covered by `install.sh`.
-
-- [ ] **Step 3: Verify no non-TS runtime assets**
-
-`tsc` only compiles `.ts` to `.js`. If any `.sql`, `.json`, or other non-TS file is loaded at runtime via filesystem, it will be missing in `dist/`. Grep:
+- [ ] **Step 3: Verify no non-TS runtime assets are loaded by path**
 
 ```bash
 grep -rE "\b(readFileSync|readdirSync|loadFile)\b" src/
 ```
 
-Each hit must read either (a) a path explicitly passed in by the caller (env var, CLI arg) or (b) a file that lives in the same logical place under both `src/` and `dist/`. By design, the project embeds SQL migrations as TS string constants (see Memory Level 1 plan), so there should be no SQL-on-disk hits. If a new module starts loading runtime assets, add a `postbuild` step that copies them into `dist/`.
+Each hit must read a path passed in by the caller (env var, CLI arg) — not a sibling file colocated with the source. Since we run `.ts` directly, there is no `src/` vs `dist/` divergence to worry about.
 
-- [ ] **Step 4: Document the audit in the deploy doc** (created in Task 4)
+Wake-word models (`models/*.ppn`, `*.onnx`) are loaded from a path resolved relative to the project root. They will be `COPY`-ed into the image (Task 2).
 
-Nothing to commit yet — this is research.
+- [ ] **Step 4: Verify Node 24 runs the entry points**
+
+On macOS, locally:
+
+```bash
+node --version          # expect v24.x
+node src/cli/run.ts --help 2>&1 || true
+```
+
+Should not error on `.ts` syntax. If it does, the local Node is older than 24 — `nvm use 24` first.
+
+Nothing to commit yet.
 
 ---
 
-## Task 2: systemd unit
+## Task 2: Dockerfile
 
 **Files:**
-- Create: `deploy/voice-assistant.service`
+- Create: `deploy/Dockerfile`
+- Create: `deploy/.dockerignore`
 
-- [ ] **Step 1: Create the unit file**
+- [ ] **Step 1: Create `deploy/.dockerignore`**
 
-```ini
-[Unit]
-Description=Voice Assistant
-After=network-online.target sound.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=pi
-Group=pi
-WorkingDirectory=/opt/voice-assistant
-EnvironmentFile=/opt/voice-assistant/.env
-ExecStart=/usr/bin/node --enable-source-maps /opt/voice-assistant/dist/cli/run.js
-Restart=on-failure
-RestartSec=5
-
-# Hardening
-NoNewPrivileges=yes
-ProtectSystem=full
-ProtectHome=yes
-ReadWritePaths=/opt/voice-assistant/data
-PrivateTmp=yes
-
-# Audio access
-SupplementaryGroups=audio
-
-# Resource caps
-MemoryMax=512M
-
-[Install]
-WantedBy=multi-user.target
+```
+node_modules
+dist
+.git
+.env
+.env.*
+!.env.example
+*.log
+.vscode
+.idea
+data
+docs/superpowers
 ```
 
-Note: runs the **compiled** `dist/cli/run.js`, not `tsx src/...`. Production-style.
+- [ ] **Step 2: Create `deploy/Dockerfile`**
 
-- [ ] **Step 2: Add a build step**
+```dockerfile
+# syntax=docker/dockerfile:1.7
+FROM node:24-bookworm-slim
 
-Verify `package.json` has a `build` script (it does, from Iteration 1: `"build": "tsc"`). Add a `start:prod` script:
+# Native module build deps + ALSA runtime + arecord (used by `mic`)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential python3 \
+      libasound2 alsa-utils \
+      ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-```json
-"start:prod": "node --enable-source-maps dist/cli/run.js"
+WORKDIR /app
+
+# Install deps first — better layer cache
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+# App sources (TS, models, configs)
+COPY src ./src
+COPY models ./models
+COPY tsconfig.json ./
+
+# Persistent state lives on a host-mounted volume; create the mountpoint.
+RUN mkdir -p /app/data && chown -R node:node /app
+
+USER node
+
+# Run TS directly via Node 24's native type stripping. No tsc, no tsx.
+CMD ["node", "src/cli/run.ts"]
 ```
 
-- [ ] **Step 3: Confirm `tsc` produces runnable output**
+Notes:
+- `node:24-bookworm-slim` is multi-arch — pulled as `linux/arm64` automatically on Pi 5.
+- `USER node` runs unprivileged; the audio gid is granted via compose `group_add`.
+- We ship `build-essential` and `python3` only because some prebuilds may be missing for arm64 on first install. If image size becomes a concern, switch to multi-stage with a builder stage. Not worth it for a single-host deployment.
+
+- [ ] **Step 3: Commit**
 
 ```bash
-npm run build
-node dist/cli/run.js --help 2>&1 || true
-```
-
-Expected: a build error or successful runtime startup-then-config-failure (not a TS path issue). If TS produces files but `import './foo.js'` paths break at runtime, fix imports — they should already include `.js` (we set `module: NodeNext`).
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add deploy/voice-assistant.service package.json
-git commit -m "chore(deploy): add systemd unit and prod start script"
+git add deploy/Dockerfile deploy/.dockerignore
+git commit -m "chore(deploy): add Dockerfile for Pi (Node 24, no build step)"
 ```
 
 ---
 
-## Task 3: install / uninstall scripts
+## Task 3: docker-compose.yml + install / uninstall
 
 **Files:**
+- Create: `deploy/docker-compose.yml`
 - Create: `deploy/install.sh`
 - Create: `deploy/uninstall.sh`
 
-These are run on the Pi as a one-time bootstrap.
+- [ ] **Step 1: Create `deploy/docker-compose.yml`**
 
-- [ ] **Step 1: Create `deploy/install.sh`**
+```yaml
+services:
+  voice-assistant:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: voice-assistant
+    restart: unless-stopped
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - "${AUDIO_GID:-29}"
+    env_file:
+      - ../.env
+    volumes:
+      - ../data:/app/data
+    # ALSA device selection — override in .env if your mic is not card 1.
+    environment:
+      - ALSA_CARD=${ALSA_CARD:-1}
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "src/cli/run.ts"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+```
+
+The `AUDIO_GID` is the host's `audio` group gid (29 on Bookworm). `install.sh` resolves and exports it.
+
+- [ ] **Step 2: Create `deploy/install.sh`**
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 APP_DIR=/opt/voice-assistant
-SERVICE_NAME=voice-assistant
 REPO_URL="${REPO_URL:-}"
 
 if [[ $EUID -ne 0 ]]; then
@@ -158,23 +207,16 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-# 1. System packages
-apt-get update
-apt-get install -y \
-  curl ca-certificates \
-  build-essential python3 \
-  alsa-utils libasound2-dev \
-  sox libsox-fmt-all \
-  git
-
-# 2. Node.js 20 LTS via NodeSource (Bookworm's apt nodejs is too old)
-if ! command -v node >/dev/null 2>&1 || ! node --version | grep -qE '^v(2[0-9]|[3-9][0-9])\.'; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-  apt-get install -y nodejs
+# 1. Docker (official convenience script — fine for a single Pi)
+if ! command -v docker >/dev/null 2>&1; then
+  curl -fsSL https://get.docker.com | sh
+  systemctl enable --now docker
 fi
-node --version
 
-# 3. App user (pi already exists on Raspberry Pi OS)
+# 2. Allow the pi user to run docker without sudo
+usermod -aG docker pi || true
+
+# 3. App directory
 mkdir -p "$APP_DIR"
 chown -R pi:pi "$APP_DIR"
 
@@ -189,36 +231,37 @@ else
   exit 1
 fi
 
-# 5. Install deps and build
-sudo -u pi bash -c "cd $APP_DIR && npm ci && npm run build"
-
-# 6. .env
+# 5. .env
 if [[ ! -f "$APP_DIR/.env" ]]; then
   sudo -u pi cp "$APP_DIR/.env.example" "$APP_DIR/.env"
   echo "Created $APP_DIR/.env from example. Edit it before starting the service."
 fi
 
+# 6. Resolve audio gid and persist it for compose
+AUDIO_GID=$(getent group audio | cut -d: -f3)
+if ! grep -q '^AUDIO_GID=' "$APP_DIR/.env"; then
+  echo "AUDIO_GID=${AUDIO_GID}" | sudo -u pi tee -a "$APP_DIR/.env" >/dev/null
+fi
+
 # 7. data dir
 sudo -u pi mkdir -p "$APP_DIR/data"
 
-# 8. systemd
-install -m 644 "$APP_DIR/deploy/voice-assistant.service" "/etc/systemd/system/${SERVICE_NAME}.service"
-systemctl daemon-reload
-systemctl enable "${SERVICE_NAME}"
+# 8. Build and start
+cd "$APP_DIR/deploy"
+sudo -u pi docker compose build
+sudo -u pi docker compose up -d
 
 echo
-echo "Install complete. Edit $APP_DIR/.env, then run:"
-echo "  sudo systemctl start ${SERVICE_NAME}"
-echo "  journalctl -u ${SERVICE_NAME} -f"
+echo "Service is starting. Tail logs with:"
+echo "  cd $APP_DIR/deploy && docker compose logs -f"
 ```
 
-- [ ] **Step 2: Create `deploy/uninstall.sh`**
+- [ ] **Step 3: Create `deploy/uninstall.sh`**
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVICE_NAME=voice-assistant
 APP_DIR=/opt/voice-assistant
 
 if [[ $EUID -ne 0 ]]; then
@@ -226,25 +269,20 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
-rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
-systemctl daemon-reload
+if [[ -d "$APP_DIR/deploy" ]]; then
+  cd "$APP_DIR/deploy"
+  sudo -u pi docker compose down -v || true
+fi
 
-echo "Service removed. App directory $APP_DIR left in place; remove manually if desired."
+echo "Container removed. Sources at $APP_DIR and Docker itself are left in place."
 ```
 
-- [ ] **Step 3: Make executable**
+- [ ] **Step 4: Make executable and commit**
 
 ```bash
 chmod +x deploy/install.sh deploy/uninstall.sh
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add deploy/install.sh deploy/uninstall.sh
-git commit -m "chore(deploy): add install and uninstall scripts"
+git add deploy/docker-compose.yml deploy/install.sh deploy/uninstall.sh
+git commit -m "chore(deploy): add docker compose + install scripts"
 ```
 
 ---
@@ -257,38 +295,35 @@ git commit -m "chore(deploy): add install and uninstall scripts"
 - [ ] **Step 1: Create the doc**
 
 ```markdown
-# Raspberry Pi Setup
+# Raspberry Pi Setup (Docker)
 
-Tested on Raspberry Pi 5 (8GB) and Pi 4 (4GB) with Raspberry Pi OS Bookworm 64-bit.
+Tested on Raspberry Pi 5 (8GB) with Raspberry Pi OS Bookworm 64-bit.
 
 ## Hardware
 
-- USB microphone (e.g. Jabra Speak, ReSpeaker 2-Mic HAT, or any UVC USB mic)
+- USB microphone (e.g. Jabra Speak, ReSpeaker, or any UVC USB mic)
 - USB speaker, 3.5mm speakers, or HDMI audio
-- Pi 4 minimum; Pi 5 recommended for lower latency
+- Pi 5 / 8GB recommended
 
 ## OS preparation
 
-1. Flash Raspberry Pi OS 64-bit (Bookworm or newer) using Pi Imager. In the imager's
-   advanced options, preconfigure: hostname, SSH, Wi-Fi, locale.
+1. Flash Raspberry Pi OS 64-bit (Bookworm or newer) using Pi Imager. Preconfigure
+   hostname, SSH, Wi-Fi, locale in advanced options.
 2. Boot, SSH in.
 3. Update:
    \`\`\`bash
    sudo apt update && sudo apt full-upgrade -y
    sudo reboot
    \`\`\`
-4. Install Node.js 20 LTS:
-   \`\`\`bash
-   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-   sudo apt-get install -y nodejs
-   node --version  # expect v20.x
-   \`\`\`
 
-## Audio
+That is the entire host setup. Docker is installed by `deploy/install.sh`. No
+Node.js, no build tools on the host.
+
+## Audio (verify on host before starting the container)
 
 1. Confirm input/output devices:
    \`\`\`bash
-   arecord -l   # list capture devices
+   arecord -l   # list capture devices, note the card number for your USB mic
    aplay -l     # list playback devices
    \`\`\`
 2. Test recording (5 seconds):
@@ -296,78 +331,82 @@ Tested on Raspberry Pi 5 (8GB) and Pi 4 (4GB) with Raspberry Pi OS Bookworm 64-b
    arecord -D plughw:1,0 -d 5 -f S16_LE -r 16000 -c 1 test.wav
    aplay test.wav
    \`\`\`
-   If `plughw:1,0` is wrong, find your card/device numbers in the `arecord -l` output.
-3. If the wrong device is default, set it in `~/.asoundrc`:
-   \`\`\`
-   pcm.!default {
-     type asym
-     playback.pcm "plughw:0,0"
-     capture.pcm  "plughw:1,0"
-   }
-   \`\`\`
-4. Add the `pi` user to the `audio` group (usually already is):
+3. Note the card number — set `ALSA_CARD` in `.env` if it is not 1.
+4. The `pi` user is in the `audio` group by default. Verify:
    \`\`\`bash
-   groups pi | grep audio || sudo usermod -aG audio pi
+   groups pi | grep audio
    \`\`\`
 
 ## Install the assistant
 
-1. Copy the project to the Pi (rsync or git clone via the install script).
-2. Run:
-   \`\`\`bash
-   cd /opt/voice-assistant
-   sudo deploy/install.sh
-   \`\`\`
-   If sources are not yet at `/opt/voice-assistant`, rsync first:
-   \`\`\`bash
-   rsync -av --exclude node_modules --exclude dist --exclude .git \\
-     ./ pi@raspberrypi.local:/opt/voice-assistant/
-   \`\`\`
-   Then re-run `sudo deploy/install.sh` on the Pi.
-3. Edit `/opt/voice-assistant/.env`. At minimum, set `HA_URL`, `HA_TOKEN`,
-   `OPENAI_API_KEY`, and `PORCUPINE_ACCESS_KEY`.
-4. Start:
-   \`\`\`bash
-   sudo systemctl start voice-assistant
-   journalctl -u voice-assistant -f
-   \`\`\`
+Option A — clone on the Pi:
 
-## Troubleshooting
+\`\`\`bash
+sudo REPO_URL=git@your-host:voice-assistant.git \\
+  bash -c 'curl -fsSL https://your-host/install.sh | bash'
+\`\`\`
 
-- **No audio captured:** wrong ALSA device. Re-check `arecord -l`. If using
-  ReSpeaker, install its driver per Seeed's docs first.
-- **Porcupine fails to load native binary:** ensure the package version supports
-  `linux-arm64`. Older versions only had `linux-armv7l`.
-- **High CPU during idle:** Porcupine alone should be < 5%. If higher, check
-  whether `mic` is set to a sample rate other than 16kHz.
-- **Service crashes on start:** `journalctl -u voice-assistant --since "5 minutes ago"`
-  will show the stack trace. Most often: missing `.env` value or HA unreachable.
-- **Latency is bad:** ensure good Wi-Fi (RTT to OpenAI < 60ms ideally).
-  Run `ping api.openai.com`. Move the Pi to 5GHz or wired Ethernet.
+Option B — rsync from your laptop, then run install:
+
+\`\`\`bash
+rsync -av --exclude node_modules --exclude data --exclude .git \\
+  ./ pi@raspberrypi.local:/opt/voice-assistant/
+ssh pi@raspberrypi.local 'sudo /opt/voice-assistant/deploy/install.sh'
+\`\`\`
+
+Then on the Pi:
+
+1. Edit `/opt/voice-assistant/.env`. At minimum set `HA_URL`, `HA_TOKEN`,
+   `OPENAI_API_KEY`, `PORCUPINE_ACCESS_KEY`. If your mic is not on card 1, set
+   `ALSA_CARD=<n>`.
+2. Apply changes:
+   \`\`\`bash
+   cd /opt/voice-assistant/deploy
+   docker compose up -d
+   docker compose logs -f
+   \`\`\`
 
 ## Updating
 
 \`\`\`bash
 cd /opt/voice-assistant
-sudo -u pi git pull
-sudo -u pi npm ci
-sudo -u pi npm run build
-sudo systemctl restart voice-assistant
+git pull
+cd deploy
+docker compose up -d --build
 \`\`\`
+
+## Troubleshooting
+
+- **No audio captured:** check `arecord -l` on the host first. Then verify the
+  container sees `/dev/snd`: `docker exec voice-assistant arecord -l`. If the
+  list is empty, the device passthrough failed — check the compose file.
+- **`Permission denied` on /dev/snd inside the container:** the `AUDIO_GID` in
+  `.env` does not match the host's `audio` group. Re-run:
+  `getent group audio | cut -d: -f3` and update `.env`, then
+  `docker compose up -d --force-recreate`.
+- **Porcupine fails to load native binary:** ensure the package version supports
+  `linux-arm64`. Older versions were `linux-armv7l` only.
+- **Service crashes on start:** `docker compose logs voice-assistant` shows the
+  stack trace. Most often: missing `.env` value or HA unreachable.
+- **High latency:** `ping api.openai.com` from the Pi. Move to 5GHz Wi-Fi or
+  wired Ethernet if RTT is high.
+- **Container restarts loop:** `docker compose ps` and
+  `docker inspect voice-assistant | grep -A5 Health`. Health check looks for the
+  Node process; if it crashes immediately, logs explain why.
 ```
 
 - [ ] **Step 2: Commit**
 
 ```bash
 git add docs/raspberry-pi-setup.md
-git commit -m "docs: add Raspberry Pi setup guide"
+git commit -m "docs: add Raspberry Pi (Docker) setup guide"
 ```
 
 ---
 
 ## Task 5: Live deployment test
 
-This is a manual checklist run on real Pi hardware.
+Manual checklist on a real Pi 5.
 
 - [ ] **Step 1: Provision Pi**
 
@@ -376,50 +415,48 @@ Follow `docs/raspberry-pi-setup.md` sections "OS preparation" and "Audio".
 - [ ] **Step 2: Deploy**
 
 ```bash
-rsync -av --exclude node_modules --exclude dist --exclude .git ./ pi@raspberrypi.local:/opt/voice-assistant/
+rsync -av --exclude node_modules --exclude data --exclude .git ./ pi@raspberrypi.local:/opt/voice-assistant/
 ssh pi@raspberrypi.local 'sudo /opt/voice-assistant/deploy/install.sh'
 ssh pi@raspberrypi.local 'sudo nano /opt/voice-assistant/.env'   # fill values
-ssh pi@raspberrypi.local 'sudo systemctl start voice-assistant'
-ssh pi@raspberrypi.local 'journalctl -u voice-assistant -f'
+ssh pi@raspberrypi.local 'cd /opt/voice-assistant/deploy && docker compose up -d && docker compose logs -f'
 ```
 
 - [ ] **Step 3: End-to-end voice test**
 
-Stand near the Pi:
 1. Say wake word → "включи лампу" → confirm Test Lamp turns on, hear assistant reply.
 2. Wait > 3 minutes silently.
-3. Say wake word → "а выключи" → expected behavior depends: idle timeout cleared context,
-   so the assistant may ask which device. (This is expected per spec.)
-4. Reboot Pi → service auto-starts, voice still works.
+3. Say wake word → "а выключи" → expected behavior depends on idle timeout (per spec).
+4. Reboot Pi → `docker` starts, container auto-starts, voice still works.
 
 - [ ] **Step 4: Resource check**
 
 ```bash
-ssh pi@raspberrypi.local 'systemctl status voice-assistant'
-ssh pi@raspberrypi.local 'top -bn1 | grep -E "node|voice"'
+ssh pi@raspberrypi.local 'docker stats --no-stream voice-assistant'
+ssh pi@raspberrypi.local 'docker compose -f /opt/voice-assistant/deploy/docker-compose.yml ps'
 ```
 
-Idle: < 100MB RSS, < 5% CPU.
-Active turn (during STT/LLM/TTS): brief CPU spike, mostly network-bound.
+Idle: < 200MB RSS (container + node), < 5% CPU.
+Active turn: brief CPU spike, mostly network-bound.
 
 - [ ] **Step 5: Document the result**
 
-Append a short "Verified deployments" section to `docs/raspberry-pi-setup.md` listing
-the model and OS version that worked, with measured latency (round-trip from VAD-end
-to first speaker output).
+Append a short "Verified deployments" section to `docs/raspberry-pi-setup.md`
+with the Pi model, OS version, and measured round-trip latency from VAD-end to
+first speaker output.
 
 ```bash
 git add docs/raspberry-pi-setup.md
-git commit -m "docs(deploy): record verified Pi deployment"
+git commit -m "docs(deploy): record verified Pi 5 deployment"
 ```
 
 ---
 
 ## Definition of done
 
-- `sudo systemctl start voice-assistant` brings the service up without errors on a fresh Pi.
-- `systemctl status` shows `active (running)` and no flapping.
-- Wake-word + voice pipeline works end-to-end on the Pi.
-- Service auto-starts on reboot.
-- Resource use is within targets (memory < 512MB cap, idle CPU low).
+- `sudo deploy/install.sh` on a fresh Pi 5 produces a running container without manual steps beyond editing `.env`.
+- `docker compose ps` shows `Up (healthy)`; container does not flap.
+- Wake-word + voice pipeline works end-to-end through ALSA passthrough.
+- Container auto-starts on Pi reboot.
+- Host has only `docker` installed — no Node.js, no build-essential, no NodeSource repo.
+- Resource use within targets (< 200MB RSS idle, < 5% CPU idle).
 - README or top-level docs link to `docs/raspberry-pi-setup.md`.

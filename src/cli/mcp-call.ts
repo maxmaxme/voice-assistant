@@ -1,5 +1,5 @@
-import { loadConfig } from '../config.js';
-import { HaMcpClient } from '../mcp/haMcpClient.js';
+import { loadConfig } from '../config.ts';
+import { HaMcpClient } from '../mcp/haMcpClient.ts';
 
 function usage(): never {
   console.error('Usage:');

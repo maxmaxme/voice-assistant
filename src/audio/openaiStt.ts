@@ -1,6 +1,6 @@
 import type OpenAI from 'openai';
 import { toFile } from 'openai';
-import type { Stt } from './types.js';
+import type { Stt } from './types.ts';
 
 export interface OpenAiSttOptions {
   client: OpenAI;

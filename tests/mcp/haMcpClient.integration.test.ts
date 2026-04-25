@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { HaMcpClient } from '../../src/mcp/haMcpClient.js';
-import { loadConfig } from '../../src/config.js';
+import { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
+import { loadConfig } from '../../src/config.ts';
 
 const RUN = process.env.RUN_INTEGRATION === '1';
 
