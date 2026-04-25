@@ -1,0 +1,9 @@
+node_modules
+.venv
+.husky/_
+data
+ha-data
+models
+coverage
+*.onnx
+package-lock.json

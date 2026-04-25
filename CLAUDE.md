@@ -18,6 +18,8 @@ npm install                        # also runs (and may fail on) optional `speak
 npm run typecheck                  # tsc --noEmit; allowImportingTsExtensions
 npm test                           # vitest run, all unit tests
 npm run test:watch                 # vitest watch mode
+npm run lint                       # eslint (flat config: eslint.config.js)
+npm run format                     # prettier --write .
 npx vitest run path/to/file.test.ts -t "name"   # one test
 RUN_INTEGRATION=1 npm test         # also runs tests gated against a live HA on http://localhost:8123
 
@@ -53,18 +55,20 @@ no `dist/`, no `tsx`. Two consequences:
 
 **`speaker` npm is platform-conditional.** Its bundled mpg123 doesn't compile on Node 24 Linux. `NodeSpeakerOutput` (in `src/audio/speakerOutput.ts`) spawns `aplay` on Linux and dynamic-imports `speaker` on macOS. `speaker` is in `optionalDependencies` so a failed compile in the Pi container doesn't fail `npm ci`.
 
+**Git hooks via husky.** `pre-commit` runs `lint-staged` (prettier + eslint --fix on staged files only). `pre-push` runs `npm run typecheck && npm test`. Hooks install on `npm install` via the `prepare` script. Don't bypass with `--no-verify` to "make it work" — fix the underlying issue.
+
 ## Architecture
 
 Three layers, four entry points.
 
 ### Entry points (`src/cli/`)
 
-| File | What |
-|---|---|
-| `mcp-call.ts` | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity. |
-| `chat.ts` | Text REPL → LLM → MCP. No audio. |
-| `voice.ts` | Push-to-talk: Enter starts/stops recording. STT → agent → TTS. |
-| `run.ts` | Always-listening daemon. Wake-word → VAD → STT → agent → TTS. The "production" entry. |
+| File          | What                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `mcp-call.ts` | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.       |
+| `chat.ts`     | Text REPL → LLM → MCP. No audio.                                                      |
+| `voice.ts`    | Push-to-talk: Enter starts/stops recording. STT → agent → TTS.                        |
+| `run.ts`      | Always-listening daemon. Wake-word → VAD → STT → agent → TTS. The "production" entry. |
 
 All four share the same `OpenAiAgent` core. The voice/run entries add audio adapters and (for `run.ts`) the orchestrator FSM.
 
@@ -97,6 +101,7 @@ The system prompt is shared via `src/agent/systemPrompt.ts` (`BASE_SYSTEM_PROMPT
 States: `idle` / `listening` / `thinking` / `speaking`. Pure `transition(state, event, options)` — easy to test, no side effects. Side effects are described as data (`Effect[]`), executed by the runtime.
 
 Key transitions:
+
 - `idle + wake → listening` (start capture, play 🎵 listen-chime)
 - `listening + utteranceEnd → thinking` (transcribe + ask agent)
 - `thinking + agentReplied → speaking` (carries `expectsFollowUp` from agent)
@@ -105,6 +110,7 @@ Key transitions:
 - `speaking + followUpRequested → listening` (always; `ask` tool was called)
 
 Audio chimes:
+
 - 🎵 ascending two-tone on every capture start (LISTEN_BLIP)
 - 🔔 single decaying tone when LLM replies with literal `✓` (CONFIRM_BLIP); see `src/audio/blip.ts`. The `✓` shortcut keeps simple device-action acknowledgments silent.
 
