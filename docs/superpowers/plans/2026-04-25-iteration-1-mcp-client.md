@@ -272,7 +272,7 @@ git commit -m "feat(config): add env-based config loader with zod validation"
 **Files:**
 - Create: `src/mcp/types.ts`
 
-- [ ] **Step 1: Define the interface**
+- [x] **Step 1: Define the interface**
 
 Create `src/mcp/types.ts`:
 
@@ -298,7 +298,7 @@ export interface McpClient {
 
 No runtime code, no test needed — this file is pure types and will be exercised by every subsequent task. If it breaks, those tasks fail.
 
-- [ ] **Step 2: Verify it compiles**
+- [x] **Step 2: Verify it compiles**
 
 ```bash
 npx tsc --noEmit
@@ -306,7 +306,7 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/mcp/types.ts
