@@ -240,7 +240,7 @@ npx vitest run tests/audio/openaiTts.test.ts
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `src/audio/openaiTts.ts`**
+- [x] **Step 3: Implement `src/audio/openaiTts.ts`**
 
 ```ts
 import type OpenAI from 'openai';
