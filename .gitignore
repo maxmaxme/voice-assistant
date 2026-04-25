@@ -3,3 +3,12 @@ node_modules/
 .env.local
 .idea/
 *.log
+
+# Home Assistant runtime data
+docker/homeassistant/.storage/
+docker/homeassistant/.cloud/
+docker/homeassistant/home-assistant*.log*
+docker/homeassistant/home-assistant_v2.db*
+docker/homeassistant/deps/
+docker/homeassistant/tts/
+docker/homeassistant/.HA_VERSION

@@ -1,0 +1,14 @@
+default_config:
+
+# Mock device for MCP testing
+input_boolean:
+  test_lamp:
+    name: Test Lamp
+    icon: mdi:lightbulb
+
+# Allow Docker bridge network IPs to reach the API
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 172.16.0.0/12
+    - 192.168.0.0/16
