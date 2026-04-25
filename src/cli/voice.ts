@@ -66,8 +66,8 @@ async function main(): Promise<void> {
       const reply = await agent.respond(text);
       console.log(`Assistant: ${reply.text}`);
 
-      const { audio: ttsAudio, sampleRate } = await tts.synthesize(reply.text);
-      await speaker.play(ttsAudio, { sampleRate });
+      const stream = tts.stream(reply.text);
+      await speaker.playStream(stream);
     }
   } finally {
     rl.close();
