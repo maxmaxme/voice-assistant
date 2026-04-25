@@ -96,7 +96,6 @@ Nothing to commit yet.
 
 ```
 node_modules
-dist
 .git
 .env
 .env.*
@@ -105,8 +104,12 @@ dist
 .vscode
 .idea
 data
+.venv
 docs/superpowers
 ```
+
+(No `dist` entry — we don't have a `dist/` directory at all now that we
+run TS directly via Node 24.)
 
 - [ ] **Step 2: Create `deploy/Dockerfile`**
 
@@ -114,26 +117,37 @@ docs/superpowers
 # syntax=docker/dockerfile:1.7
 FROM node:24-bookworm-slim
 
-# Native module build deps + ALSA runtime + arecord (used by `mic`)
+# Native module build deps (in case of arm64 prebuild gaps),
+# ALSA runtime + arecord (used by `mic`),
+# Python + pip (for the openWakeWord daemon spawned from Node).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential python3 \
+      build-essential python3 python3-pip python3-venv \
       libasound2 alsa-utils \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# openWakeWord and its runtime deps. Pinned versions match the local .venv
+# so dev and prod hit the same models. PEP 668 ("externally managed") is
+# bypassed inside the container — there is no system Python to protect.
+RUN pip install --no-cache-dir --break-system-packages \
+      openwakeword==0.6.0 \
+      onnxruntime==1.25.0 \
+      numpy==2.4.4
+
 WORKDIR /app
 
-# Install deps first — better layer cache
+# Install Node deps first — better layer cache
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-# App sources (TS, models, configs)
+# App sources (TS, configs). Models are mounted from the host (see compose):
+# they're large binaries and may be regenerated frequently during tuning.
 COPY src ./src
-COPY models ./models
+COPY scripts ./scripts
 COPY tsconfig.json ./
 
 # Persistent state lives on a host-mounted volume; create the mountpoint.
-RUN mkdir -p /app/data && chown -R node:node /app
+RUN mkdir -p /app/data /app/models && chown -R node:node /app
 
 USER node
 
@@ -144,7 +158,11 @@ CMD ["node", "src/cli/run.ts"]
 Notes:
 - `node:24-bookworm-slim` is multi-arch — pulled as `linux/arm64` automatically on Pi 5.
 - `USER node` runs unprivileged; the audio gid is granted via compose `group_add`.
-- We ship `build-essential` and `python3` only because some prebuilds may be missing for arm64 on first install. If image size becomes a concern, switch to multi-stage with a builder stage. Not worth it for a single-host deployment.
+- `scripts/wake_word_daemon.py` is spawned by Node at runtime via the
+  `WAKE_WORD_PYTHON` env var (set to `/usr/bin/python3` inside the container,
+  `.venv/bin/python` locally). Same script in both environments.
+- Image size: ~1.1 GB after `pip install onnxruntime + numpy + openwakeword`.
+  The Python ML stack is the bulk of it. Acceptable for a single-host home deploy.
 
 - [ ] **Step 3: Commit**
 
@@ -179,17 +197,33 @@ services:
     env_file:
       - ../.env
     volumes:
+      # Persistent SQLite profile state.
       - ../data:/app/data
-    # ALSA device selection — override in .env if your mic is not card 1.
+      # Wake-word models. Custom .onnx files are baked outside the image
+      # (large binaries that change independently of code) and mounted in.
+      - ../models:/app/models:ro
     environment:
+      # Override the daemon path so the same code that uses .venv/bin/python
+      # locally points at the system Python inside the image.
+      - WAKE_WORD_PYTHON=/usr/bin/python3
+      # ALSA device selection — override in .env if your mic is not card 1.
       - ALSA_CARD=${ALSA_CARD:-1}
     stop_grace_period: 10s
     healthcheck:
-      test: ["CMD", "pgrep", "-f", "src/cli/run.ts"]
+      # Two-line health probe: the Node process must be running AND its
+      # child wake-word daemon must be alive. `pgrep -c` returns the count;
+      # bash `[ ]` makes the exit code non-zero if either is missing.
+      test:
+        - "CMD-SHELL"
+        - "[ \"$(pgrep -c -f 'node src/cli/run.ts')\" -ge 1 ] && [ \"$(pgrep -c -f 'wake_word_daemon.py')\" -ge 1 ]"
       interval: 30s
       timeout: 5s
+      start_period: 30s
       retries: 3
 ```
+
+`start_period: 30s` gives the wake-word daemon time to load its ONNX
+models on first boot before the healthcheck starts marking failures.
 
 The `AUDIO_GID` is the host's `audio` group gid (29 on Bookworm). `install.sh` resolves and exports it.
 
@@ -235,6 +269,17 @@ fi
 if [[ ! -f "$APP_DIR/.env" ]]; then
   sudo -u pi cp "$APP_DIR/.env.example" "$APP_DIR/.env"
   echo "Created $APP_DIR/.env from example. Edit it before starting the service."
+fi
+
+# 5b. models/ — custom .onnx wake-word models live outside git (binaries).
+# If the user has a custom model on the dev machine, they need to rsync it
+# to $APP_DIR/models/ before this script runs. We just create the directory.
+sudo -u pi mkdir -p "$APP_DIR/models"
+if [[ -z "$(ls -A "$APP_DIR/models" 2>/dev/null)" ]]; then
+  echo "Note: $APP_DIR/models/ is empty. The default keyword (WAKE_WORD_KEYWORD"
+  echo "in .env, e.g. hey_jarvis) will load from openwakeword's bundled set."
+  echo "For a custom .onnx model, rsync it into $APP_DIR/models/ from your"
+  echo "dev machine and set WAKE_WORD_KEYWORD=models/<file>.onnx in .env."
 fi
 
 # 6. Resolve audio gid and persist it for compose
@@ -384,8 +429,15 @@ docker compose up -d --build
   `.env` does not match the host's `audio` group. Re-run:
   `getent group audio | cut -d: -f3` and update `.env`, then
   `docker compose up -d --force-recreate`.
-- **Porcupine fails to load native binary:** ensure the package version supports
-  `linux-arm64`. Older versions were `linux-armv7l` only.
+- **Wake-word never fires:** add `WAKE_WORD_DEBUG=1` to `.env` and restart
+  (`docker compose up -d --force-recreate`). The daemon will print per-frame
+  max score and RMS to stderr (visible in `docker compose logs -f`). RMS
+  should be 1000+ during speech; if it's stuck at single digits, the mic
+  isn't actually feeding audio. Score should rise above the threshold when
+  you say the keyword; if it caps near 0.2-0.3, lower `WAKE_WORD_THRESHOLD`.
+- **Wake-word daemon fails to load:** the most common cause on first boot is
+  openwakeword downloading models on first run. Watch
+  `docker compose logs voice-assistant` — first start can take 30-60s.
 - **Service crashes on start:** `docker compose logs voice-assistant` shows the
   stack trace. Most often: missing `.env` value or HA unreachable.
 - **High latency:** `ping api.openai.com` from the Pi. Move to 5GHz Wi-Fi or
