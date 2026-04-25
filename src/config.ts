@@ -6,6 +6,10 @@ const ConfigSchema = z.object({
     url: z.string().url(),
     token: z.string().min(1),
   }),
+  openai: z.object({
+    apiKey: z.string().min(1),
+    model: z.string().default('gpt-4o'),
+  }),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -13,6 +17,8 @@ export type Config = z.infer<typeof ConfigSchema>;
 const PATH_TO_ENV: Record<string, string> = {
   'ha.url': 'HA_URL',
   'ha.token': 'HA_TOKEN',
+  'openai.apiKey': 'OPENAI_API_KEY',
+  'openai.model': 'OPENAI_MODEL',
 };
 
 export function loadConfig(): Config {
@@ -20,6 +26,10 @@ export function loadConfig(): Config {
     ha: {
       url: process.env.HA_URL,
       token: process.env.HA_TOKEN,
+    },
+    openai: {
+      apiKey: process.env.OPENAI_API_KEY,
+      model: process.env.OPENAI_MODEL,
     },
   };
   const parsed = ConfigSchema.safeParse(raw);
