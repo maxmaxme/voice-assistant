@@ -163,7 +163,7 @@ git commit -m "chore: bootstrap TypeScript + Vitest toolchain"
 - Create: `.env.example`
 - Test: `tests/config.test.ts`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `tests/config.test.ts`:
 
@@ -203,7 +203,7 @@ describe('loadConfig', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 npx vitest run tests/config.test.ts
@@ -211,7 +211,7 @@ npx vitest run tests/config.test.ts
 
 Expected: FAIL — module `../src/config.js` not found.
 
-- [ ] **Step 3: Implement `src/config.ts`**
+- [x] **Step 3: Implement `src/config.ts`**
 
 ```ts
 import 'dotenv/config';
@@ -242,7 +242,7 @@ export function loadConfig(): Config {
 }
 ```
 
-- [ ] **Step 4: Create `.env.example`**
+- [x] **Step 4: Create `.env.example`**
 
 ```
 # Home Assistant MCP
@@ -250,7 +250,7 @@ HA_URL=http://localhost:8123
 HA_TOKEN=replace_with_long_lived_access_token
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 npx vitest run tests/config.test.ts
@@ -258,7 +258,7 @@ npx vitest run tests/config.test.ts
 
 Expected: 3 passed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/config.ts tests/config.test.ts .env.example
