@@ -312,7 +312,7 @@ git commit -m "feat(agent): add conversation store with idle timeout and trim"
 - Create: `src/agent/toolBridge.ts`
 - Test: `tests/agent/toolBridge.test.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 `tests/agent/toolBridge.test.ts`:
 
@@ -357,7 +357,7 @@ describe('mcpToolsToOpenAi', () => {
 });
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 ```bash
 npx vitest run tests/agent/toolBridge.test.ts
@@ -365,7 +365,7 @@ npx vitest run tests/agent/toolBridge.test.ts
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `src/agent/toolBridge.ts`**
+- [x] **Step 3: Implement `src/agent/toolBridge.ts`**
 
 ```ts
 import type { McpTool } from '../mcp/types.js';
@@ -391,7 +391,7 @@ export function mcpToolsToOpenAi(tools: McpTool[]): OpenAiFunctionTool[] {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 npx vitest run tests/agent/toolBridge.test.ts
@@ -399,7 +399,7 @@ npx vitest run tests/agent/toolBridge.test.ts
 
 Expected: 2 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent/toolBridge.ts tests/agent/toolBridge.test.ts
