@@ -323,7 +323,7 @@ git commit -m "feat(mcp): add McpClient interface and types"
 
 The strategy: the adapter takes a transport factory in its constructor, so unit tests inject a fake transport. This avoids needing a running HA for unit tests.
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `tests/mcp/haMcpClient.unit.test.ts`:
 
@@ -406,7 +406,7 @@ describe('HaMcpClient', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 npx vitest run tests/mcp/haMcpClient.unit.test.ts
@@ -414,7 +414,7 @@ npx vitest run tests/mcp/haMcpClient.unit.test.ts
 
 Expected: FAIL — `HaMcpClient` not exported.
 
-- [ ] **Step 3: Implement `src/mcp/haMcpClient.ts`**
+- [x] **Step 3: Implement `src/mcp/haMcpClient.ts`**
 
 ```ts
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -480,7 +480,7 @@ export class HaMcpClient implements McpClient {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 npx vitest run tests/mcp/haMcpClient.unit.test.ts
@@ -488,7 +488,7 @@ npx vitest run tests/mcp/haMcpClient.unit.test.ts
 
 Expected: 4 passed.
 
-- [ ] **Step 5: Verify type-check**
+- [x] **Step 5: Verify type-check**
 
 ```bash
 npx tsc --noEmit
@@ -496,7 +496,7 @@ npx tsc --noEmit
 
 Expected: exits 0. If `streamableHttp.js` import path is wrong on the installed SDK version, fix the import path now (check `node_modules/@modelcontextprotocol/sdk/dist/esm/client/`).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/mcp/haMcpClient.ts tests/mcp/haMcpClient.unit.test.ts
