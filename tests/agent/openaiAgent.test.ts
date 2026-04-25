@@ -4,6 +4,9 @@ import { ConversationStore } from '../../src/agent/conversationStore.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
 import type { MemoryAdapter } from '../../src/memory/types.ts';
+import type { TelegramSender } from '../../src/telegram/types.ts';
+
+const noopTelegram: TelegramSender = { send: async () => {} };
 
 /** A no-op MemoryAdapter for tests that don't care about memory state. */
 function emptyMemory(): MemoryAdapter {
@@ -58,6 +61,7 @@ describe('OpenAiAgent', () => {
       systemPrompt: 'You are helpful.',
       model: 'gpt-4o',
       llmClient: llm as never,
+      telegram: noopTelegram,
     });
     const res = await agent.respond('hello');
     expect(res.text).toBe('Hi there');
@@ -98,6 +102,7 @@ describe('OpenAiAgent', () => {
       systemPrompt: 'You are helpful.',
       model: 'gpt-4o',
       llmClient: llm as never,
+      telegram: noopTelegram,
     });
     const res = await agent.respond('turn on the lamp');
     expect(res.text).toBe('Lamp is on.');
@@ -120,6 +125,7 @@ describe('OpenAiAgent', () => {
       systemPrompt: 'sys',
       model: 'gpt-4o',
       llmClient: llm as never,
+      telegram: noopTelegram,
     });
     const before = store.length();
     await expect(agent.respond('hi')).rejects.toThrow(/boom/);
@@ -161,6 +167,7 @@ describe('OpenAiAgent', () => {
       systemPrompt: 'You are helpful.',
       model: 'gpt-4o',
       llmClient: llm as never,
+      telegram: noopTelegram,
     });
     const res = await agent.respond('меня зовут Максим');
     expect(res.text).toBe('Got it.');
@@ -200,6 +207,7 @@ describe('OpenAiAgent', () => {
       systemPrompt: 'sys',
       model: 'gpt-4o',
       llmClient: llm as never,
+      telegram: noopTelegram,
     });
     const res = await agent.respond('включи свет');
     expect(res.text).toBe('Где включить — на кухне или в спальне?');
@@ -237,6 +245,7 @@ describe('OpenAiAgent', () => {
       model: 'gpt-4o',
       maxToolIterations: 3,
       llmClient: llm as never,
+      telegram: noopTelegram,
     });
     await expect(agent.respond('x')).rejects.toThrow(/max tool iterations/i);
   });

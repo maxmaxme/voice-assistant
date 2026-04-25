@@ -12,6 +12,7 @@ import { OpenAiTts } from '../audio/openaiTts.ts';
 import { OpenWakeWord } from '../audio/wakeWord.ts';
 import { Orchestrator } from '../orchestrator/orchestrator.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
+import { telegramFromConfig } from '../telegram/fromConfig.ts';
 
 const SYSTEM_PROMPT = `${BASE_SYSTEM_PROMPT}
 
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
     systemPrompt: SYSTEM_PROMPT,
     model: cfg.openai.model,
     llmClient: llm,
+    telegram: telegramFromConfig(cfg),
   });
 
   const wake = new OpenWakeWord({

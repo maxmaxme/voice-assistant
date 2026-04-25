@@ -9,6 +9,7 @@ import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { ConversationStore } from '../agent/conversationStore.ts';
 import { SqliteProfileMemory } from '../memory/sqliteProfileMemory.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
+import { telegramFromConfig } from '../telegram/fromConfig.ts';
 
 const SYSTEM_PROMPT = BASE_SYSTEM_PROMPT;
 
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
     systemPrompt: SYSTEM_PROMPT,
     model: cfg.openai.model,
     llmClient: llm,
+    telegram: telegramFromConfig(cfg),
   });
 
   const rl = readline.createInterface({ input, output });

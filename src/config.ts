@@ -13,6 +13,10 @@ const ConfigSchema = z.object({
   memory: z.object({
     dbPath: z.string().default('data/assistant.db'),
   }),
+  telegram: z.object({
+    botToken: z.string().min(1),
+    chatId: z.string().min(1),
+  }),
   wakeWord: z.object({
     pythonPath: z.string().default('.venv/bin/python'),
     scriptPath: z.string().default('scripts/wake_word_daemon.py'),
@@ -37,6 +41,8 @@ const PATH_TO_ENV: Record<string, string> = {
   'openai.apiKey': 'OPENAI_API_KEY',
   'openai.model': 'OPENAI_MODEL',
   'memory.dbPath': 'MEMORY_DB_PATH',
+  'telegram.botToken': 'TELEGRAM_BOT_TOKEN',
+  'telegram.chatId': 'TELEGRAM_CHAT_ID',
   'wakeWord.pythonPath': 'WAKE_WORD_PYTHON',
   'wakeWord.scriptPath': 'WAKE_WORD_SCRIPT',
   'wakeWord.keyword': 'WAKE_WORD_KEYWORD',
@@ -55,6 +61,10 @@ export function loadConfig(): Config {
     },
     memory: {
       dbPath: process.env.MEMORY_DB_PATH,
+    },
+    telegram: {
+      botToken: process.env.TELEGRAM_BOT_TOKEN,
+      chatId: process.env.TELEGRAM_CHAT_ID,
     },
     wakeWord: {
       pythonPath: process.env.WAKE_WORD_PYTHON,

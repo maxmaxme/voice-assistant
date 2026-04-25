@@ -123,6 +123,15 @@ The current profile is injected into the system prompt on every turn via `OpenAi
 
 Out of scope (see `docs/superpowers/roadmap.md`): episodic memory (vector search), procedural memory (learned habits).
 
+### Telegram (`src/telegram/`)
+
+Outbound channel for delivering text to the user. `TelegramSender`
+interface; `BotTelegramSender` posts to
+`https://api.telegram.org/bot<token>/sendMessage`. Wired into the agent
+as the `send_to_telegram` tool. `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_CHAT_ID` are required env vars — `loadConfig()` throws without
+them. Use the `telegramFromConfig()` helper when constructing the agent.
+
 ### MCP client (`src/mcp/haMcpClient.ts`)
 
 Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth against HA's `/api/mcp`. Single replaceable adapter — the `McpClient` interface is the contract used by everything else.

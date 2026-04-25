@@ -6,6 +6,8 @@ import { ConversationStore } from './conversationStore.ts';
 import { mcpToolsToOpenAi } from './toolBridge.ts';
 import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
+import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
+import type { TelegramSender } from '../telegram/types.ts';
 
 export interface OpenAiAgentOptions {
   mcp: McpClient;
@@ -15,6 +17,7 @@ export interface OpenAiAgentOptions {
   model: string;
   maxToolIterations?: number;
   llmClient: OpenAI;
+  telegram: TelegramSender;
 }
 
 export class OpenAiAgent implements Agent {
@@ -35,7 +38,7 @@ export class OpenAiAgent implements Agent {
       store.append({ role: 'user', content: userText });
 
       const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
-      const tools = [...mcpTools, ...buildMemoryTools(), buildAskTool()];
+      const tools = [...mcpTools, ...buildMemoryTools(), buildAskTool(), buildTelegramTool()];
 
       for (let i = 0; i < this.maxIters; i++) {
       const completion = await llmClient.chat.completions.create({
@@ -78,6 +81,14 @@ export class OpenAiAgent implements Agent {
           if (MEMORY_TOOL_NAMES.has(tc.function.name)) {
             try {
               const r = executeMemoryTool(this.opts.memory, tc.function.name, args);
+              resultText = JSON.stringify(r);
+            } catch (e) {
+              resultText = e instanceof Error ? e.message : String(e);
+              isError = true;
+            }
+          } else if (tc.function.name === TELEGRAM_TOOL_NAME) {
+            try {
+              const r = await executeTelegramTool(this.opts.telegram, args);
               resultText = JSON.stringify(r);
             } catch (e) {
               resultText = e instanceof Error ? e.message : String(e);
