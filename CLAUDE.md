@@ -140,3 +140,30 @@ Mock entities for testing live in `docker/homeassistant/configuration.yaml`: rea
 - `docs/superpowers/roadmap.md` — backlog of deferred wishes (acoustic echo cancellation, custom Russian wake-word, streaming TTS, episodic memory, etc.). When picking a new feature, start here, then groom into a spec + plan via the `superpowers:brainstorming` and `superpowers:writing-plans` skills.
 
 The codebase was built iteration by iteration through TDD; tests are real and worth running. Don't loosen the conventions above to "make a quick fix work" — they're load-bearing.
+
+## Keep this file up to date
+
+This file is an onboarding shortcut for the next Claude (or human)
+touching the repo. It rots fast if no one tends it. **When you make a
+change that invalidates anything above, update this file in the same
+commit** — don't punt to "later".
+
+Specifically watch for:
+
+- New conventions or constraints (e.g. a new build/runtime quirk, a
+  new lint rule, a banned syntax form). The "Critical conventions"
+  section is for these.
+- New entry points, new top-level directories, or removal of existing
+  ones. Update the architecture map.
+- Shifts in adapter responsibilities (e.g. swapping `aplay` for
+  `pulseaudio`, replacing OpenAI STT with Whisper). The behaviour of
+  `OpenAiAgent.respond()`, the FSM transitions, and the wake-word
+  daemon protocol are all called out — keep those descriptions
+  honest.
+- Iteration / roadmap status. When an iteration lands or a roadmap
+  item gets implemented, reflect it in `README.md`'s Status section
+  AND remove it from `docs/superpowers/roadmap.md`.
+
+A useful rule of thumb: if you changed `package.json`, `tsconfig.json`,
+the shape of any `*/types.ts`, or a CLI entry point, re-skim this
+file and the README before committing.
