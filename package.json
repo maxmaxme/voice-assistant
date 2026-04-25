@@ -28,7 +28,9 @@
     "dotenv": "^17.4.2",
     "mic": "^2.1.2",
     "openai": "^6.34.0",
-    "speaker": "^0.5.5",
     "zod": "^4.3.6"
+  },
+  "optionalDependencies": {
+    "speaker": "^0.5.5"
   }
 }
