@@ -425,7 +425,7 @@ git commit -m "feat(audio): add mic input and speaker output wrappers"
 - Create: `src/cli/voice.ts`
 - Modify: `package.json`
 
-- [ ] **Step 1: Implement `src/cli/voice.ts`**
+- [x] **Step 1: Implement `src/cli/voice.ts`**
 
 ```ts
 import OpenAI from 'openai';
@@ -509,7 +509,7 @@ main().catch((err) => {
 });
 ```
 
-- [ ] **Step 2: Add npm script**
+- [x] **Step 2: Add npm script**
 
 In `package.json` `scripts`:
 
@@ -517,7 +517,7 @@ In `package.json` `scripts`:
 "voice": "tsx src/cli/voice.ts",
 ```
 
-- [ ] **Step 3: Verify type-check**
+- [x] **Step 3: Verify type-check**
 
 ```bash
 npx tsc --noEmit
@@ -525,7 +525,7 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 4: Manual end-to-end test on macOS**
+- [ ] **Step 4: Manual end-to-end test on macOS** (skipped — human will run)
 
 Prerequisites:
 - HA running with Test Lamp exposed (`docker compose up -d`).

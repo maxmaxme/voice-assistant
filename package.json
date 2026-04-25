@@ -9,7 +9,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "mcp:call": "tsx src/cli/mcp-call.ts",
-    "chat": "tsx src/cli/chat.ts"
+    "chat": "tsx src/cli/chat.ts",
+    "voice": "tsx src/cli/voice.ts"
   },
   "license": "ISC",
   "devDependencies": {
