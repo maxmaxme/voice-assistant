@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     speaker: new NodeSpeakerOutput(),
     wake,
     sampleRate: wake.sampleRate,
+    followUp: cfg.wakeWord.followUp,
   });
 
   process.on('SIGINT', async () => {
