@@ -22,3 +22,7 @@ data/
 *.db-shm
 .venv/
 dist/
+
+# Wake-word custom models (large binaries, regenerated via openWakeWord training)
+models/*.onnx
+models/*.tflite
