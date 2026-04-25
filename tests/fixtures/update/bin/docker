@@ -20,10 +20,15 @@ case "$1" in
     fi
     ;;
   compose)
-    if [[ "$2" == "pull" ]]; then
-      echo "${DIGEST_NEXT:-${DIGEST_PREV:-sha256:aaa}}" > "${DIGEST_STATE_FILE:?DIGEST_STATE_FILE required}"
-    fi
-    # compose up / compose -f .../override up: no-op success
+    # Look at remaining args (skip global flags like -f <file>) to find
+    # the subcommand. We only care about `pull`; everything else is a
+    # no-op success.
+    for arg in "${@:2}"; do
+      if [[ "$arg" == "pull" ]]; then
+        echo "${DIGEST_NEXT:-${DIGEST_PREV:-sha256:aaa}}" > "${DIGEST_STATE_FILE:?DIGEST_STATE_FILE required}"
+        break
+      fi
+    done
     ;;
   image)
     : # tag / prune / etc. — no-op success
