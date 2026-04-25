@@ -5,7 +5,7 @@ import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 describe('memoryTools', () => {
   it('exposes three function tools with sensible names', () => {
     const tools = buildMemoryTools();
-    const names = tools.map((t) => t.function.name);
+    const names = tools.map((t) => t.name);
     expect(names).toEqual(['remember', 'recall', 'forget']);
   });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
-import { ConversationStore } from '../../src/agent/conversationStore.ts';
+import { Session } from '../../src/agent/session.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
 import type { MemoryAdapter } from '../../src/memory/types.ts';
@@ -36,28 +36,62 @@ function fakeMcp(): McpClient {
   };
 }
 
+interface CreateArgs {
+  instructions?: string;
+  previous_response_id?: string;
+  input: Array<Record<string, unknown>>;
+}
+
 function fakeLlm(scripted: Array<unknown>) {
   let i = 0;
+  const calls: CreateArgs[] = [];
   return {
-    chat: {
-      completions: {
-        create: vi.fn(async () => scripted[i++]),
-      },
+    calls,
+    responses: {
+      create: vi.fn(async (args: CreateArgs) => {
+        calls.push(args);
+        return scripted[i++];
+      }),
     },
+  };
+}
+
+function textResponse(text: string, id = `resp_${Math.random().toString(36).slice(2, 8)}`) {
+  return {
+    id,
+    output: [
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text }],
+      },
+    ],
+    output_text: text,
+  };
+}
+
+function fnCallResponse(name: string, args: string, callId = `call_${name}`, id = `resp_${callId}`) {
+  return {
+    id,
+    output: [
+      {
+        type: 'function_call',
+        call_id: callId,
+        name,
+        arguments: args,
+      },
+    ],
+    output_text: '',
   };
 }
 
 describe('OpenAiAgent', () => {
   it('returns assistant text when no tool calls', async () => {
-    const llm = fakeLlm([
-      {
-        choices: [{ message: { role: 'assistant', content: 'Hi there' } }],
-      },
-    ]);
+    const llm = fakeLlm([textResponse('Hi there', 'resp_1')]);
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
       memory: emptyMemory(),
-      store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
+      session: new Session({ idleTimeoutMs: 60_000 }),
       systemPrompt: 'You are helpful.',
       model: 'gpt-4o',
       llmClient: llm as never,
@@ -65,40 +99,42 @@ describe('OpenAiAgent', () => {
     });
     const res = await agent.respond('hello');
     expect(res.text).toBe('Hi there');
-    expect(llm.chat.completions.create).toHaveBeenCalledOnce();
+    expect(llm.responses.create).toHaveBeenCalledOnce();
+    const args = llm.calls[0]!;
+    // First call in a fresh session sends instructions and no previous_response_id.
+    expect(args.instructions).toContain('You are helpful.');
+    expect(args.previous_response_id).toBeUndefined();
+  });
+
+  it('chains the next turn via previous_response_id', async () => {
+    const llm = fakeLlm([textResponse('Hi', 'resp_1'), textResponse('Hi again', 'resp_2')]);
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+    });
+    await agent.respond('one');
+    await agent.respond('two');
+    const second = llm.calls[1]!;
+    expect(second.previous_response_id).toBe('resp_1');
+    // Within an established chain we don't resend instructions.
+    expect(second.instructions).toBeUndefined();
   });
 
   it('runs tool-call loop and returns final text', async () => {
     const mcp = fakeMcp();
     const llm = fakeLlm([
-      {
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: null,
-              tool_calls: [
-                {
-                  id: 'call_1',
-                  type: 'function',
-                  function: {
-                    name: 'HassTurnOn',
-                    arguments: '{"name":"Test Lamp"}',
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      },
-      {
-        choices: [{ message: { role: 'assistant', content: 'Lamp is on.' } }],
-      },
+      fnCallResponse('HassTurnOn', '{"name":"Test Lamp"}', 'call_1', 'resp_1'),
+      textResponse('Lamp is on.', 'resp_2'),
     ]);
     const agent = new OpenAiAgent({
       mcp,
       memory: emptyMemory(),
-      store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
+      session: new Session({ idleTimeoutMs: 60_000 }),
       systemPrompt: 'You are helpful.',
       model: 'gpt-4o',
       llmClient: llm as never,
@@ -107,63 +143,46 @@ describe('OpenAiAgent', () => {
     const res = await agent.respond('turn on the lamp');
     expect(res.text).toBe('Lamp is on.');
     expect(mcp.callTool).toHaveBeenCalledWith('HassTurnOn', { name: 'Test Lamp' });
+    // Second call (the tool-result loop) chains from the function_call response id.
+    const second = llm.calls[1]!;
+    expect(second.previous_response_id).toBe('resp_1');
+    expect(second.input[0]).toMatchObject({
+      type: 'function_call_output',
+      call_id: 'call_1',
+    });
   });
 
-  it('rolls back history when the LLM call throws mid-turn', async () => {
-    const store = new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 });
+  it('does not advance session.previous_response_id when LLM call throws', async () => {
+    const session = new Session({ idleTimeoutMs: 60_000 });
     const llm = {
-      chat: {
-        completions: {
-          create: vi.fn().mockRejectedValue(new Error('boom')),
-        },
+      responses: {
+        create: vi.fn().mockRejectedValue(new Error('boom')),
       },
     };
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
       memory: emptyMemory(),
-      store,
+      session,
       systemPrompt: 'sys',
       model: 'gpt-4o',
       llmClient: llm as never,
       telegram: noopTelegram,
     });
-    const before = store.length();
     await expect(agent.respond('hi')).rejects.toThrow(/boom/);
-    expect(store.length()).toBe(before);
+    expect(session.isFresh()).toBe(true);
   });
 
   it('routes memory-tool calls to MemoryAdapter, not MCP', async () => {
     const mcp = fakeMcp();
     const memory = new SqliteProfileMemory({ dbPath: ':memory:' });
     const llm = fakeLlm([
-      {
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: null,
-              tool_calls: [
-                {
-                  id: 'mem_1',
-                  type: 'function',
-                  function: {
-                    name: 'remember',
-                    arguments: '{"key":"name","value":"Maxim"}',
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      },
-      {
-        choices: [{ message: { role: 'assistant', content: 'Got it.' } }],
-      },
+      fnCallResponse('remember', '{"key":"name","value":"Maxim"}', 'mem_1', 'resp_1'),
+      textResponse('Got it.', 'resp_2'),
     ]);
     const agent = new OpenAiAgent({
       mcp,
       memory,
-      store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
+      session: new Session({ idleTimeoutMs: 60_000 }),
       systemPrompt: 'You are helpful.',
       model: 'gpt-4o',
       llmClient: llm as never,
@@ -179,31 +198,12 @@ describe('OpenAiAgent', () => {
   it('ask tool ends the turn and sets expectsFollowUp=true', async () => {
     const mcp = fakeMcp();
     const llm = fakeLlm([
-      {
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: null,
-              tool_calls: [
-                {
-                  id: 'ask_1',
-                  type: 'function',
-                  function: {
-                    name: 'ask',
-                    arguments: '{"text":"Где включить — на кухне или в спальне?"}',
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      },
+      fnCallResponse('ask', '{"text":"Где включить — на кухне или в спальне?"}', 'ask_1', 'resp_1'),
     ]);
     const agent = new OpenAiAgent({
       mcp,
       memory: emptyMemory(),
-      store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
+      session: new Session({ idleTimeoutMs: 60_000 }),
       systemPrompt: 'sys',
       model: 'gpt-4o',
       llmClient: llm as never,
@@ -212,35 +212,17 @@ describe('OpenAiAgent', () => {
     const res = await agent.respond('включи свет');
     expect(res.text).toBe('Где включить — на кухне или в спальне?');
     expect(res.expectsFollowUp).toBe(true);
-    // The ask tool short-circuits — MCP should not have been called.
     expect(mcp.callTool).not.toHaveBeenCalled();
-    // And the LLM should have been called only once (no tool-result loop).
-    expect(llm.chat.completions.create).toHaveBeenCalledOnce();
+    expect(llm.responses.create).toHaveBeenCalledOnce();
   });
 
   it('throws after max iterations to avoid infinite tool-loops', async () => {
-    const looping = {
-      choices: [
-        {
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [
-              {
-                id: 'c',
-                type: 'function',
-                function: { name: 'HassTurnOn', arguments: '{}' },
-              },
-            ],
-          },
-        },
-      ],
-    };
+    const looping = fnCallResponse('HassTurnOn', '{}', 'c', 'resp_loop');
     const llm = fakeLlm([looping, looping, looping, looping, looping, looping]);
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
       memory: emptyMemory(),
-      store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
+      session: new Session({ idleTimeoutMs: 60_000 }),
       systemPrompt: 's',
       model: 'gpt-4o',
       maxToolIterations: 3,
