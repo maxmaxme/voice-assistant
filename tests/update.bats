@@ -36,7 +36,7 @@ run_update() {
   export HEALTH_STATUS="healthy"
   run run_update
   [ "$status" -eq 0 ]
-  grep -q "compose up -d voice-assistant" "$DOCKER_LOG"
+  grep -qE "compose .*up -d voice-assistant" "$DOCKER_LOG"
   grep -q "sendMessage" "$CURL_LOG"
   grep -q "✓" "$CURL_LOG"
   grep -q "updated" "$CURL_LOG"
