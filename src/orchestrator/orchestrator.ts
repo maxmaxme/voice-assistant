@@ -6,6 +6,7 @@ import { StreamingMic } from '../audio/streamingMic.ts';
 import type { WakeWord } from '../audio/wakeWord.ts';
 import { RmsVad } from '../audio/vad.ts';
 import { generateConfirmBlip, generateListenBlip, isAckOnly } from '../audio/blip.ts';
+import { bufferToStream, isAbortError } from '../audio/streamHelpers.ts';
 
 const BLIP_SAMPLE_RATE = 24000;
 const CONFIRM_BLIP = generateConfirmBlip(BLIP_SAMPLE_RATE);
@@ -38,6 +39,7 @@ export class Orchestrator {
   private capturing = false;
   private speechSeen = false;
   private noSpeechTimer: NodeJS.Timeout | null = null;
+  private currentSpeechAbort: AbortController | null = null;
   private readonly opts: OrchestratorOptions;
 
   constructor(opts: OrchestratorOptions) {
@@ -118,7 +120,9 @@ export class Orchestrator {
         // Audible "I'm listening" cue. Fire-and-forget so we don't delay
         // capture start; the chime is short (~140ms) and won't mask early
         // speech for normal users.
-        this.opts.speaker.play(LISTEN_BLIP, { sampleRate: BLIP_SAMPLE_RATE }).catch(() => {});
+        this.opts.speaker
+          .playStream(bufferToStream(LISTEN_BLIP, BLIP_SAMPLE_RATE))
+          .catch(() => {});
         this.capturing = true;
         this.captureBuffer = [];
         this.vad.reset();
@@ -131,6 +135,7 @@ export class Orchestrator {
         }, NO_SPEECH_TIMEOUT_MS);
         return;
       case 'stopSpeaking':
+        this.currentSpeechAbort?.abort();
         this.opts.speaker.stop();
         return;
       case 'transcribeAndAsk':
@@ -158,22 +163,27 @@ export class Orchestrator {
         }
         return;
       case 'speak':
+        this.currentSpeechAbort = new AbortController();
         try {
           if (isAckOnly(eff.text)) {
             console.log('Assistant: ✓ (action confirmed)');
-            await this.opts.speaker.play(CONFIRM_BLIP, { sampleRate: BLIP_SAMPLE_RATE });
+            await this.opts.speaker.playStream(
+              bufferToStream(CONFIRM_BLIP, BLIP_SAMPLE_RATE),
+              { signal: this.currentSpeechAbort.signal },
+            );
           } else {
-            const { audio, sampleRate } = await this.opts.tts.synthesize(eff.text);
+            const stream = this.opts.tts.stream(eff.text, {
+              signal: this.currentSpeechAbort.signal,
+            });
             console.log(`Assistant: ${eff.text}`);
-            await this.opts.speaker.play(audio, { sampleRate });
+            await this.opts.speaker.playStream(stream, {
+              signal: this.currentSpeechAbort.signal,
+            });
           }
         } catch (e) {
-          console.error('TTS error', e);
+          if (!isAbortError(e)) console.error('TTS error', e);
         } finally {
-          // The agent signals "I asked the user something" by calling the
-          // `ask` tool, which propagates as `expectsFollowUp` on the speak
-          // effect. When set, reopen capture so the user can answer
-          // without saying the wake word again.
+          this.currentSpeechAbort = null;
           if (eff.expectsFollowUp) {
             await this.dispatch({ type: 'followUpRequested' });
           } else {
