@@ -46,4 +46,48 @@ describe('ConversationStore', () => {
     s.reset();
     expect(s.history()).toHaveLength(0);
   });
+
+  it('never leaves a tool message orphaned from its assistant tool_calls', () => {
+    // Reproduces the OpenAI "messages with role 'tool' must be a response to
+    // a preceeding message with 'tool_calls'" error: trim must not start the
+    // history with a tool or assistant-with-tool_calls message.
+    const s = new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 3 });
+    s.append({ role: 'system', content: 'sys' });
+    s.append({ role: 'user', content: 'u1' });
+    s.append({
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'call_1', name: 't', arguments: {} }],
+    });
+    s.append({ role: 'tool', toolCallId: 'call_1', content: 'ok' });
+    s.append({ role: 'assistant', content: 'done1' });
+    s.append({ role: 'user', content: 'u2' });
+    s.append({
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'call_2', name: 't', arguments: {} }],
+    });
+    s.append({ role: 'tool', toolCallId: 'call_2', content: 'ok' });
+    s.append({ role: 'assistant', content: 'done2' });
+
+    const h = s.history();
+    expect(h[0].role).toBe('system');
+    // The remaining history must be valid for OpenAI: no tool message
+    // without a preceding assistant.tool_calls, and no assistant.tool_calls
+    // without its tool replies. The simplest check: walk the messages and
+    // make sure every 'tool' is preceded by an assistant carrying tool_calls.
+    const seenToolCallIds = new Set<string>();
+    for (let i = 0; i < h.length; i++) {
+      const m = h[i];
+      if (m.role === 'assistant' && m.toolCalls) {
+        for (const tc of m.toolCalls) seenToolCallIds.add(tc.id);
+      }
+      if (m.role === 'tool') {
+        expect(seenToolCallIds.has(m.toolCallId!)).toBe(true);
+      }
+    }
+    // And: never start the non-system tail with an orphan tool message.
+    const firstNonSystem = h.find((m) => m.role !== 'system');
+    expect(firstNonSystem?.role).not.toBe('tool');
+  });
 });

@@ -25,58 +25,66 @@ export class OpenAiAgent implements Agent {
 
   async respond(userText: string): Promise<AgentResponse> {
     const { mcp, store, model, llmClient } = this.opts;
-    store.append({ role: 'user', content: userText });
+    // Snapshot before mutating so we can roll back the whole turn on error.
+    const snapshot = store.length();
+    try {
+      store.append({ role: 'user', content: userText });
 
-    const tools = mcpToolsToOpenAi(await mcp.listTools());
+      const tools = mcpToolsToOpenAi(await mcp.listTools());
 
-    for (let i = 0; i < this.maxIters; i++) {
-      const completion = await llmClient.chat.completions.create({
-        model,
-        messages: this.toOpenAi(store.history()),
-        tools: tools.length > 0 ? tools : undefined,
-      });
-      const choice = completion.choices[0].message;
-
-      const fnCalls = (choice.tool_calls ?? []).filter(
-        (tc: { type?: string }): tc is { id: string; type: 'function'; function: { name: string; arguments: string } } =>
-          tc.type === 'function' || (tc as { function?: unknown }).function !== undefined,
-      );
-      if (fnCalls.length > 0) {
-        store.append({
-          role: 'assistant',
-          content: choice.content ?? '',
-          toolCalls: fnCalls.map((tc) => ({
-            id: tc.id,
-            name: tc.function.name,
-            arguments: JSON.parse(tc.function.arguments || '{}'),
-          })),
+      for (let i = 0; i < this.maxIters; i++) {
+        const completion = await llmClient.chat.completions.create({
+          model,
+          messages: this.toOpenAi(store.history()),
+          tools: tools.length > 0 ? tools : undefined,
         });
-        for (const tc of fnCalls) {
-          let args: Record<string, unknown> = {};
-          try {
-            args = JSON.parse(tc.function.arguments || '{}');
-          } catch {
-            args = {};
-          }
-          const result = await mcp.callTool(tc.function.name, args);
-          const text = result.content
-            .map((c) => (c.type === 'text' ? c.text ?? '' : ''))
-            .join('\n');
+        const choice = completion.choices[0].message;
+
+        const fnCalls = (choice.tool_calls ?? []).filter(
+          (tc: { type?: string }): tc is { id: string; type: 'function'; function: { name: string; arguments: string } } =>
+            tc.type === 'function' || (tc as { function?: unknown }).function !== undefined,
+        );
+        if (fnCalls.length > 0) {
           store.append({
-            role: 'tool',
-            toolCallId: tc.id,
-            content: result.isError ? `ERROR: ${text}` : text,
+            role: 'assistant',
+            content: choice.content ?? '',
+            toolCalls: fnCalls.map((tc) => ({
+              id: tc.id,
+              name: tc.function.name,
+              arguments: JSON.parse(tc.function.arguments || '{}'),
+            })),
           });
+          for (const tc of fnCalls) {
+            let args: Record<string, unknown> = {};
+            try {
+              args = JSON.parse(tc.function.arguments || '{}');
+            } catch {
+              args = {};
+            }
+            const result = await mcp.callTool(tc.function.name, args);
+            const text = result.content
+              .map((c) => (c.type === 'text' ? c.text ?? '' : ''))
+              .join('\n');
+            store.append({
+              role: 'tool',
+              toolCallId: tc.id,
+              content: result.isError ? `ERROR: ${text}` : text,
+            });
+          }
+          continue;
         }
-        continue;
+
+        const finalText = choice.content ?? '';
+        store.append({ role: 'assistant', content: finalText });
+        return { text: finalText };
       }
 
-      const finalText = choice.content ?? '';
-      store.append({ role: 'assistant', content: finalText });
-      return { text: finalText };
+      throw new Error('Agent exceeded max tool iterations');
+    } catch (err) {
+      // Roll back any partial turn so the next call sees a clean history.
+      store.truncateTo(snapshot);
+      throw err;
     }
-
-    throw new Error('Agent exceeded max tool iterations');
   }
 
   private toOpenAi(messages: Message[]): OpenAI.ChatCompletionMessageParam[] {

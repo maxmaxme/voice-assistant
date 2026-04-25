@@ -90,6 +90,27 @@ describe('OpenAiAgent', () => {
     expect(mcp.callTool).toHaveBeenCalledWith('HassTurnOn', { name: 'Test Lamp' });
   });
 
+  it('rolls back history when the LLM call throws mid-turn', async () => {
+    const store = new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 });
+    const llm = {
+      chat: {
+        completions: {
+          create: vi.fn().mockRejectedValue(new Error('boom')),
+        },
+      },
+    };
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      store,
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+    });
+    const before = store.length();
+    await expect(agent.respond('hi')).rejects.toThrow(/boom/);
+    expect(store.length()).toBe(before);
+  });
+
   it('throws after max iterations to avoid infinite tool-loops', async () => {
     const looping = {
       choices: [
