@@ -769,7 +769,7 @@ git commit -m "feat(orchestrator): add pure FSM with explicit effects"
 - Create: `src/cli/run.ts`
 - Modify: `package.json`
 
-- [ ] **Step 1: Implement `src/orchestrator/orchestrator.ts`**
+- [x] **Step 1: Implement `src/orchestrator/orchestrator.ts`**
 
 ```ts
 import type { Agent } from '../agent/types.js';
@@ -885,7 +885,7 @@ export class Orchestrator {
 }
 ```
 
-- [ ] **Step 2: Implement `src/cli/run.ts`**
+- [x] **Step 2: Implement `src/cli/run.ts`**
 
 ```ts
 import OpenAI from 'openai';
@@ -958,7 +958,7 @@ main().catch((err) => {
 });
 ```
 
-- [ ] **Step 3: Add npm script**
+- [x] **Step 3: Add npm script**
 
 In `package.json` `scripts`:
 
@@ -966,7 +966,7 @@ In `package.json` `scripts`:
 "start": "tsx src/cli/run.ts",
 ```
 
-- [ ] **Step 4: Verify type-check**
+- [x] **Step 4: Verify type-check**
 
 ```bash
 npx tsc --noEmit
@@ -974,7 +974,7 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 5: Manual end-to-end test on macOS**
+- [ ] **Step 5: Manual end-to-end test on macOS** (skipped by automation; human runs `npm run start` and says the wake word)
 
 Prereq: `PORCUPINE_ACCESS_KEY` set (free at console.picovoice.ai). HA running. Choose a built-in keyword like `jarvis` to start (no need for custom .ppn).
 
@@ -990,7 +990,7 @@ Test:
 
 If wake-word never fires: lower `WAKE_WORD_THRESHOLD` from 0.5 to 0.3. Check that the daemon's stderr shows it loaded the model. Check the mic level — openWakeWord needs reasonably clean 16kHz audio. Try a different keyword (e.g. `alexa`) to rule out the model itself.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/orchestrator/orchestrator.ts src/cli/run.ts package.json
