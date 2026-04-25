@@ -10,6 +10,9 @@ const ConfigSchema = z.object({
     apiKey: z.string().min(1),
     model: z.string().default('gpt-4o'),
   }),
+  memory: z.object({
+    dbPath: z.string().default('data/assistant.db'),
+  }),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -19,6 +22,7 @@ const PATH_TO_ENV: Record<string, string> = {
   'ha.token': 'HA_TOKEN',
   'openai.apiKey': 'OPENAI_API_KEY',
   'openai.model': 'OPENAI_MODEL',
+  'memory.dbPath': 'MEMORY_DB_PATH',
 };
 
 export function loadConfig(): Config {
@@ -30,6 +34,9 @@ export function loadConfig(): Config {
     openai: {
       apiKey: process.env.OPENAI_API_KEY,
       model: process.env.OPENAI_MODEL,
+    },
+    memory: {
+      dbPath: process.env.MEMORY_DB_PATH,
     },
   };
   const parsed = ConfigSchema.safeParse(raw);
