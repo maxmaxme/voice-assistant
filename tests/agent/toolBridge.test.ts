@@ -19,15 +19,14 @@ describe('mcpToolsToOpenAi', () => {
     expect(out).toEqual([
       {
         type: 'function',
-        function: {
-          name: 'HassTurnOn',
-          description: 'Turn on a device',
-          parameters: {
-            type: 'object',
-            properties: { name: { type: 'string' } },
-            required: ['name'],
-          },
+        name: 'HassTurnOn',
+        description: 'Turn on a device',
+        parameters: {
+          type: 'object',
+          properties: { name: { type: 'string' } },
+          required: ['name'],
         },
+        strict: false,
       },
     ]);
   });

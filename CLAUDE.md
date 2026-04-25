@@ -70,20 +70,23 @@ All four share the same `OpenAiAgent` core. The voice/run entries add audio adap
 
 ### Agent core (`src/agent/`)
 
+Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completions. Conversation state lives **server-side** at OpenAI — we keep only the `lastResponseId` locally in `Session` and chain turns via `previous_response_id`.
+
 `OpenAiAgent.respond(userText)` runs the tool-calling loop:
 
-1. Refresh system prompt (injects current memory profile).
-2. Append user message to `ConversationStore`.
-3. Build tool list: HA MCP tools + memory tools (`remember`/`recall`/`forget`) + the local `ask` tool.
-4. Call OpenAI; if tool calls come back, route by name:
+1. `Session.begin()` returns the previous `response_id` to chain from, or `undefined` if the session is fresh / went idle.
+2. On a fresh chain: send `instructions` (system prompt + memory profile) once. On a continuing chain: omit `instructions` — the server still has them.
+3. Build tool list: HA MCP tools + memory tools (`remember`/`recall`/`forget`) + the local `ask` and `send_to_telegram` tools.
+4. Send `input` (user message on first call, `function_call_output` items on tool-loop iterations) with `previous_response_id` and `store: true`.
+5. Inspect `response.output` for `function_call` items; route by name:
    - `ask` is **terminal**: returns immediately with `expectsFollowUp: true` so the orchestrator reopens capture.
    - Memory tools execute locally against the `MemoryAdapter`.
+   - `send_to_telegram` goes to the `TelegramSender`.
    - Everything else goes to MCP.
-5. Loop until LLM returns plain text or `maxToolIterations` is hit.
-6. **Transactional rollback**: on any thrown error, restore `ConversationStore` to the pre-turn snapshot so a half-applied turn doesn't poison subsequent calls.
+6. Loop, advancing `previousResponseId` to `response.id` each turn, until plain text comes back or `maxToolIterations` is hit.
+7. On success → `Session.commit(response.id)`. On thrown error → no commit, so the next turn naturally starts fresh from the last successful chain point.
 
-`ConversationStore.trim()` never strands a `tool` message or
-`assistant(tool_calls)` at the head — OpenAI rejects orphaned tool sequences, so we walk forward off them after slicing. Don't break this in refactors.
+**Tool schemas:** local tools (memory/ask/telegram) are strict-by-default (Responses default `strict: true`) and include `additionalProperties: false`. HA MCP tools come from upstream and don't satisfy strict-mode requirements, so `mcpToolsToOpenAi` sets `strict: false` for them.
 
 `memory: MemoryAdapter` is **required** on `OpenAiAgentOptions`. Tests that don't care about persistent state pass `emptyMemory()` (no-op).
 

@@ -6,7 +6,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import { loadConfig } from '../config.ts';
 import { HaMcpClient } from '../mcp/haMcpClient.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
-import { ConversationStore } from '../agent/conversationStore.ts';
+import { Session } from '../agent/session.ts';
 import { SqliteProfileMemory } from '../memory/sqliteProfileMemory.ts';
 import { NodeMicInput } from '../audio/micInput.ts';
 import { NodeSpeakerOutput } from '../audio/speakerOutput.ts';
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   const agent = new OpenAiAgent({
     mcp,
     memory,
-    store: new ConversationStore({ idleTimeoutMs: 3 * 60 * 1000, maxMessages: 20 }),
+    session: new Session(),
     systemPrompt: SYSTEM_PROMPT,
     model: cfg.openai.model,
     llmClient: llm,
@@ -52,10 +52,10 @@ async function main(): Promise<void> {
   try {
     while (true) {
       await rl.question('Press Enter to talk... ');
-      const session = await mic.record({ sampleRate: MIC_SAMPLE_RATE });
+      const recording = await mic.record({ sampleRate: MIC_SAMPLE_RATE });
       console.log('Listening. Press Enter when done.');
       await rl.question('');
-      const audio = await session.stop();
+      const audio = await recording.stop();
       console.log(`Captured ${audio.length} bytes; transcribing...`);
 
       const text = (await stt.transcribe(audio, { sampleRate: MIC_SAMPLE_RATE, language: 'ru' })).trim();

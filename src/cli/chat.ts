@@ -6,7 +6,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import { loadConfig } from '../config.ts';
 import { HaMcpClient } from '../mcp/haMcpClient.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
-import { ConversationStore } from '../agent/conversationStore.ts';
+import { Session } from '../agent/session.ts';
 import { SqliteProfileMemory } from '../memory/sqliteProfileMemory.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
 import { telegramFromConfig } from '../telegram/fromConfig.ts';
@@ -20,11 +20,11 @@ async function main(): Promise<void> {
   const mcp = new HaMcpClient({ url: cfg.ha.url, token: cfg.ha.token });
   const memory = new SqliteProfileMemory({ dbPath: cfg.memory.dbPath });
   await mcp.connect();
-  const store = new ConversationStore({ idleTimeoutMs: 3 * 60 * 1000, maxMessages: 20 });
+  const session = new Session();
   const agent = new OpenAiAgent({
     mcp,
     memory,
-    store,
+    session,
     systemPrompt: SYSTEM_PROMPT,
     model: cfg.openai.model,
     llmClient: llm,
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
       }
       if (!line) continue;
       if (line === '/reset') {
-        store.reset();
+        session.reset();
         console.log('(context cleared)');
         continue;
       }

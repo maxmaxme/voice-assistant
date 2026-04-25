@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
-import { ConversationStore } from '../../src/agent/conversationStore.ts';
+import { Session } from '../../src/agent/session.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
 import type { MemoryAdapter } from '../../src/memory/types.ts';
 import type { TelegramSender } from '../../src/telegram/types.ts';
@@ -23,13 +23,13 @@ function fakeMcp(): McpClient {
 function fakeLlm(scripted: Array<unknown>) {
   let i = 0;
   return {
-    chat: { completions: { create: vi.fn(async () => scripted[i++]) } },
+    responses: { create: vi.fn(async () => scripted[i++]) },
   };
 }
 
 describe('telegramTool', () => {
   it('exposes a function tool with the expected name', () => {
-    expect(buildTelegramTool().function.name).toBe(TELEGRAM_TOOL_NAME);
+    expect(buildTelegramTool().name).toBe(TELEGRAM_TOOL_NAME);
   });
 
   it('executeTelegramTool delegates to the sender', async () => {
@@ -73,24 +73,33 @@ describe('OpenAiAgent + telegram', () => {
     const mcp = fakeMcp();
     const llm = fakeLlm([
       {
-        choices: [{
-          message: {
-            role: 'assistant',
-            content: null,
-            tool_calls: [{
-              id: 'tg_1',
-              type: 'function',
-              function: { name: 'send_to_telegram', arguments: '{"text":"Рецепт блинов: ..."}' },
-            }],
+        id: 'resp_1',
+        output: [
+          {
+            type: 'function_call',
+            call_id: 'tg_1',
+            name: 'send_to_telegram',
+            arguments: '{"text":"Рецепт блинов: ..."}',
           },
-        }],
+        ],
+        output_text: '',
       },
-      { choices: [{ message: { role: 'assistant', content: 'Отправил.' } }] },
+      {
+        id: 'resp_2',
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'Отправил.' }],
+          },
+        ],
+        output_text: 'Отправил.',
+      },
     ]);
     const agent = new OpenAiAgent({
       mcp,
       memory: emptyMemory(),
-      store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
+      session: new Session({ idleTimeoutMs: 60_000 }),
       systemPrompt: 'sys',
       model: 'gpt-4o',
       llmClient: llm as never,
