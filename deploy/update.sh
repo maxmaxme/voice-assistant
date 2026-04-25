@@ -8,6 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-$SCRIPT_DIR/docker-compose.yml}"
 ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/../.env}"
 IMAGE="${VOICE_ASSISTANT_IMAGE:-ghcr.io/maxmaxme/voice-assistant:latest}"
+ROLLBACK_TAG="${IMAGE%@*}:rollback"
+ROLLBACK_TAG="${ROLLBACK_TAG%:*}:rollback"
 HEALTHCHECK_TIMEOUT_SECONDS="${HEALTHCHECK_TIMEOUT_SECONDS:-90}"
 
 # Load .env so TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID are available.
@@ -72,22 +74,36 @@ if wait_for_health; then
   notify "✓ voice-assistant updated to ${NEW_DIGEST}"
   log "update healthy"
   # Retain :latest's previous digest as :rollback for manual recovery.
-  docker image tag "$PREV_DIGEST" ghcr.io/maxmaxme/voice-assistant:rollback || true
+  docker image tag "$PREV_DIGEST" "$ROLLBACK_TAG" || true
   # Drop images older than 30d, keeping :latest, :rollback, and recent :sha-* tags.
   docker image prune -f --filter "until=720h" || true
   exit 0
 fi
 
 log "new image unhealthy — rolling back"
-docker image tag "$PREV_DIGEST" ghcr.io/maxmaxme/voice-assistant:rollback
-# Rewrite compose to use the rollback tag for this restart only.
+
+if [[ -z "$PREV_DIGEST" ]]; then
+  notify "✗ voice-assistant ${NEW_DIGEST} unhealthy; no previous digest to roll back to"
+  exit 1
+fi
+
+if ! docker image tag "$PREV_DIGEST" "$ROLLBACK_TAG"; then
+  notify "✗ voice-assistant ${NEW_DIGEST} unhealthy AND retag for rollback failed"
+  exit 2
+fi
+
 ROLLBACK_OVERRIDE=$(mktemp)
+trap 'rm -f "$ROLLBACK_OVERRIDE"' EXIT
 cat >"$ROLLBACK_OVERRIDE" <<EOF
 services:
   voice-assistant:
-    image: ghcr.io/maxmaxme/voice-assistant:rollback
+    image: $ROLLBACK_TAG
 EOF
-docker compose -f "$COMPOSE_FILE" -f "$ROLLBACK_OVERRIDE" up -d voice-assistant
-rm -f "$ROLLBACK_OVERRIDE"
+
+if ! docker compose -f "$COMPOSE_FILE" -f "$ROLLBACK_OVERRIDE" up -d voice-assistant; then
+  notify "✗ voice-assistant rollback FAILED — manual intervention required"
+  exit 2
+fi
+
 notify "✗ voice-assistant rolled back from ${NEW_DIGEST}"
 exit 1
