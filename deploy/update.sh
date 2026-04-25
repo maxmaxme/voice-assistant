@@ -18,7 +18,7 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-log() { printf '[update.sh] %s\n' "$*"; }
+log() { printf '[%s update.sh] %s\n' "$(date -Iseconds)" "$*"; }
 
 notify() {
   local text="$1"
@@ -37,6 +37,8 @@ current_digest() {
   docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE" 2>/dev/null || echo ""
 }
 
+log "checking image: $IMAGE (compose: $COMPOSE_FILE)"
+
 PREV_DIGEST=$(current_digest)
 log "previous digest: ${PREV_DIGEST:-<none>}"
 
@@ -52,3 +54,40 @@ fi
 
 log "restarting voice-assistant"
 docker compose -f "$COMPOSE_FILE" up -d voice-assistant
+
+wait_for_health() {
+  local deadline=$(( SECONDS + HEALTHCHECK_TIMEOUT_SECONDS ))
+  while (( SECONDS < deadline )); do
+    local status
+    status=$(docker inspect --format='{{.State.Health.Status}}' voice-assistant 2>/dev/null || echo "missing")
+    if [[ "$status" == "healthy" ]]; then
+      return 0
+    fi
+    sleep 3
+  done
+  return 1
+}
+
+if wait_for_health; then
+  notify "✓ voice-assistant updated to ${NEW_DIGEST}"
+  log "update healthy"
+  # Retain :latest's previous digest as :rollback for manual recovery.
+  docker image tag "$PREV_DIGEST" ghcr.io/maxmaxme/voice-assistant:rollback || true
+  # Drop images older than 30d, keeping :latest, :rollback, and recent :sha-* tags.
+  docker image prune -f --filter "until=720h" || true
+  exit 0
+fi
+
+log "new image unhealthy — rolling back"
+docker image tag "$PREV_DIGEST" ghcr.io/maxmaxme/voice-assistant:rollback
+# Rewrite compose to use the rollback tag for this restart only.
+ROLLBACK_OVERRIDE=$(mktemp)
+cat >"$ROLLBACK_OVERRIDE" <<EOF
+services:
+  voice-assistant:
+    image: ghcr.io/maxmaxme/voice-assistant:rollback
+EOF
+docker compose -f "$COMPOSE_FILE" -f "$ROLLBACK_OVERRIDE" up -d voice-assistant
+rm -f "$ROLLBACK_OVERRIDE"
+notify "✗ voice-assistant rolled back from ${NEW_DIGEST}"
+exit 1
