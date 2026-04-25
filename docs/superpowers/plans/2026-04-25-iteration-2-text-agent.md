@@ -416,7 +416,7 @@ git commit -m "feat(agent): add MCP→OpenAI tool format bridge"
 
 The agent runs a loop: send messages to LLM → if LLM returns tool_calls, execute via McpClient, append results, loop → otherwise return assistant text. Max iterations protects against infinite loops.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 `tests/agent/openaiAgent.test.ts`:
 
@@ -545,7 +545,7 @@ describe('OpenAiAgent', () => {
 });
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 ```bash
 npx vitest run tests/agent/openaiAgent.test.ts
@@ -553,7 +553,7 @@ npx vitest run tests/agent/openaiAgent.test.ts
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `src/agent/openaiAgent.ts`**
+- [x] **Step 3: Implement `src/agent/openaiAgent.ts`**
 
 ```ts
 import type OpenAI from 'openai';
@@ -658,7 +658,7 @@ export class OpenAiAgent implements Agent {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 npx vitest run tests/agent/openaiAgent.test.ts
@@ -666,7 +666,7 @@ npx vitest run tests/agent/openaiAgent.test.ts
 
 Expected: 3 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent/openaiAgent.ts tests/agent/openaiAgent.test.ts
