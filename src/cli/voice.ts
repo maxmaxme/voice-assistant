@@ -12,6 +12,7 @@ import { NodeMicInput } from '../audio/micInput.ts';
 import { NodeSpeakerOutput } from '../audio/speakerOutput.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { OpenAiTts } from '../audio/openaiTts.ts';
+import { telegramFromConfig } from '../telegram/fromConfig.ts';
 
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
 
@@ -37,6 +38,7 @@ async function main(): Promise<void> {
     systemPrompt: SYSTEM_PROMPT,
     model: cfg.openai.model,
     llmClient: llm,
+    telegram: telegramFromConfig(cfg),
   });
 
   const mic = new NodeMicInput();
