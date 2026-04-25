@@ -12,8 +12,10 @@ const SAMPLE_RATE = 24000;
 export class OpenAiTts implements Tts {
   private readonly model: string;
   private readonly voice: string;
+  private readonly opts: OpenAiTtsOptions;
 
-  constructor(private readonly opts: OpenAiTtsOptions) {
+  constructor(opts: OpenAiTtsOptions) {
+    this.opts = opts;
     this.model = opts.model ?? 'gpt-4o-mini-tts';
     this.voice = opts.voice ?? 'alloy';
   }

@@ -18,8 +18,10 @@ export interface OpenAiAgentOptions {
 
 export class OpenAiAgent implements Agent {
   private readonly maxIters: number;
+  private readonly opts: OpenAiAgentOptions;
 
-  constructor(private readonly opts: OpenAiAgentOptions) {
+  constructor(opts: OpenAiAgentOptions) {
+    this.opts = opts;
     this.maxIters = opts.maxToolIterations ?? 5;
   }
 

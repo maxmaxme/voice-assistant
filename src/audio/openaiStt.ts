@@ -9,7 +9,9 @@ export interface OpenAiSttOptions {
 
 export class OpenAiStt implements Stt {
   private readonly model: string;
-  constructor(private readonly opts: OpenAiSttOptions) {
+  private readonly opts: OpenAiSttOptions;
+  constructor(opts: OpenAiSttOptions) {
+    this.opts = opts;
     this.model = opts.model ?? 'gpt-4o-transcribe';
   }
 
