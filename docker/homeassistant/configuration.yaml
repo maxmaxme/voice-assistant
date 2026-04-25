@@ -6,9 +6,6 @@ default_config:
 # HassLightSet etc.) recognise them by domain.
 
 input_boolean:
-  test_lamp:
-    name: Test Lamp
-    icon: mdi:lightbulb
   kitchen_light_state:
     name: Kitchen Light State
     icon: mdi:lightbulb
