@@ -5,6 +5,10 @@ import { transition } from './fsm.js';
 import { StreamingMic } from '../audio/streamingMic.js';
 import type { WakeWord } from '../audio/wakeWord.js';
 import { RmsVad } from '../audio/vad.js';
+import { generateConfirmBlip, isAckOnly } from '../audio/blip.js';
+
+const BLIP_SAMPLE_RATE = 24000;
+const BLIP_PCM = generateConfirmBlip(BLIP_SAMPLE_RATE);
 
 export interface OrchestratorOptions {
   agent: Agent;
@@ -144,9 +148,14 @@ export class Orchestrator {
         return;
       case 'speak':
         try {
-          const { audio, sampleRate } = await this.opts.tts.synthesize(eff.text);
-          console.log(`Assistant: ${eff.text}`);
-          await this.opts.speaker.play(audio, { sampleRate });
+          if (isAckOnly(eff.text)) {
+            console.log('Assistant: ✓ (action confirmed)');
+            await this.opts.speaker.play(BLIP_PCM, { sampleRate: BLIP_SAMPLE_RATE });
+          } else {
+            const { audio, sampleRate } = await this.opts.tts.synthesize(eff.text);
+            console.log(`Assistant: ${eff.text}`);
+            await this.opts.speaker.play(audio, { sampleRate });
+          }
         } catch (e) {
           console.error('TTS error', e);
         } finally {
