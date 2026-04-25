@@ -101,7 +101,7 @@ git commit -m "chore(memory): install better-sqlite3 and add MemoryAdapter inter
 
 **Why no `.sql` files:** `tsc` does not copy non-TS files into `dist/`, so a `.sql`-on-disk approach silently breaks the production build on the Pi (`readdirSync` ENOENT). Embedding the SQL as TS string literals avoids the entire build-copy problem; SQL is small and rarely changes.
 
-- [ ] **Step 1: Create `src/memory/migrations.ts`**
+- [x] **Step 1: Create `src/memory/migrations.ts`**
 
 ```ts
 export interface Migration {
@@ -127,7 +127,7 @@ export const MIGRATIONS: Migration[] = [
 ];
 ```
 
-- [ ] **Step 2: Write failing test**
+- [x] **Step 2: Write failing test**
 
 `tests/memory/migrate.test.ts`:
 
@@ -167,7 +167,7 @@ describe('runMigrations', () => {
 });
 ```
 
-- [ ] **Step 3: Verify failure**
+- [x] **Step 3: Verify failure**
 
 ```bash
 npx vitest run tests/memory/migrate.test.ts
@@ -175,7 +175,7 @@ npx vitest run tests/memory/migrate.test.ts
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 4: Implement `src/memory/migrate.ts`**
+- [x] **Step 4: Implement `src/memory/migrate.ts`**
 
 ```ts
 import type Database from 'better-sqlite3';
@@ -190,7 +190,7 @@ export function runMigrations(db: Database.Database): void {
 
 No filesystem access — works identically under `tsx` (dev) and compiled `node dist/...` (prod).
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 npx vitest run tests/memory/migrate.test.ts
@@ -198,7 +198,7 @@ npx vitest run tests/memory/migrate.test.ts
 
 Expected: 3 passed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/memory/migrate.ts src/memory/migrations.ts tests/memory/migrate.test.ts
