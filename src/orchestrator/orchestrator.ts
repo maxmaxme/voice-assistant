@@ -37,7 +37,10 @@ export class Orchestrator {
 
   async run(): Promise<void> {
     await this.opts.wake.start();
-    this.opts.wake.onWake(() => this.dispatch({ type: 'wake' }));
+    this.opts.wake.onWake((kw, score) => {
+      console.log(`[wake] ${kw} score=${score.toFixed(2)} → listening (say your command)`);
+      this.dispatch({ type: 'wake' });
+    });
     this.vad.onSilence(() => {
       if (!this.capturing) return;
       this.capturing = false;
@@ -81,6 +84,7 @@ export class Orchestrator {
             })
           ).trim();
           if (!text) {
+            console.log('[empty transcript — say a command right after the wake word]');
             await this.dispatch({ type: 'speechFinished' });
             return;
           }
