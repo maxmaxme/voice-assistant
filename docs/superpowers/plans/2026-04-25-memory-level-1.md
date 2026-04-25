@@ -740,7 +740,7 @@ git commit -m "feat(agent): route memory tools to MemoryAdapter, inject profile 
 - Modify: `src/cli/chat.ts`
 - Modify: `src/config.ts`
 
-- [ ] **Step 1: Add `memoryDbPath` to config**
+- [x] **Step 1: Add `memoryDbPath` to config**
 
 In `src/config.ts`, extend the schema:
 
@@ -770,7 +770,7 @@ Append to `.env.example`:
 MEMORY_DB_PATH=data/assistant.db
 ```
 
-- [ ] **Step 2: Update `src/cli/chat.ts`**
+- [x] **Step 2: Update `src/cli/chat.ts`**
 
 Replace the body of `main()`:
 
@@ -834,7 +834,7 @@ useful preferences (name, comfort temperature, routines). Do NOT remember sensit
 Be concise: under 2 sentences when possible. Speak Russian if the user does.`;
 ```
 
-- [ ] **Step 3: Verify type-check**
+- [x] **Step 3: Verify type-check**
 
 ```bash
 npx tsc --noEmit
@@ -842,7 +842,7 @@ npx tsc --noEmit
 
 Expected: exits 0.
 
-- [ ] **Step 4: Manual smoke test**
+- [x] **Step 4: Manual smoke test**
 
 ```bash
 npm run chat
@@ -862,7 +862,7 @@ Restart `npm run chat`:
 (expected: "Максим" — recalled from SQLite even after restart)
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/cli/chat.ts src/config.ts .env.example
