@@ -358,7 +358,7 @@ git commit -m "feat(memory): add SqliteProfileMemory adapter"
 
 These are the `remember` / `recall` / `forget` tools the LLM can call. They look like OpenAI function tools but execute against the local `MemoryAdapter` instead of going through MCP.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 `tests/agent/memoryTools.test.ts`:
 
@@ -398,7 +398,7 @@ describe('memoryTools', () => {
 });
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 ```bash
 npx vitest run tests/agent/memoryTools.test.ts
@@ -406,7 +406,7 @@ npx vitest run tests/agent/memoryTools.test.ts
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `src/agent/memoryTools.ts`**
+- [x] **Step 3: Implement `src/agent/memoryTools.ts`**
 
 ```ts
 import type { MemoryAdapter } from '../memory/types.js';
@@ -480,7 +480,7 @@ export function executeMemoryTool(
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 npx vitest run tests/agent/memoryTools.test.ts
@@ -488,7 +488,7 @@ npx vitest run tests/agent/memoryTools.test.ts
 
 Expected: 3 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent/memoryTools.ts tests/agent/memoryTools.test.ts
