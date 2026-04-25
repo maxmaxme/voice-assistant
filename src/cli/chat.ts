@@ -8,8 +8,15 @@ import { ConversationStore } from '../agent/conversationStore.js';
 
 const SYSTEM_PROMPT = `You are a smart-home voice assistant for the user's home.
 You control devices through Home Assistant tools available to you.
+
+ACT, don't ask: when the user gives a command like "turn on the lamp", call the
+appropriate tool (e.g. HassTurnOn with the device name) immediately. Do NOT ask
+for clarification about area/location unless the tool itself returns an
+ambiguity error. Pass the user's device phrase as the "name" argument verbatim
+(e.g. "test lamp", "lamp"); Home Assistant resolves it.
+
 Be concise: under 2 sentences when possible. Speak Russian if the user does.
-If a tool fails, explain briefly. Do not invent device names — list tools first if unsure.`;
+If a tool fails, explain briefly.`;
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
@@ -28,9 +35,19 @@ async function main(): Promise<void> {
   const rl = readline.createInterface({ input, output });
   console.log('Chat ready. Type your command. Ctrl+C to exit. /reset to clear context.');
 
+  let closed = false;
+  rl.on('close', () => {
+    closed = true;
+  });
+
   try {
-    while (true) {
-      const line = (await rl.question('> ')).trim();
+    while (!closed) {
+      let line: string;
+      try {
+        line = (await rl.question('> ')).trim();
+      } catch {
+        break;
+      }
       if (!line) continue;
       if (line === '/reset') {
         store.reset();
