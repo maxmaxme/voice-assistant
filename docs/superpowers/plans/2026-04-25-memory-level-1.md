@@ -18,10 +18,9 @@
 src/
 ├── memory/
 │   ├── types.ts                 # MemoryAdapter interface + facts type
+│   ├── migrations.ts            # SQL migrations as TS constants (no .sql on disk)
 │   ├── migrate.ts               # apply migrations on startup
-│   ├── sqliteProfileMemory.ts   # better-sqlite3 implementation
-│   └── migrations/
-│       └── 001_init.sql
+│   └── sqliteProfileMemory.ts   # better-sqlite3 implementation
 ├── agent/
 │   ├── memoryTools.ts           # remember/recall/forget as OpenAI tools
 │   └── openaiAgent.ts           # MODIFIED: accept local tool registry
@@ -96,26 +95,36 @@ git commit -m "chore(memory): install better-sqlite3 and add MemoryAdapter inter
 ## Task 2: Migration runner
 
 **Files:**
-- Create: `src/memory/migrations/001_init.sql`
+- Create: `src/memory/migrations.ts` (SQL embedded as TS string constants)
 - Create: `src/memory/migrate.ts`
 - Test: `tests/memory/migrate.test.ts`
 
-- [ ] **Step 1: Create migration**
+**Why no `.sql` files:** `tsc` does not copy non-TS files into `dist/`, so a `.sql`-on-disk approach silently breaks the production build on the Pi (`readdirSync` ENOENT). Embedding the SQL as TS string literals avoids the entire build-copy problem; SQL is small and rarely changes.
 
-`src/memory/migrations/001_init.sql`:
+- [ ] **Step 1: Create `src/memory/migrations.ts`**
 
-```sql
-CREATE TABLE IF NOT EXISTS schema_version (
-  version INTEGER PRIMARY KEY
-);
+```ts
+export interface Migration {
+  version: number;
+  sql: string;
+}
 
-CREATE TABLE IF NOT EXISTS profile (
-  key        TEXT PRIMARY KEY,
-  value      TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-
-INSERT OR IGNORE INTO schema_version (version) VALUES (1);
+export const MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    sql: `
+      CREATE TABLE IF NOT EXISTS schema_version (
+        version INTEGER PRIMARY KEY
+      );
+      CREATE TABLE IF NOT EXISTS profile (
+        key        TEXT PRIMARY KEY,
+        value      TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT OR IGNORE INTO schema_version (version) VALUES (1);
+    `,
+  },
+];
 ```
 
 - [ ] **Step 2: Write failing test**
@@ -170,24 +179,16 @@ Expected: FAIL — module not found.
 
 ```ts
 import type Database from 'better-sqlite3';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
+import { MIGRATIONS } from './migrations.js';
 
 export function runMigrations(db: Database.Database): void {
-  const files = fs
-    .readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
-  for (const f of files) {
-    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, f), 'utf8');
-    db.exec(sql);
+  for (const m of [...MIGRATIONS].sort((a, b) => a.version - b.version)) {
+    db.exec(m.sql);
   }
 }
 ```
+
+No filesystem access — works identically under `tsx` (dev) and compiled `node dist/...` (prod).
 
 - [ ] **Step 5: Run tests**
 
@@ -200,7 +201,7 @@ Expected: 3 passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/memory/migrate.ts src/memory/migrations/001_init.sql tests/memory/migrate.test.ts
+git add src/memory/migrate.ts src/memory/migrations.ts tests/memory/migrate.test.ts
 git commit -m "feat(memory): add SQLite migration runner with profile schema"
 ```
 
@@ -563,89 +564,9 @@ npx vitest run tests/agent/openaiAgent.test.ts
 
 Expected: FAIL — `OpenAiAgentOptions` does not accept `memory`.
 
-- [ ] **Step 3: Modify `src/agent/openaiAgent.ts`**
+- [ ] **Step 3a: Add `replaceSystem` to `ConversationStore`**
 
-Add at top:
-
-```ts
-import type { MemoryAdapter } from '../memory/types.js';
-import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.js';
-```
-
-Add `memory?: MemoryAdapter;` to `OpenAiAgentOptions`.
-
-Inside `respond()`, replace the line that builds `tools`:
-
-```ts
-const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
-const tools = this.opts.memory ? [...mcpTools, ...buildMemoryTools()] : mcpTools;
-```
-
-And the system prompt assembly: replace the constructor body that appends the system message with:
-
-```ts
-constructor(private readonly opts: OpenAiAgentOptions) {
-  this.maxIters = opts.maxToolIterations ?? 5;
-}
-```
-
-Add a private method:
-
-```ts
-private buildSystemMessage(): string {
-  const base = this.opts.systemPrompt;
-  if (!this.opts.memory) return base;
-  const profile = this.opts.memory.recall();
-  if (Object.keys(profile).length === 0) return base;
-  return `${base}\n\nKnown user profile: ${JSON.stringify(profile)}`;
-}
-```
-
-In `respond()`, before any history reads, ensure the system message is fresh:
-
-```ts
-const history = store.history();
-const sysMsg = this.buildSystemMessage();
-if (history.length === 0 || history[0].role !== 'system') {
-  store.append({ role: 'system', content: sysMsg });
-} else if (history[0].content !== sysMsg) {
-  // Replace stale system message inline
-  history[0].content = sysMsg;
-}
-```
-
-In the tool-call dispatch loop, route by tool name:
-
-```ts
-for (const tc of choice.tool_calls) {
-  let args: Record<string, unknown> = {};
-  try { args = JSON.parse(tc.function.arguments || '{}'); } catch { args = {}; }
-  let resultText: string;
-  let isError = false;
-  if (MEMORY_TOOL_NAMES.has(tc.function.name) && this.opts.memory) {
-    try {
-      const r = executeMemoryTool(this.opts.memory, tc.function.name, args);
-      resultText = JSON.stringify(r);
-    } catch (e) {
-      resultText = e instanceof Error ? e.message : String(e);
-      isError = true;
-    }
-  } else {
-    const result = await mcp.callTool(tc.function.name, args);
-    resultText = result.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n');
-    isError = result.isError;
-  }
-  store.append({
-    role: 'tool',
-    toolCallId: tc.id,
-    content: isError ? `ERROR: ${resultText}` : resultText,
-  });
-}
-```
-
-Note: the `history()` mutation above relies on `ConversationStore.history()` returning the internal array reference. Currently it returns a copy. To keep memory updates visible, add a method `replaceSystem(text: string)` to `ConversationStore`:
-
-In `src/agent/conversationStore.ts`, add:
+In `src/agent/conversationStore.ts`, add this method to the class:
 
 ```ts
 replaceSystem(content: string): void {
@@ -653,15 +574,148 @@ replaceSystem(content: string): void {
     this.messages[0] = { role: 'system', content };
   } else {
     this.messages.unshift({ role: 'system', content });
+    this.lastTouch = this.opts.now();
   }
 }
 ```
 
-And in `openaiAgent.ts`, replace the system-message handling with:
+This avoids the issue that `history()` returns a copy — the agent cannot mutate it directly.
+
+- [ ] **Step 3b: Replace `src/agent/openaiAgent.ts` with the final version**
+
+Overwrite the file completely. This supersedes the version produced in Iteration 2 Task 4 — the Iteration 2 version did the system-prompt seeding in the constructor; this version moves it into `respond()` so it can refresh from current memory state on every turn.
 
 ```ts
-this.opts.store.replaceSystem(this.buildSystemMessage());
+import type OpenAI from 'openai';
+import type { Agent, AgentResponse, Message } from './types.js';
+import type { McpClient } from '../mcp/types.js';
+import type { MemoryAdapter } from '../memory/types.js';
+import { ConversationStore } from './conversationStore.js';
+import { mcpToolsToOpenAi } from './toolBridge.js';
+import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.js';
+
+export interface OpenAiAgentOptions {
+  mcp: McpClient;
+  store: ConversationStore;
+  systemPrompt: string;
+  model: string;
+  maxToolIterations?: number;
+  llmClient: OpenAI;
+  memory?: MemoryAdapter;
+}
+
+export class OpenAiAgent implements Agent {
+  private readonly maxIters: number;
+
+  constructor(private readonly opts: OpenAiAgentOptions) {
+    this.maxIters = opts.maxToolIterations ?? 5;
+  }
+
+  async respond(userText: string): Promise<AgentResponse> {
+    const { mcp, store, model, llmClient } = this.opts;
+
+    store.replaceSystem(this.buildSystemMessage());
+    store.append({ role: 'user', content: userText });
+
+    const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
+    const tools = this.opts.memory ? [...mcpTools, ...buildMemoryTools()] : mcpTools;
+
+    for (let i = 0; i < this.maxIters; i++) {
+      const completion = await llmClient.chat.completions.create({
+        model,
+        messages: this.toOpenAi(store.history()),
+        tools: tools.length > 0 ? tools : undefined,
+      });
+      const choice = completion.choices[0].message;
+
+      if (choice.tool_calls && choice.tool_calls.length > 0) {
+        store.append({
+          role: 'assistant',
+          content: choice.content ?? '',
+          toolCalls: choice.tool_calls.map((tc) => ({
+            id: tc.id,
+            name: tc.function.name,
+            arguments: this.parseArgs(tc.function.arguments),
+          })),
+        });
+        for (const tc of choice.tool_calls) {
+          const args = this.parseArgs(tc.function.arguments);
+          let resultText: string;
+          let isError = false;
+          if (MEMORY_TOOL_NAMES.has(tc.function.name) && this.opts.memory) {
+            try {
+              const r = executeMemoryTool(this.opts.memory, tc.function.name, args);
+              resultText = JSON.stringify(r);
+            } catch (e) {
+              resultText = e instanceof Error ? e.message : String(e);
+              isError = true;
+            }
+          } else {
+            const result = await mcp.callTool(tc.function.name, args);
+            resultText = result.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n');
+            isError = result.isError;
+          }
+          store.append({
+            role: 'tool',
+            toolCallId: tc.id,
+            content: isError ? `ERROR: ${resultText}` : resultText,
+          });
+        }
+        continue;
+      }
+
+      const finalText = choice.content ?? '';
+      store.append({ role: 'assistant', content: finalText });
+      return { text: finalText };
+    }
+
+    throw new Error('Agent exceeded max tool iterations');
+  }
+
+  private buildSystemMessage(): string {
+    const base = this.opts.systemPrompt;
+    if (!this.opts.memory) return base;
+    const profile = this.opts.memory.recall();
+    if (Object.keys(profile).length === 0) return base;
+    return `${base}\n\nKnown user profile: ${JSON.stringify(profile)}`;
+  }
+
+  private parseArgs(raw: string | undefined): Record<string, unknown> {
+    try {
+      return JSON.parse(raw || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  private toOpenAi(messages: Message[]): OpenAI.ChatCompletionMessageParam[] {
+    return messages.map((m) => {
+      if (m.role === 'tool') {
+        return { role: 'tool', tool_call_id: m.toolCallId!, content: m.content };
+      }
+      if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+        return {
+          role: 'assistant',
+          content: m.content || null,
+          tool_calls: m.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: {
+              name: tc.name,
+              arguments: JSON.stringify(tc.arguments),
+            },
+          })),
+        };
+      }
+      return { role: m.role, content: m.content } as OpenAI.ChatCompletionMessageParam;
+    });
+  }
+}
 ```
+
+- [ ] **Step 3c: Update Iteration 2 tests that depended on constructor-seeded system prompt**
+
+The Iteration 2 test "returns assistant text when no tool calls" was written when the constructor seeded the system message. After this rewrite the system message is appended on the first `respond()` call. Existing assertions (`res.text === 'Hi there'`, `create` called once) still hold — this test should keep passing without changes. If it doesn't, run it and inspect what changed; the most likely fix is that the LLM now sees a slightly different message list, but the LLM is mocked and ignores the messages, so the assertion outcome is unaffected.
 
 - [ ] **Step 4: Run all tests**
 

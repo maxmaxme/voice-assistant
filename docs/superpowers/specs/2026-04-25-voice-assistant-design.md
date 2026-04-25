@@ -65,7 +65,7 @@
 | Микрофон | `node-record-lpcm16` или `mic` | Работает на macOS и Linux |
 | Воспроизведение | `speaker` или системный `aplay`/`afplay` | Простота |
 | Память | SQLite через `better-sqlite3` | Полноценная БД в одном файле, без отдельного сервера; пребилт-бинари под macOS (x64/arm64) и Linux arm64 — на Pi и Mac работает одинаково; растёт в векторный поиск через `sqlite-vss`/`sqlite-vec` |
-| Runtime | Node.js LTS, CommonJS (как в `package.json`) | По текущему проекту |
+| Runtime | Node.js 20 LTS, ESM (`"type": "module"`) | Современный путь для Node-проектов; MCP SDK ESM-first |
 
 ## Модули
 
@@ -194,7 +194,7 @@ ANTHROPIC_API_KEY=...
 HA_URL=https://homeassistant.local:8123
 HA_TOKEN=...                 # Long-Lived Access Token
 PORCUPINE_ACCESS_KEY=...
-WAKE_WORD=okay-home
+PORCUPINE_KEYWORD=jarvis        # built-in Porcupine keyword (или путь к .ppn)
 LANGUAGE=ru
 ```
 

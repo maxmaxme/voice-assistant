@@ -51,7 +51,17 @@ For each package, check:
 
 Verify in `node_modules` after install on the Pi (Task 2 step 5). If any package falls back to compile, the Pi will need `build-essential` and `python3` — covered by `install.sh`.
 
-- [ ] **Step 3: Document the audit in the deploy doc** (created in Task 4)
+- [ ] **Step 3: Verify no non-TS runtime assets**
+
+`tsc` only compiles `.ts` to `.js`. If any `.sql`, `.json`, or other non-TS file is loaded at runtime via filesystem, it will be missing in `dist/`. Grep:
+
+```bash
+grep -rE "\b(readFileSync|readdirSync|loadFile)\b" src/
+```
+
+Each hit must read either (a) a path explicitly passed in by the caller (env var, CLI arg) or (b) a file that lives in the same logical place under both `src/` and `dist/`. By design, the project embeds SQL migrations as TS string constants (see Memory Level 1 plan), so there should be no SQL-on-disk hits. If a new module starts loading runtime assets, add a `postbuild` step that copies them into `dist/`.
+
+- [ ] **Step 4: Document the audit in the deploy doc** (created in Task 4)
 
 Nothing to commit yet — this is research.
 
@@ -151,17 +161,24 @@ fi
 # 1. System packages
 apt-get update
 apt-get install -y \
-  nodejs npm \
+  curl ca-certificates \
   build-essential python3 \
   alsa-utils libasound2-dev \
   sox libsox-fmt-all \
   git
 
-# 2. App user (pi already exists on Raspberry Pi OS)
+# 2. Node.js 20 LTS via NodeSource (Bookworm's apt nodejs is too old)
+if ! command -v node >/dev/null 2>&1 || ! node --version | grep -qE '^v(2[0-9]|[3-9][0-9])\.'; then
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y nodejs
+fi
+node --version
+
+# 3. App user (pi already exists on Raspberry Pi OS)
 mkdir -p "$APP_DIR"
 chown -R pi:pi "$APP_DIR"
 
-# 3. Pull or update sources
+# 4. Pull or update sources
 if [[ -d "$APP_DIR/.git" ]]; then
   sudo -u pi git -C "$APP_DIR" pull
 elif [[ -n "$REPO_URL" ]]; then
@@ -172,19 +189,19 @@ else
   exit 1
 fi
 
-# 4. Install deps and build
+# 5. Install deps and build
 sudo -u pi bash -c "cd $APP_DIR && npm ci && npm run build"
 
-# 5. .env
+# 6. .env
 if [[ ! -f "$APP_DIR/.env" ]]; then
   sudo -u pi cp "$APP_DIR/.env.example" "$APP_DIR/.env"
   echo "Created $APP_DIR/.env from example. Edit it before starting the service."
 fi
 
-# 6. data dir
+# 7. data dir
 sudo -u pi mkdir -p "$APP_DIR/data"
 
-# 7. systemd
+# 8. systemd
 install -m 644 "$APP_DIR/deploy/voice-assistant.service" "/etc/systemd/system/${SERVICE_NAME}.service"
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
