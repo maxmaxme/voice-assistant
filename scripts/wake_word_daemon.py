@@ -23,19 +23,43 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keyword", default="hey_jarvis", help="openwakeword model name")
     ap.add_argument("--threshold", type=float, default=0.5)
+    ap.add_argument("--debug", action="store_true", help="emit per-frame diagnostics to stderr")
     args = ap.parse_args()
 
     log(f"loading model: {args.keyword}")
     model = Model(wakeword_models=[args.keyword], inference_framework="onnx")
     emit({"type": "ready", "keyword": args.keyword, "threshold": args.threshold})
+    log(f"ready. threshold={args.threshold} debug={args.debug}")
 
     cooldown_frames = 0
+    frame_count = 0
+    debug_max = 0.0
+    debug_rms_max = 0
+    DEBUG_EVERY = 25  # ~2 s at 80 ms/frame
     while True:
         data = sys.stdin.buffer.read(FRAME_BYTES)
         if len(data) < FRAME_BYTES:
             break
         audio = np.frombuffer(data, dtype=np.int16)
+
+        if args.debug:
+            rms = int(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))
+            debug_rms_max = max(debug_rms_max, rms)
+
         scores = model.predict(audio)
+        frame_count += 1
+
+        if args.debug:
+            top_score = max(scores.values()) if scores else 0.0
+            debug_max = max(debug_max, top_score)
+            if frame_count % DEBUG_EVERY == 0:
+                log(
+                    f"frames={frame_count} max_score_2s={debug_max:.3f} "
+                    f"max_rms_2s={debug_rms_max} (rms~10 = silent, ~3000+ = speech)"
+                )
+                debug_max = 0.0
+                debug_rms_max = 0
+
         if cooldown_frames > 0:
             cooldown_frames -= 1
             continue
