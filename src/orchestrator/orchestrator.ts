@@ -120,9 +120,7 @@ export class Orchestrator {
         // Audible "I'm listening" cue. Fire-and-forget so we don't delay
         // capture start; the chime is short (~140ms) and won't mask early
         // speech for normal users.
-        this.opts.speaker
-          .playStream(bufferToStream(LISTEN_BLIP, BLIP_SAMPLE_RATE))
-          .catch(() => {});
+        this.opts.speaker.playStream(bufferToStream(LISTEN_BLIP, BLIP_SAMPLE_RATE)).catch(() => {});
         this.capturing = true;
         this.captureBuffer = [];
         this.vad.reset();
@@ -159,7 +157,10 @@ export class Orchestrator {
             expectsFollowUp: reply.expectsFollowUp,
           });
         } catch (e) {
-          await this.dispatch({ type: 'error', message: e instanceof Error ? e.message : String(e) });
+          await this.dispatch({
+            type: 'error',
+            message: e instanceof Error ? e.message : String(e),
+          });
         }
         return;
       case 'speak':
@@ -167,10 +168,9 @@ export class Orchestrator {
         try {
           if (isAckOnly(eff.text)) {
             console.log('Assistant: ✓ (action confirmed)');
-            await this.opts.speaker.playStream(
-              bufferToStream(CONFIRM_BLIP, BLIP_SAMPLE_RATE),
-              { signal: this.currentSpeechAbort.signal },
-            );
+            await this.opts.speaker.playStream(bufferToStream(CONFIRM_BLIP, BLIP_SAMPLE_RATE), {
+              signal: this.currentSpeechAbort.signal,
+            });
           } else {
             const stream = this.opts.tts.stream(eff.text, {
               signal: this.currentSpeechAbort.signal,

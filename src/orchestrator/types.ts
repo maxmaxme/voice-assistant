@@ -5,7 +5,7 @@ export type Event =
   | { type: 'utteranceEnd'; audio: Buffer }
   | { type: 'agentReplied'; text: string; expectsFollowUp?: boolean }
   | { type: 'speechFinished' }
-  | { type: 'followUpRequested' }   // agent called the `ask` tool — auto-reopen capture
+  | { type: 'followUpRequested' } // agent called the `ask` tool — auto-reopen capture
   | { type: 'error'; message: string };
 
 export type Effect =

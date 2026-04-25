@@ -38,6 +38,7 @@ data/                            # gitignored, created at runtime
 ## Task 1: Install + gitignore + types
 
 **Files:**
+
 - Modify: `package.json`
 - Modify: `.gitignore`
 - Create: `src/memory/types.ts`
@@ -95,6 +96,7 @@ git commit -m "chore(memory): install better-sqlite3 and add MemoryAdapter inter
 ## Task 2: Migration runner
 
 **Files:**
+
 - Create: `src/memory/migrations.ts` (SQL embedded as TS string constants)
 - Create: `src/memory/migrate.ts`
 - Test: `tests/memory/migrate.test.ts`
@@ -210,6 +212,7 @@ git commit -m "feat(memory): add SQLite migration runner with profile schema"
 ## Task 3: SqliteProfileMemory implementation
 
 **Files:**
+
 - Create: `src/memory/sqliteProfileMemory.ts`
 - Test: `tests/memory/sqliteProfileMemory.test.ts`
 
@@ -353,6 +356,7 @@ git commit -m "feat(memory): add SqliteProfileMemory adapter"
 ## Task 4: Memory tools for the agent
 
 **Files:**
+
 - Create: `src/agent/memoryTools.ts`
 - Test: `tests/agent/memoryTools.test.ts`
 
@@ -425,7 +429,10 @@ export function buildMemoryTools(): OpenAiFunctionTool[] {
         parameters: {
           type: 'object',
           properties: {
-            key: { type: 'string', description: 'Short snake_case identifier, e.g. "name", "comfort_temp"' },
+            key: {
+              type: 'string',
+              description: 'Short snake_case identifier, e.g. "name", "comfort_temp"',
+            },
             value: { description: 'Any JSON-serializable value' },
           },
           required: ['key', 'value'],
@@ -500,6 +507,7 @@ git commit -m "feat(memory): add remember/recall/forget tools for the agent"
 ## Task 5: Wire memory into the agent
 
 **Files:**
+
 - Modify: `src/agent/openaiAgent.ts`
 - Modify: `tests/agent/openaiAgent.test.ts` (one new test)
 
@@ -723,7 +731,7 @@ The Iteration 2 test "returns assistant text when no tool calls" was written whe
 npx vitest run
 ```
 
-Expected: all pass, including the new memory-routing test and the updated existing ones. If existing test "returns assistant text when no tool calls" fails because it expected the constructor to seed system, fix the assertion to inspect history *after* `respond()` is called.
+Expected: all pass, including the new memory-routing test and the updated existing ones. If existing test "returns assistant text when no tool calls" fails because it expected the constructor to seed system, fix the assertion to inspect history _after_ `respond()` is called.
 
 - [x] **Step 5: Commit**
 
@@ -737,6 +745,7 @@ git commit -m "feat(agent): route memory tools to MemoryAdapter, inject profile 
 ## Task 6: Wire memory into the chat CLI
 
 **Files:**
+
 - Modify: `src/cli/chat.ts`
 - Modify: `src/config.ts`
 
@@ -799,8 +808,15 @@ async function main(): Promise<void> {
     while (true) {
       const line = (await rl.question('> ')).trim();
       if (!line) continue;
-      if (line === '/reset') { store.reset(); console.log('(context cleared)'); continue; }
-      if (line === '/profile') { console.log(JSON.stringify(memory.recall(), null, 2)); continue; }
+      if (line === '/reset') {
+        store.reset();
+        console.log('(context cleared)');
+        continue;
+      }
+      if (line === '/profile') {
+        console.log(JSON.stringify(memory.recall(), null, 2));
+        continue;
+      }
       try {
         const res = await agent.respond(line);
         console.log(res.text);
@@ -849,6 +865,7 @@ npm run chat
 ```
 
 Try:
+
 ```
 > меня зовут Максим
 (expected: agent calls remember and confirms)
@@ -857,6 +874,7 @@ Try:
 ```
 
 Restart `npm run chat`:
+
 ```
 > как меня зовут?
 (expected: "Максим" — recalled from SQLite even after restart)

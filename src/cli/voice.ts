@@ -47,7 +47,9 @@ async function main(): Promise<void> {
   const tts = new OpenAiTts({ client: llm });
 
   const rl = readline.createInterface({ input, output });
-  console.log('Voice push-to-talk. Press Enter to start recording, Enter again to stop. Ctrl+C to quit.');
+  console.log(
+    'Voice push-to-talk. Press Enter to start recording, Enter again to stop. Ctrl+C to quit.',
+  );
 
   try {
     while (true) {
@@ -58,7 +60,9 @@ async function main(): Promise<void> {
       const audio = await recording.stop();
       console.log(`Captured ${audio.length} bytes; transcribing...`);
 
-      const text = (await stt.transcribe(audio, { sampleRate: MIC_SAMPLE_RATE, language: 'ru' })).trim();
+      const text = (
+        await stt.transcribe(audio, { sampleRate: MIC_SAMPLE_RATE, language: 'ru' })
+      ).trim();
       if (!text) {
         console.log('(no speech detected)');
         continue;

@@ -5,7 +5,11 @@ import { OpenWakeWord } from '../../src/audio/wakeWord.ts';
 
 function fakeProc(scriptedStdout: string[]) {
   const stdout = new Readable({ read() {} });
-  const stdin = new Writable({ write(_c, _e, cb) { cb(); } });
+  const stdin = new Writable({
+    write(_c, _e, cb) {
+      cb();
+    },
+  });
   const proc = new EventEmitter() as EventEmitter & {
     stdin: Writable;
     stdout: Readable;

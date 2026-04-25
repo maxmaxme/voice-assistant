@@ -1,8 +1,5 @@
 import type OpenAI from 'openai';
-import type {
-  ResponseInputItem,
-  ResponseOutputItem,
-} from 'openai/resources/responses/responses';
+import type { ResponseInputItem, ResponseOutputItem } from 'openai/resources/responses/responses';
 import type { Agent, AgentResponse } from './types.ts';
 import type { McpClient } from '../mcp/types.ts';
 import type { MemoryAdapter } from '../memory/types.ts';

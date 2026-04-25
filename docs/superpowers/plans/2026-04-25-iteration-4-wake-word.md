@@ -38,6 +38,7 @@ tests/
 ## Task 1: Continuous mic stream
 
 **Files:**
+
 - Create: `src/audio/streamingMic.ts`
 
 The push-to-talk `NodeMicInput` from Iteration 3 collects chunks into a buffer. For wake-word we need a long-running stream of chunks while the process is alive.
@@ -128,6 +129,7 @@ git commit -m "feat(audio): add continuous streaming mic with frame fanout"
 A simple amplitude-based VAD is enough for v1: crosses the threshold = speech, stays below for N ms = silence/end.
 
 **Files:**
+
 - Create: `src/audio/vad.ts`
 - Test: `tests/audio/vad.test.ts`
 
@@ -167,7 +169,12 @@ describe('RmsVad', () => {
   });
 
   it('does not emit silence without prior speech', () => {
-    const vad = new RmsVad({ sampleRate: 16000, frameLength: 512, threshold: 1000, silenceMs: 200 });
+    const vad = new RmsVad({
+      sampleRate: 16000,
+      frameLength: 512,
+      threshold: 1000,
+      silenceMs: 200,
+    });
     const events: string[] = [];
     vad.onSilence(() => events.push('silence'));
     for (let i = 0; i < 50; i++) vad.feed(frame(0));
@@ -206,8 +213,12 @@ export class RmsVad {
     this.silenceFramesNeeded = Math.ceil(opts.silenceMs / frameMs);
   }
 
-  onSpeech(cb: () => void): void { this.speechCb = cb; }
-  onSilence(cb: () => void): void { this.silenceCb = cb; }
+  onSpeech(cb: () => void): void {
+    this.speechCb = cb;
+  }
+  onSilence(cb: () => void): void {
+    this.silenceCb = cb;
+  }
 
   feed(frame: Int16Array): void {
     let sum = 0;
@@ -267,6 +278,7 @@ adapter boundary clean (`WakeWord` interface) so a future pure-Node implementati
 can drop in without touching the orchestrator.
 
 **Files:**
+
 - Create: `scripts/wake_word_daemon.py` — long-running Python process
 - Create: `src/audio/wakeWord.ts` — Node adapter that spawns and talks to the daemon
 - Create: `tests/audio/wakeWord.test.ts` — uses a fake daemon binary
@@ -496,7 +508,11 @@ import { OpenWakeWord } from '../../src/audio/wakeWord.js';
 
 function fakeProc(scriptedStdout: string[]) {
   const stdout = new Readable({ read() {} });
-  const stdin = new Writable({ write(_c, _e, cb) { cb(); } });
+  const stdin = new Writable({
+    write(_c, _e, cb) {
+      cb();
+    },
+  });
   const proc = new EventEmitter() as EventEmitter & {
     stdin: Writable;
     stdout: Readable;
@@ -621,6 +637,7 @@ git commit -m "feat(audio): add openWakeWord adapter via Python subprocess"
 ## Task 4: Orchestrator FSM (pure)
 
 **Files:**
+
 - Create: `src/orchestrator/types.ts`
 - Create: `src/orchestrator/fsm.ts`
 - Test: `tests/orchestrator/fsm.test.ts`
@@ -765,6 +782,7 @@ git commit -m "feat(orchestrator): add pure FSM with explicit effects"
 ## Task 5: Orchestrator runtime + CLI daemon
 
 **Files:**
+
 - Create: `src/orchestrator/orchestrator.ts`
 - Create: `src/cli/run.ts`
 - Modify: `package.json`
@@ -862,7 +880,10 @@ export class Orchestrator {
           const reply = await this.opts.agent.respond(text);
           await this.dispatch({ type: 'agentReplied', text: reply.text });
         } catch (e) {
-          await this.dispatch({ type: 'error', message: e instanceof Error ? e.message : String(e) });
+          await this.dispatch({
+            type: 'error',
+            message: e instanceof Error ? e.message : String(e),
+          });
         }
         return;
       case 'speak':
@@ -983,6 +1004,7 @@ npm start
 ```
 
 Test:
+
 1. Say "Jarvis" → console prints wake event, starts capture.
 2. Say "включи лампу", pause ~1s. VAD ends utterance, transcribes, agent calls tool, lamp turns on, assistant speaks confirmation.
 3. While the assistant is speaking, say "Jarvis" — should be ignored (no barge-in).

@@ -29,7 +29,12 @@ describe('RmsVad', () => {
   });
 
   it('does not emit silence without prior speech', () => {
-    const vad = new RmsVad({ sampleRate: 16000, frameLength: 512, threshold: 1000, silenceMs: 200 });
+    const vad = new RmsVad({
+      sampleRate: 16000,
+      frameLength: 512,
+      threshold: 1000,
+      silenceMs: 200,
+    });
     const events: string[] = [];
     vad.onSilence(() => events.push('silence'));
     for (let i = 0; i < 50; i++) vad.feed(frame(0));

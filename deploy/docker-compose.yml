@@ -8,7 +8,7 @@ services:
     devices:
       - /dev/snd:/dev/snd
     group_add:
-      - "${AUDIO_GID:-29}"
+      - '${AUDIO_GID:-29}'
     env_file:
       - ../.env
     volumes:
@@ -26,8 +26,8 @@ services:
     healthcheck:
       # Both the Node entry point and the wake-word daemon must be alive.
       test:
-        - "CMD-SHELL"
-        - "[ \"$(pgrep -c -f 'node src/cli/run.ts')\" -ge 1 ] && [ \"$(pgrep -c -f 'wake_word_daemon.py')\" -ge 1 ]"
+        - 'CMD-SHELL'
+        - '[ "$(pgrep -c -f ''node src/cli/run.ts'')" -ge 1 ] && [ "$(pgrep -c -f ''wake_word_daemon.py'')" -ge 1 ]'
       interval: 30s
       timeout: 5s
       start_period: 30s
@@ -50,4 +50,4 @@ services:
       - ../ha-data:/config
       - /etc/localtime:/etc/localtime:ro
     ports:
-      - "8123:8123"
+      - '8123:8123'

@@ -28,7 +28,7 @@ export function buildAskTool(): OpenAiFunctionTool {
           type: 'string',
           description:
             'The exact question to speak out loud. One short sentence. ' +
-            'In the user\'s language.',
+            "In the user's language.",
         },
       },
       required: ['text'],

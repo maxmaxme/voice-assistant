@@ -22,10 +22,7 @@ function defaultSdkClientFactory({ url, token }: { url: string; token: string })
       headers: { Authorization: `Bearer ${token}` },
     },
   });
-  const client = new Client(
-    { name: 'voice-assistant', version: '0.1.0' },
-    { capabilities: {} },
-  );
+  const client = new Client({ name: 'voice-assistant', version: '0.1.0' }, { capabilities: {} });
   return {
     connect: () => client.connect(transport),
     close: () => client.close(),

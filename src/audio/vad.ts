@@ -19,8 +19,12 @@ export class RmsVad {
     this.silenceFramesNeeded = Math.ceil(opts.silenceMs / frameMs);
   }
 
-  onSpeech(cb: () => void): void { this.speechCb = cb; }
-  onSilence(cb: () => void): void { this.silenceCb = cb; }
+  onSpeech(cb: () => void): void {
+    this.speechCb = cb;
+  }
+  onSilence(cb: () => void): void {
+    this.silenceCb = cb;
+  }
 
   feed(frame: Int16Array): void {
     let sum = 0;
