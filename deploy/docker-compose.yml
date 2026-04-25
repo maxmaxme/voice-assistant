@@ -32,3 +32,22 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 3
+
+  # Home Assistant runs alongside the assistant on the same Pi.
+  # Persistent config lives at ../ha-data on the host (gitignored).
+  # First-boot onboarding (create user, add MCP Server integration, expose
+  # entities, create Long-Lived Access Token) still has to be done by hand
+  # per docs/home-assistant-setup.md — bundling only saves the extra
+  # compose file, not the per-install setup work.
+  #
+  # Voice-assistant reaches HA via Docker DNS at http://home-assistant:8123.
+  # Set HA_URL accordingly in .env.
+  home-assistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: voice-assistant-ha
+    restart: unless-stopped
+    volumes:
+      - ../ha-data:/config
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "8123:8123"
