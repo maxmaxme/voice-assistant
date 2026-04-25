@@ -91,10 +91,40 @@ asyncio.run(go())
 
 Expected output: `{'id': 1, 'type': 'result', 'success': True, ...}`.
 
-To expose more entities later, repeat with a different `entity_ids`
-list. To bulk-expose a whole domain automatically (e.g. every new
-`light.*`), do it in the UI: Voice assistants → Expose → ⚙ → toggle
-"Expose new entities of this domain" — that part of the UI is reliable.
+To expose more entities later, repeat with a different `entity_ids` list.
+
+### Auto-expose every new entity
+
+HA has a per-assistant **global** flag (not per-domain): once on, every
+new entity created after that moment is automatically exposed to the
+assistant. Existing entities keep their current expose state.
+
+UI: Settings → Voice assistants → pick the pipeline → "Expose entities"
+section → toggle **Expose new entities**.
+
+WebSocket equivalent (set / read):
+
+```bash
+docker exec -e TOKEN="$(grep '^HA_TOKEN=' .env | cut -d= -f2-)" \
+  voice-assistant-ha python3 -c '
+import asyncio, os, aiohttp
+async def go():
+    async with aiohttp.ClientSession() as s:
+        async with s.ws_connect("http://localhost:8123/api/websocket") as ws:
+            await ws.receive_json()
+            await ws.send_json({"type":"auth","access_token":os.environ["TOKEN"]})
+            await ws.receive_json()
+            await ws.send_json({"id":1,"type":"homeassistant/expose_new_entities/set",
+                                "assistant":"conversation","expose_new":True})
+            print(await ws.receive_json())
+asyncio.run(go())
+'
+```
+
+**Recommendation.** For dev with mock entities — turn it on, saves
+clicks. For real homes with locks, cameras, covers — leave it off and
+expose each device explicitly. There is no per-domain whitelist: it's
+all-or-nothing per assistant.
 
 ## 6. Verify
 
