@@ -62,6 +62,17 @@ npm install --save-dev typescript tsx vitest @types/node
 npm install @modelcontextprotocol/sdk dotenv zod
 ```
 
+- [ ] **Step 1b: Verify MCP SDK import paths up-front**
+
+The SDK's subpath exports change between releases. Confirm the two paths used in Task 4 actually exist in the version that just got installed:
+
+```bash
+node -e "console.log(Object.keys(require('@modelcontextprotocol/sdk/package.json').exports || {}))"
+ls node_modules/@modelcontextprotocol/sdk/dist/esm/client/
+```
+
+Expected: the `exports` listing includes `./client/index.js` and `./client/streamableHttp.js` (or equivalent). If the layout differs, update the import lines in Task 4 Step 3 before writing the file. **Do not skip this** — getting it wrong wastes the rest of Task 4.
+
 - [ ] **Step 2: Create `tsconfig.json`**
 
 ```json

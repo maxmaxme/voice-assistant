@@ -150,10 +150,12 @@ export class OpenAiStt implements Stt {
   async transcribe(audio: Buffer, opts: { sampleRate: number; language?: string }): Promise<string> {
     const wav = pcmToWav(audio, opts.sampleRate);
     const file = await toFile(wav, 'audio.wav', { type: 'audio/wav' });
+    // Only forward `language` when defined — older SDK versions can serialize
+    // `undefined` as the literal string "undefined", which the API rejects.
     const res = await this.opts.client.audio.transcriptions.create({
       file,
       model: this.model,
-      language: opts.language,
+      ...(opts.language ? { language: opts.language } : {}),
     });
     return res.text;
   }
@@ -309,6 +311,8 @@ These are thin wrappers around hardware libraries. Verifying them needs an actua
 import mic from 'mic';
 import type { MicInput } from './types.js';
 
+const STOP_FALLBACK_MS = 1500;
+
 export class NodeMicInput implements MicInput {
   async record(opts: { sampleRate: number }): Promise<{ stop(): Promise<Buffer> }> {
     const m = mic({
@@ -320,21 +324,37 @@ export class NodeMicInput implements MicInput {
     });
     const stream = m.getAudioStream();
     const chunks: Buffer[] = [];
-    stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+    const onData = (chunk: Buffer): void => {
+      chunks.push(chunk);
+    };
+    stream.on('data', onData);
     m.start();
+
     return {
       stop: () =>
-        new Promise<Buffer>((resolve) => {
-          stream.once('silence', () => {});
-          stream.once('end', () => resolve(Buffer.concat(chunks)));
+        new Promise<Buffer>((resolve, reject) => {
+          let settled = false;
+          const finish = (err?: Error): void => {
+            if (settled) return;
+            settled = true;
+            stream.off('data', onData);
+            clearTimeout(timer);
+            if (err) reject(err);
+            else resolve(Buffer.concat(chunks));
+          };
+          stream.once('end', () => finish());
+          stream.once('error', (err: Error) => finish(err));
+          // Fallback: some platforms swallow the 'end' event after stop().
+          // Wait long enough for the audio buffer to flush before giving up.
+          const timer = setTimeout(() => finish(), STOP_FALLBACK_MS);
           m.stop();
-          // Some platforms don't emit 'end' reliably; resolve on next tick if data exists.
-          setTimeout(() => resolve(Buffer.concat(chunks)), 250);
         }),
     };
   }
 }
 ```
+
+The fix vs. the naive version: the data listener is detached on resolve so late chunks don't sneak in after we've already returned a buffer; the timeout is a *fallback* (not a race), and the timer is cleared when `'end'` fires; both `'end'` and `'error'` are observed.
 
 - [ ] **Step 2: Implement `src/audio/speakerOutput.ts`**
 

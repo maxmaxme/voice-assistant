@@ -91,8 +91,13 @@ export class StreamingMic {
     const frameBytes = this.opts.frameLength * 2;
     let offset = 0;
     while (buf.length - offset >= frameBytes) {
-      const slice = buf.subarray(offset, offset + frameBytes);
-      const frame = new Int16Array(slice.buffer, slice.byteOffset, this.opts.frameLength);
+      // IMPORTANT: do NOT use `new Int16Array(buf.buffer, buf.byteOffset + offset, ...)`.
+      // Node Buffers are slices of a shared 8KB pool; byteOffset is not guaranteed
+      // to be 2-byte aligned, which throws RangeError. Copy into a fresh Int16Array.
+      const frame = new Int16Array(this.opts.frameLength);
+      for (let i = 0; i < this.opts.frameLength; i++) {
+        frame[i] = buf.readInt16LE(offset + i * 2);
+      }
       for (const l of this.listeners) l(frame);
       offset += frameBytes;
     }
@@ -430,9 +435,11 @@ describe('FSM', () => {
   });
 
   it('wake while not idle is ignored (no barge-in)', () => {
-    expect(transition('listening', { type: 'wake' }).state).toBe('listening');
-    expect(transition('thinking', { type: 'wake' }).state).toBe('thinking');
-    expect(transition('speaking', { type: 'wake' }).state).toBe('speaking');
+    for (const s of ['listening', 'thinking', 'speaking'] as const) {
+      const r = transition(s, { type: 'wake' });
+      expect(r.state).toBe(s);
+      expect(r.effects).toEqual([]);
+    }
   });
 
   it('error always returns to idle and logs', () => {
@@ -664,13 +671,26 @@ async function main(): Promise<void> {
     llmClient: llm,
   });
 
-  const builtin = (BuiltinKeyword as unknown as Record<string, unknown>)[
-    cfg.porcupine.keyword.toUpperCase()
-  ] as BuiltinKeyword | undefined;
+  // Resolve keyword: if it matches a Porcupine built-in name, use the enum value;
+  // otherwise treat it as a filesystem path to a custom .ppn keyword file.
+  // Built-ins are uppercase enum keys like JARVIS, COMPUTER, ALEXA, BLUEBERRY, etc.
+  // Custom names with hyphens (e.g. "okay-home") MUST be a path to a .ppn file
+  // produced via Picovoice Console (https://console.picovoice.ai/).
+  const enumKey = cfg.porcupine.keyword.toUpperCase().replace(/-/g, '_');
+  const builtinValue = (BuiltinKeyword as unknown as Record<string, unknown>)[enumKey] as
+    | BuiltinKeyword
+    | undefined;
+  const keyword: string | BuiltinKeyword = builtinValue ?? cfg.porcupine.keyword;
+  if (!builtinValue && !cfg.porcupine.keyword.endsWith('.ppn')) {
+    throw new Error(
+      `PORCUPINE_KEYWORD="${cfg.porcupine.keyword}" is neither a built-in keyword name ` +
+        `nor a path to a .ppn file. See https://console.picovoice.ai/ to generate custom keywords.`,
+    );
+  }
 
   const wake = new PorcupineWakeWord({
     accessKey: cfg.porcupine.accessKey,
-    keyword: builtin ?? cfg.porcupine.keyword,
+    keyword,
     sensitivity: cfg.porcupine.sensitivity,
   });
 
