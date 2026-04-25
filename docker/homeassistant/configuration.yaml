@@ -1,10 +1,86 @@
 default_config:
 
-# Mock device for MCP testing
+# Mock devices for the voice assistant. Backed by input_* helpers so we have
+# a realistic dev environment without buying anything. Wrapped in template
+# `light:` / `switch:` so HA's Assist intents (HassTurnOn / HassTurnOff /
+# HassLightSet etc.) recognise them by domain.
+
 input_boolean:
   test_lamp:
     name: Test Lamp
     icon: mdi:lightbulb
+  kitchen_light_state:
+    name: Kitchen Light State
+    icon: mdi:lightbulb
+  bedroom_light_state:
+    name: Bedroom Light State
+    icon: mdi:lightbulb
+  living_room_light_state:
+    name: Living Room Light State
+    icon: mdi:lightbulb
+  coffee_maker_state:
+    name: Coffee Maker State
+    icon: mdi:coffee
+
+input_number:
+  bedroom_temperature:
+    name: Спальня температура
+    min: 16
+    max: 28
+    step: 0.5
+    initial: 21
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer
+
+# Real `light.*` entities so "выключи свет" / "выключи весь свет" work via
+# HA Assist's HassTurnOff with domain target.
+template:
+  - light:
+      - name: Свет на кухне
+        unique_id: kitchen_light
+        state: "{{ is_state('input_boolean.kitchen_light_state', 'on') }}"
+        turn_on:
+          service: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.kitchen_light_state
+        turn_off:
+          service: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.kitchen_light_state
+      - name: Свет в спальне
+        unique_id: bedroom_light
+        state: "{{ is_state('input_boolean.bedroom_light_state', 'on') }}"
+        turn_on:
+          service: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.bedroom_light_state
+        turn_off:
+          service: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.bedroom_light_state
+      - name: Свет в гостиной
+        unique_id: living_room_light
+        state: "{{ is_state('input_boolean.living_room_light_state', 'on') }}"
+        turn_on:
+          service: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.living_room_light_state
+        turn_off:
+          service: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.living_room_light_state
+  - switch:
+      - name: Кофеварка
+        unique_id: coffee_maker
+        state: "{{ is_state('input_boolean.coffee_maker_state', 'on') }}"
+        turn_on:
+          service: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.coffee_maker_state
+        turn_off:
+          service: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.coffee_maker_state
 
 # Allow Docker bridge network IPs to reach the API
 http:
