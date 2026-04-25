@@ -26,6 +26,10 @@ def main():
     ap.add_argument("--debug", action="store_true", help="emit per-frame diagnostics to stderr")
     args = ap.parse_args()
 
+    # `args.keyword` accepts either a built-in name (e.g. "hey_jarvis") OR a
+    # filesystem path to a custom .onnx model trained via openWakeWord's
+    # automatic_model_training.ipynb notebook. openwakeword.Model dispatches
+    # on the value type for us.
     log(f"loading model: {args.keyword}")
     model = Model(wakeword_models=[args.keyword], inference_framework="onnx")
     emit({"type": "ready", "keyword": args.keyword, "threshold": args.threshold})
