@@ -9,12 +9,12 @@ import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 
 export interface OpenAiAgentOptions {
   mcp: McpClient;
+  memory: MemoryAdapter;
   store: ConversationStore;
   systemPrompt: string;
   model: string;
   maxToolIterations?: number;
   llmClient: OpenAI;
-  memory?: MemoryAdapter;
 }
 
 export class OpenAiAgent implements Agent {
@@ -35,11 +35,7 @@ export class OpenAiAgent implements Agent {
       store.append({ role: 'user', content: userText });
 
       const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
-      const tools = [
-        ...mcpTools,
-        ...(this.opts.memory ? buildMemoryTools() : []),
-        buildAskTool(),
-      ];
+      const tools = [...mcpTools, ...buildMemoryTools(), buildAskTool()];
 
       for (let i = 0; i < this.maxIters; i++) {
       const completion = await llmClient.chat.completions.create({
@@ -79,7 +75,7 @@ export class OpenAiAgent implements Agent {
           const args = this.parseArgs(tc.function.arguments);
           let resultText: string;
           let isError = false;
-          if (MEMORY_TOOL_NAMES.has(tc.function.name) && this.opts.memory) {
+          if (MEMORY_TOOL_NAMES.has(tc.function.name)) {
             try {
               const r = executeMemoryTool(this.opts.memory, tc.function.name, args);
               resultText = JSON.stringify(r);
@@ -119,7 +115,6 @@ export class OpenAiAgent implements Agent {
 
   private buildSystemMessage(): string {
     const base = this.opts.systemPrompt;
-    if (!this.opts.memory) return base;
     const profile = this.opts.memory.recall();
     if (Object.keys(profile).length === 0) return base;
     return `${base}\n\nKnown user profile: ${JSON.stringify(profile)}`;

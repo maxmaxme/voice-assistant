@@ -3,6 +3,17 @@ import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
 import { ConversationStore } from '../../src/agent/conversationStore.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
+import type { MemoryAdapter } from '../../src/memory/types.ts';
+
+/** A no-op MemoryAdapter for tests that don't care about memory state. */
+function emptyMemory(): MemoryAdapter {
+  return {
+    remember: () => {},
+    recall: () => ({}),
+    forget: () => {},
+    close: () => {},
+  };
+}
 
 function fakeMcp(): McpClient {
   return {
@@ -42,6 +53,7 @@ describe('OpenAiAgent', () => {
     ]);
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
+      memory: emptyMemory(),
       store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
       systemPrompt: 'You are helpful.',
       model: 'gpt-4o',
@@ -81,6 +93,7 @@ describe('OpenAiAgent', () => {
     ]);
     const agent = new OpenAiAgent({
       mcp,
+      memory: emptyMemory(),
       store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
       systemPrompt: 'You are helpful.',
       model: 'gpt-4o',
@@ -102,6 +115,7 @@ describe('OpenAiAgent', () => {
     };
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
+      memory: emptyMemory(),
       store,
       systemPrompt: 'sys',
       model: 'gpt-4o',
@@ -181,6 +195,7 @@ describe('OpenAiAgent', () => {
     ]);
     const agent = new OpenAiAgent({
       mcp,
+      memory: emptyMemory(),
       store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
       systemPrompt: 'sys',
       model: 'gpt-4o',
@@ -216,6 +231,7 @@ describe('OpenAiAgent', () => {
     const llm = fakeLlm([looping, looping, looping, looping, looping, looping]);
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
+      memory: emptyMemory(),
       store: new ConversationStore({ idleTimeoutMs: 60_000, maxMessages: 20 }),
       systemPrompt: 's',
       model: 'gpt-4o',
