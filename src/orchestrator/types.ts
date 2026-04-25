@@ -5,6 +5,7 @@ export type Event =
   | { type: 'utteranceEnd'; audio: Buffer }
   | { type: 'agentReplied'; text: string }
   | { type: 'speechFinished' }
+  | { type: 'followUpRequested' }   // agent reply was a question — auto-reopen capture
   | { type: 'error'; message: string };
 
 export type Effect =

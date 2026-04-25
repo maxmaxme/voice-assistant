@@ -5,10 +5,11 @@ import { transition } from './fsm.js';
 import { StreamingMic } from '../audio/streamingMic.js';
 import type { WakeWord } from '../audio/wakeWord.js';
 import { RmsVad } from '../audio/vad.js';
-import { generateConfirmBlip, isAckOnly } from '../audio/blip.js';
+import { generateConfirmBlip, generateListenBlip, isAckOnly, isQuestion } from '../audio/blip.js';
 
 const BLIP_SAMPLE_RATE = 24000;
-const BLIP_PCM = generateConfirmBlip(BLIP_SAMPLE_RATE);
+const CONFIRM_BLIP = generateConfirmBlip(BLIP_SAMPLE_RATE);
+const LISTEN_BLIP = generateListenBlip(BLIP_SAMPLE_RATE);
 
 export interface OrchestratorOptions {
   agent: Agent;
@@ -112,6 +113,10 @@ export class Orchestrator {
   private async runEffect(eff: Effect): Promise<void> {
     switch (eff.type) {
       case 'startCapture':
+        // Audible "I'm listening" cue. Fire-and-forget so we don't delay
+        // capture start; the chime is short (~140ms) and won't mask early
+        // speech for normal users.
+        this.opts.speaker.play(LISTEN_BLIP, { sampleRate: BLIP_SAMPLE_RATE }).catch(() => {});
         this.capturing = true;
         this.captureBuffer = [];
         this.vad.reset();
@@ -150,7 +155,7 @@ export class Orchestrator {
         try {
           if (isAckOnly(eff.text)) {
             console.log('Assistant: ✓ (action confirmed)');
-            await this.opts.speaker.play(BLIP_PCM, { sampleRate: BLIP_SAMPLE_RATE });
+            await this.opts.speaker.play(CONFIRM_BLIP, { sampleRate: BLIP_SAMPLE_RATE });
           } else {
             const { audio, sampleRate } = await this.opts.tts.synthesize(eff.text);
             console.log(`Assistant: ${eff.text}`);
@@ -159,7 +164,14 @@ export class Orchestrator {
         } catch (e) {
           console.error('TTS error', e);
         } finally {
-          await this.dispatch({ type: 'speechFinished' });
+          // If the assistant asked a clarifying question, auto-reopen
+          // capture so the user can answer without saying the wake word
+          // again. Otherwise: normal end-of-turn.
+          if (!isAckOnly(eff.text) && isQuestion(eff.text)) {
+            await this.dispatch({ type: 'followUpRequested' });
+          } else {
+            await this.dispatch({ type: 'speechFinished' });
+          }
         }
         return;
       case 'log':

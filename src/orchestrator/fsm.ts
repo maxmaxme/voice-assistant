@@ -44,6 +44,12 @@ export function transition(state: State, event: Event, options: TransitionOption
         }
         return { state: 'idle', effects: [] };
       }
+      // Agent's reply was a question — always reopen capture, regardless of
+      // the followUp option. Self-echo is unlikely to look like an answer to
+      // the assistant's specific question, and the UX win is large.
+      if (event.type === 'followUpRequested') {
+        return { state: 'listening', effects: [{ type: 'startCapture' }] };
+      }
       return { state, effects: [] };
   }
 }

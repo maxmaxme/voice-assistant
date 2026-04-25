@@ -47,6 +47,15 @@ describe('FSM', () => {
     }
   });
 
+  it('speaking + followUpRequested → listening (always, ignores followUp option)', () => {
+    const r1 = transition('speaking', { type: 'followUpRequested' });
+    expect(r1.state).toBe('listening');
+    expect(r1.effects).toEqual([{ type: 'startCapture' }]);
+    const r2 = transition('speaking', { type: 'followUpRequested' }, { followUp: false });
+    expect(r2.state).toBe('listening');
+    expect(r2.effects).toEqual([{ type: 'startCapture' }]);
+  });
+
   it('error always returns to idle and logs', () => {
     const r = transition('thinking', { type: 'error', message: 'boom' });
     expect(r.state).toBe('idle');
