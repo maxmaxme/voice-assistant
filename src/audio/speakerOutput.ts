@@ -1,25 +1,14 @@
 import { platform } from 'node:os';
 import { spawn, type ChildProcess } from 'node:child_process';
-import type { SpeakerOutput } from './types.ts';
-
-/**
- * Platform-conditional speaker:
- * - Linux (Pi / Docker container): spawn `aplay` from alsa-utils. Avoids the
- *   `speaker` npm package's bundled-mpg123 build issues on modern Node.
- * - macOS / others: use the `speaker` npm package via dynamic import. It
- *   ships prebuilds for darwin/arm64 + darwin/x64 so dev install just works.
- *
- * The `speaker` npm dep is in optionalDependencies so a failed compile in
- * the Linux container doesn't fail the whole install — we never load it
- * there anyway.
- */
+import type { SpeakerOutput, TtsStream } from './types.ts';
+import { isAbortError } from './streamHelpers.ts';
 
 const IS_LINUX = platform() === 'linux';
 
 interface SpeakerLike {
   on(event: string, cb: (arg?: unknown) => void): unknown;
   removeAllListeners(event: string): unknown;
-  write(buf: Buffer, cb: (err?: Error) => void): unknown;
+  write(buf: Buffer, cb: (err?: Error) => void): boolean;
   end(): unknown;
   destroy(): unknown;
 }
@@ -45,10 +34,10 @@ export class NodeSpeakerOutput implements SpeakerOutput {
   private currentProc: ChildProcess | null = null;
   private currentSpeaker: SpeakerLike | null = null;
 
-  async play(buf: Buffer, opts: { sampleRate: number }): Promise<void> {
+  async playStream(stream: TtsStream, opts?: { signal?: AbortSignal }): Promise<void> {
     this.stop();
-    if (IS_LINUX) return this.playViaAplay(buf, opts.sampleRate);
-    return this.playViaSpeakerNpm(buf, opts.sampleRate);
+    if (IS_LINUX) return this.playStreamViaAplay(stream, opts);
+    return this.playStreamViaSpeakerNpm(stream, opts);
   }
 
   stop(): void {
@@ -76,58 +65,70 @@ export class NodeSpeakerOutput implements SpeakerOutput {
     }
   }
 
-  private async playViaAplay(buf: Buffer, sampleRate: number): Promise<void> {
-    return new Promise((resolve, reject) => {
-      // -q quiet, -t raw (PCM), S16_LE matches our generated buffers and
-      // openai-tts pcm output, -c 1 mono.
-      const proc = spawn(
-        'aplay',
-        ['-q', '-t', 'raw', '-f', 'S16_LE', '-r', String(sampleRate), '-c', '1'],
-        { stdio: ['pipe', 'ignore', 'inherit'] },
-      );
-      this.currentProc = proc;
-      let settled = false;
-      const finish = (err?: Error): void => {
-        if (settled) return;
-        settled = true;
-        if (this.currentProc === proc) this.currentProc = null;
-        if (err) reject(err);
-        else resolve();
-      };
-      proc.on('exit', () => finish());
-      proc.on('error', (err) => finish(err));
-      proc.stdin?.on('error', () => {
-        // ignore EPIPE on stop()
-      });
-      proc.stdin?.write(buf);
-      proc.stdin?.end();
-    });
-  }
+  private async playStreamViaAplay(
+    stream: TtsStream,
+    opts?: { signal?: AbortSignal },
+  ): Promise<void> {
+    const proc = spawn(
+      'aplay',
+      ['-q', '-t', 'raw', '-f', 'S16_LE', '-r', String(stream.sampleRate), '-c', '1'],
+      { stdio: ['pipe', 'ignore', 'inherit'] },
+    );
+    this.currentProc = proc;
 
-  private async playViaSpeakerNpm(buf: Buffer, sampleRate: number): Promise<void> {
-    const Ctor = await loadSpeakerCtor();
-    if (!Ctor) {
-      throw new Error(
-        "Audio playback unavailable: 'speaker' npm package failed to load and " +
-          "this is not a Linux host (no `aplay` fallback). Install `sox` or " +
-          'rebuild speaker for your platform.',
-      );
-    }
-    return new Promise((resolve, reject) => {
-      const speaker = new Ctor({ channels: 1, bitDepth: 16, sampleRate });
-      this.currentSpeaker = speaker;
-      speaker.on('close', () => {
-        if (this.currentSpeaker === speaker) this.currentSpeaker = null;
+    const onAbort = (): void => this.stop();
+    opts?.signal?.addEventListener('abort', onAbort, { once: true });
+
+    proc.stdin?.on('error', () => {
+      // EPIPE on stop() — ignore. The for-await loop will exit on the next
+      // iteration via the `destroyed` check.
+    });
+
+    let procExited = false;
+    const exited = new Promise<void>((resolve, reject) => {
+      proc.on('exit', () => {
+        procExited = true;
         resolve();
       });
-      speaker.on('error', (err) => {
-        if (this.currentSpeaker === speaker) this.currentSpeaker = null;
-        reject(err instanceof Error ? err : new Error(String(err)));
-      });
-      speaker.write(buf, (err?: Error) => {
-        if (err) return reject(err);
-        speaker.end();
-      });
+      proc.on('error', (err) => reject(err));
     });
+
+    try {
+      for await (const chunk of stream.chunks) {
+        if (opts?.signal?.aborted) break;
+        if (!proc.stdin || proc.stdin.destroyed) break;
+        if (procExited) break;
+        const ok = proc.stdin.write(chunk);
+        if (!ok) {
+          await new Promise<void>((resolve) => {
+            const cleanup = (): void => {
+              proc.stdin!.removeListener('drain', onDrain);
+              proc.removeListener('exit', onExit);
+              resolve();
+            };
+            const onDrain = (): void => cleanup();
+            const onExit = (): void => cleanup();
+            proc.stdin!.once('drain', onDrain);
+            proc.once('exit', onExit);
+          });
+        }
+      }
+      proc.stdin?.end();
+      await exited;
+    } catch (err) {
+      // AbortError from the upstream TTS iterator is normal cancellation.
+      if (!isAbortError(err)) throw err;
+    } finally {
+      opts?.signal?.removeEventListener('abort', onAbort);
+      if (this.currentProc === proc) this.currentProc = null;
+    }
+  }
+
+  private async playStreamViaSpeakerNpm(
+    _stream: TtsStream,
+    _opts?: { signal?: AbortSignal },
+  ): Promise<void> {
+    // Implemented in Task 5.
+    throw new Error('macOS speaker path not yet implemented');
   }
 }
