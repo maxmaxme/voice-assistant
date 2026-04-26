@@ -29,6 +29,8 @@ Working features:
 - Single-process, multi-channel entry point: `node src/cli/unified.ts`
   routes by `AGENT_MODE`. Old `chat.ts`/`voice.ts`/`run.ts` are now thin
   shims over it.
+- Telegram bot accepts inbound text (polling). The agent answers in the
+  same chat. Authorised by an allow-list of chat IDs.
 
 ## Requirements
 
@@ -74,6 +76,35 @@ npm run start:wake        # always-listening daemon only (AGENT_MODE=wake)
 # Default for `npm run start` is `both`, currently equivalent to `wake`
 # (Telegram inbound is added in a follow-up plan).
 ```
+
+### Telegram bot (text)
+
+The agent runs a Telegram bot that accepts text commands. Outbound messages
+(via the `send_to_telegram` tool) already worked; this is the inbound side.
+
+Setup:
+
+1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token.
+2. Find your chat ID by messaging the bot once and running:
+
+   ```bash
+   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates" \
+     | jq '.result[].message.chat.id' | sort -u
+   ```
+
+3. Set in `.env`:
+
+   ```
+   TELEGRAM_BOT_TOKEN=...
+   TELEGRAM_CHAT_ID=123456789
+   TELEGRAM_ALLOWED_CHAT_IDS=123456789      # comma-list, optional (defaults to TELEGRAM_CHAT_ID)
+   ```
+
+4. `npm run start` (default `AGENT_MODE=both`) runs the bot alongside the
+   wake-word listener. Or `AGENT_MODE=telegram npm run start` for bot-only.
+
+Commands: `/start`, `/help`, `/reset`, `/profile`. Voice notes are not yet
+supported (see roadmap).
 
 `WAKE_WORD_DEBUG=1` in `.env` makes the wake-word daemon print per-frame
 diagnostics — useful when wake doesn't fire.

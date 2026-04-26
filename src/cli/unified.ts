@@ -7,6 +7,7 @@ import {
 import { runChatMode, type ChatRunnerDeps } from './runners/chat.ts';
 import { runVoiceMode, type VoiceRunnerDeps } from './runners/voice.ts';
 import { runWakeMode, type WakeRunnerDeps } from './runners/wake.ts';
+import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runners/telegram.ts';
 import type { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { OpenAiTts } from '../audio/openaiTts.ts';
@@ -15,6 +16,7 @@ export interface RunnerSet {
   chat: (deps: ChatRunnerDeps) => Promise<void>;
   voice: (deps: VoiceRunnerDeps) => Promise<void>;
   wake: (deps: WakeRunnerDeps) => Promise<void>;
+  telegram: (deps: TelegramRunnerDeps) => Promise<void>;
 }
 
 /** Dispatch logic, exported for tests. Does NOT call initializeCommonDependencies
@@ -53,12 +55,27 @@ export async function dispatch(
     tasks.push(runners.wake({ agent, llm: deps.llm, config: deps.config }));
   }
 
-  // mode === 'telegram': stub for Plan 2. No-op so the harness doesn't crash if
-  // someone sets AGENT_MODE=telegram before Plan 2 lands.
-  if (mode === 'telegram') {
-    console.log('[unified] AGENT_MODE=telegram — runner not yet implemented (Plan 2).');
-    return;
-  }
+  const scheduleTelegram = (): void => {
+    const agent = deps.buildAgent('telegram');
+    const session = (agent as unknown as { opts?: { session: Session } }).opts?.session;
+    if (!session) {
+      throw new Error('buildAgent did not produce an agent with a Session');
+    }
+    tasks.push(
+      runners.telegram({
+        receiver: deps.telegramReceiver(),
+        sender: deps.telegram,
+        agent,
+        session,
+        memory: deps.memory,
+        allowedChatIds: deps.config.telegram.allowedChatIds,
+        replyTo: perChatSender(deps.config.telegram.botToken),
+      }),
+    );
+  };
+
+  if (mode === 'telegram') scheduleTelegram();
+  if (mode === 'both') scheduleTelegram();
 
   if (tasks.length === 0) {
     throw new Error(`No runners scheduled for AGENT_MODE=${mode}`);
@@ -87,6 +104,7 @@ export async function main(): Promise<void> {
       chat: runChatMode,
       voice: runVoiceMode,
       wake: runWakeMode,
+      telegram: runTelegramMode,
     });
   } finally {
     await deps.dispose();

@@ -73,4 +73,24 @@ describe('loadConfig', () => {
     delete process.env.TELEGRAM_CHAT_ID;
     expect(() => loadConfig()).toThrow(/TELEGRAM_CHAT_ID/);
   });
+
+  it('allowed chat ids defaults to [Number(chatId)] when TELEGRAM_ALLOWED_CHAT_IDS is unset', () => {
+    setRequired();
+    delete process.env.TELEGRAM_ALLOWED_CHAT_IDS;
+    const cfg = loadConfig();
+    expect(cfg.telegram.allowedChatIds).toEqual([42]);
+  });
+
+  it('allowed chat ids parses comma list into number array', () => {
+    setRequired();
+    process.env.TELEGRAM_ALLOWED_CHAT_IDS = '42, 100, -5';
+    const cfg = loadConfig();
+    expect(cfg.telegram.allowedChatIds).toEqual([42, 100, -5]);
+  });
+
+  it('throws on non-numeric entries in TELEGRAM_ALLOWED_CHAT_IDS', () => {
+    setRequired();
+    process.env.TELEGRAM_ALLOWED_CHAT_IDS = '42,abc';
+    expect(() => loadConfig()).toThrow(/TELEGRAM_ALLOWED_CHAT_IDS/);
+  });
 });

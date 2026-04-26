@@ -7,8 +7,8 @@ import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { SqliteProfileMemory } from '../memory/sqliteProfileMemory.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
-import { telegramFromConfig } from '../telegram/fromConfig.ts';
-import type { TelegramSender } from '../telegram/types.ts';
+import { telegramFromConfig, receiverFromConfig } from '../telegram/fromConfig.ts';
+import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
 
 export const AGENT_MODES = ['chat', 'voice', 'wake', 'telegram', 'both'] as const;
 export type AgentMode = (typeof AGENT_MODES)[number];
@@ -64,6 +64,9 @@ export interface CommonDeps {
    * Session so they don't trample each other's `previous_response_id` chain. */
   buildAgent(channel: PromptChannel): OpenAiAgent;
   dispose(): Promise<void>;
+  /** Create a TelegramReceiver backed by the configured bot. Tracks the active
+   * receiver so dispose() can stop it on shutdown. */
+  telegramReceiver(): TelegramReceiver;
 }
 
 /** Initialise everything shared across runners. Call once per process. */
@@ -89,13 +92,20 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       telegram,
     });
 
+  let activeReceiver: TelegramReceiver | null = null;
+  const telegramReceiver = (): TelegramReceiver => {
+    activeReceiver = receiverFromConfig(config);
+    return activeReceiver;
+  };
+
   let disposed = false;
   const dispose = async (): Promise<void> => {
     if (disposed) return;
     disposed = true;
+    if (activeReceiver) await activeReceiver.stop().catch(() => {});
     await mcp.disconnect();
     memory.close();
   };
 
-  return { config, llm, mcp, memory, telegram, buildAgent, dispose };
+  return { config, llm, mcp, memory, telegram, buildAgent, dispose, telegramReceiver };
 }
