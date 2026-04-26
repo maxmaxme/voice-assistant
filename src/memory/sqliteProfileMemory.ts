@@ -2,16 +2,23 @@ import Database from 'better-sqlite3';
 import { runMigrations } from './migrate.ts';
 import type { MemoryAdapter, ProfileFacts } from './types.ts';
 
-export interface SqliteProfileMemoryOptions {
-  dbPath: string;
-}
+export type SqliteProfileMemoryOptions =
+  | { dbPath: string; db?: undefined }
+  | { db: Database.Database; dbPath?: undefined };
 
 export class SqliteProfileMemory implements MemoryAdapter {
   private readonly db: Database.Database;
+  private readonly ownsDb: boolean;
 
   constructor(opts: SqliteProfileMemoryOptions) {
-    this.db = new Database(opts.dbPath);
-    this.db.pragma('journal_mode = WAL');
+    if (opts.db) {
+      this.db = opts.db;
+      this.ownsDb = false;
+    } else {
+      this.db = new Database(opts.dbPath);
+      this.db.pragma('journal_mode = WAL');
+      this.ownsDb = true;
+    }
     runMigrations(this.db);
   }
 
@@ -47,6 +54,6 @@ export class SqliteProfileMemory implements MemoryAdapter {
   }
 
   close(): void {
-    this.db.close();
+    if (this.ownsDb) this.db.close();
   }
 }

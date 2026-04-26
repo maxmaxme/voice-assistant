@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../../src/memory/migrate.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 
 describe('SqliteProfileMemory', () => {
@@ -44,5 +46,18 @@ describe('SqliteProfileMemory', () => {
     m.remember('list', [1, 2, 3]);
     m.remember('flag', true);
     expect(m.recall()).toEqual({ list: [1, 2, 3], flag: true });
+  });
+
+  it('accepts an externally-owned Database', () => {
+    const db = new Database(':memory:');
+    db.pragma('journal_mode = WAL');
+    runMigrations(db);
+    const m = new SqliteProfileMemory({ db });
+    m.remember('x', 1);
+    expect(m.recall()).toEqual({ x: 1 });
+    // close() must NOT close the externally-owned db
+    m.close();
+    expect(() => db.prepare('SELECT 1').get()).not.toThrow();
+    db.close();
   });
 });
