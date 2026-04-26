@@ -45,7 +45,17 @@ export class OpenAiAgent implements Agent {
       (t) => ({ ...t, strict: t.strict ?? null }),
     );
 
-    let nextInput: ResponseInputItem[] = [{ role: 'user', content: userText }];
+    // If the previous turn ended with an `ask` tool call, the API still has
+    // an open function_call that needs a function_call_output. Submit the
+    // user's answer as that output instead of a plain user message.
+    let nextInput: ResponseInputItem[];
+    const pendingAskCallId = session.pendingAskCallId;
+    if (pendingAskCallId) {
+      session.pendingAskCallId = undefined;
+      nextInput = [{ type: 'function_call_output', call_id: pendingAskCallId, output: userText }];
+    } else {
+      nextInput = [{ role: 'user', content: userText }];
+    }
 
     for (let i = 0; i < this.maxIters; i++) {
       const response = await llmClient.responses.create({
@@ -72,6 +82,7 @@ export class OpenAiAgent implements Agent {
           const args = this.parseArgs(askCall.arguments);
           const text = typeof args.text === 'string' ? args.text : '';
           process.stderr.write(`[tool] ask(${JSON.stringify(args)}) → reopen capture\n`);
+          session.pendingAskCallId = askCall.call_id;
           session.commit(response.id);
           return { text, expectsFollowUp: true };
         }
