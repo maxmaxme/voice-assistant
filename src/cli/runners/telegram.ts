@@ -4,6 +4,7 @@ import type { Session } from '../../agent/session.ts';
 import type { MemoryStore } from '../../memory/types.ts';
 import type { TelegramReceiver, TelegramSender, TelegramMessage } from '../../telegram/types.ts';
 import { BotTelegramSender } from '../../telegram/telegramSender.ts';
+import type { TelegramVoiceTranscriber } from '../../telegram/voiceTranscriber.ts';
 
 export interface TelegramRunnerDeps {
   receiver: TelegramReceiver;
@@ -17,6 +18,9 @@ export interface TelegramRunnerDeps {
   /** Build a new sender targeting a specific chat. Defaults to the global one
    * (single-user setup). Tests inject this. */
   replyTo?: (chatId: number) => TelegramSender;
+  /** Transcribes voice messages by Telegram file_id. When omitted, voice
+   *  messages get a "not supported" reply (back-compat for tests). */
+  voiceTranscriber?: TelegramVoiceTranscriber;
 }
 
 const HELP_TEXT = `Personal-agent bot ready. Just type — I forward to the agent.
@@ -27,7 +31,7 @@ Commands:
   /help — show this`;
 
 export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
-  const { receiver, agent, session, memory, allowedChatIds } = deps;
+  const { receiver, agent, session, memory, allowedChatIds, voiceTranscriber } = deps;
   const allow = new Set(allowedChatIds);
 
   for await (const msg of receiver.messages()) {
@@ -39,7 +43,7 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
       continue;
     }
     try {
-      await handleMessage(msg, { agent, session, memory, sender: replyer });
+      await handleMessage(msg, { agent, session, memory, sender: replyer, voiceTranscriber });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       process.stderr.write(`[telegram] handler error: ${text}\n`);
@@ -54,10 +58,42 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
 
 async function handleMessage(
   msg: TelegramMessage,
-  ctx: { agent: OpenAiAgent; session: Session; memory: MemoryStore; sender: TelegramSender },
+  ctx: {
+    agent: OpenAiAgent;
+    session: Session;
+    memory: MemoryStore;
+    sender: TelegramSender;
+    voiceTranscriber?: TelegramVoiceTranscriber;
+  },
 ): Promise<void> {
   if (msg.kind === 'voice') {
-    await ctx.sender.send('Voice messages are not supported yet — please send text.');
+    if (!ctx.voiceTranscriber) {
+      await ctx.sender.send('Voice messages are not supported yet — please send text.');
+      return;
+    }
+    let transcript: string;
+    try {
+      transcript = await ctx.voiceTranscriber.transcribe(msg.fileId);
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[telegram] voice transcription failed: ${m}\n`);
+      await ctx.sender.send(`Не смог распознать голосовое: ${m}`);
+      return;
+    }
+    transcript = transcript.trim();
+    if (!transcript) {
+      await ctx.sender.send('Голосовое пустое — ничего не услышал.');
+      return;
+    }
+    let reply;
+    try {
+      reply = await ctx.agent.respond(transcript);
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      await ctx.sender.send(`Agent error: ${m}`);
+      return;
+    }
+    await ctx.sender.send(`🎤 «${transcript}»\n\n${reply.text}`);
     return;
   }
   if (msg.kind === 'unsupported') {

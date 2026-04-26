@@ -11,6 +11,7 @@ import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runne
 import type { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { OpenAiTts } from '../audio/openaiTts.ts';
+import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
 import { Scheduler } from '../scheduling/scheduler.ts';
 import { getServerTimezone } from '../utils/time.ts';
 
@@ -72,6 +73,10 @@ export async function dispatch(
         memory: deps.memory,
         allowedChatIds: deps.config.telegram.allowedChatIds,
         replyTo: perChatSender(deps.config.telegram.botToken),
+        voiceTranscriber: new BotVoiceTranscriber({
+          botToken: deps.config.telegram.botToken,
+          client: deps.llm,
+        }),
       }),
     );
   };

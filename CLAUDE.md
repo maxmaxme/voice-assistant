@@ -163,8 +163,12 @@ agent as the `send_to_telegram` tool.
 `/update` writes a trigger to `/tmp/va-update` (a host-side FIFO); the
 `va-update-listener.service` systemd unit on the Pi reads it and runs `deploy/update.sh`.
 
-Voice messages currently reply "not supported yet"; transcription is a
-follow-up plan.
+Voice messages are downloaded via telegraf's `getFileLink` and transcribed
+by OpenAI (`gpt-4o-transcribe`, accepts OGG/OPUS directly). The runner
+replies with the transcript plus the agent's text answer. The
+`BotVoiceTranscriber` adapter lives in `src/telegram/voiceTranscriber.ts`
+and is wired in `src/cli/unified.ts`; the runner falls back to a
+"not supported" message when no transcriber is injected (used by tests).
 
 Required env vars: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Optional:
 `TELEGRAM_ALLOWED_CHAT_IDS` (comma list of integer chat ids; defaults to
