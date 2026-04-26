@@ -1,9 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   generateConfirmBlip,
+  generateConfirmOnBlip,
+  generateConfirmOffBlip,
   generateListenBlip,
   isAckOnly,
+  getAckVariant,
   ACK_MARKER,
+  ACK_ON_MARKER,
+  ACK_OFF_MARKER,
 } from '../../src/audio/blip.ts';
 
 describe('blip', () => {
@@ -14,15 +19,21 @@ describe('blip', () => {
 
   it('generateConfirmBlip envelope decays to near-zero at the end', () => {
     const buf = generateConfirmBlip(24000);
-    // Last sample should be tiny (envelope ~e^(-2.6) at t=0.22s).
     const lastSample = buf.readInt16LE(buf.length - 2);
     expect(Math.abs(lastSample)).toBeLessThan(1000);
   });
 
-  it('isAckOnly recognises the marker with whitespace', () => {
+  it('generateConfirmOnBlip and generateConfirmOffBlip return non-empty PCM', () => {
+    expect(generateConfirmOnBlip(24000).length).toBeGreaterThan(0);
+    expect(generateConfirmOffBlip(24000).length).toBeGreaterThan(0);
+  });
+
+  it('isAckOnly recognises all three markers with whitespace', () => {
     expect(isAckOnly(ACK_MARKER)).toBe(true);
-    expect(isAckOnly(`  ${ACK_MARKER}  `)).toBe(true);
-    expect(isAckOnly(`${ACK_MARKER}\n`)).toBe(true);
+    expect(isAckOnly(ACK_ON_MARKER)).toBe(true);
+    expect(isAckOnly(ACK_OFF_MARKER)).toBe(true);
+    expect(isAckOnly(`  ${ACK_ON_MARKER}  `)).toBe(true);
+    expect(isAckOnly(`${ACK_OFF_MARKER}\n`)).toBe(true);
   });
 
   it('isAckOnly rejects anything with extra content', () => {
@@ -32,10 +43,17 @@ describe('blip', () => {
     expect(isAckOnly('')).toBe(false);
   });
 
+  it('getAckVariant returns correct variant for each marker', () => {
+    expect(getAckVariant(ACK_ON_MARKER)).toBe('on');
+    expect(getAckVariant(ACK_OFF_MARKER)).toBe('off');
+    expect(getAckVariant(ACK_MARKER)).toBe('neutral');
+    expect(getAckVariant('  ✓+  ')).toBe('on');
+    expect(getAckVariant('что-то другое')).toBeNull();
+  });
+
   it('generateListenBlip returns non-empty PCM and starts at low amplitude (attack)', () => {
     const buf = generateListenBlip(24000);
     expect(buf.length).toBeGreaterThan(0);
-    // First sample is in the attack ramp, should be tiny.
     expect(Math.abs(buf.readInt16LE(0))).toBeLessThan(2000);
   });
 });
