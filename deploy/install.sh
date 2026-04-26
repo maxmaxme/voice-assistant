@@ -2,8 +2,7 @@
 # One-time bootstrap on a fresh Raspberry Pi. Idempotent.
 #
 # Usage:
-#   sudo REPO_URL=https://github.com/you/voice-assistant.git deploy/install.sh
-# OR rsync sources into /opt/voice-assistant first, then:
+#   sudo git clone https://github.com/you/voice-assistant.git /opt/voice-assistant
 #   sudo /opt/voice-assistant/deploy/install.sh
 set -euo pipefail
 
