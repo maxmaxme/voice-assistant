@@ -42,4 +42,4 @@ RUN mkdir -p /app/data /app/models && chown -R node:node /app
 
 USER node
 
-CMD ["node", "src/cli/run.ts"]
+CMD ["node", "src/cli/unified.ts"]

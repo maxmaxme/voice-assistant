@@ -31,7 +31,7 @@ services:
       # Both the Node entry point and the wake-word daemon must be alive.
       test:
         - 'CMD-SHELL'
-        - '[ "$(pgrep -c -f ''node src/cli/run.ts'')" -ge 1 ] && [ "$(pgrep -c -f ''wake_word_daemon.py'')" -ge 1 ]'
+        - '[ "$(pgrep -c -f ''node src/cli/unified.ts'')" -ge 1 ] && [ "$(pgrep -c -f ''wake_word_daemon.py'')" -ge 1 ]'
       interval: 30s
       timeout: 5s
       start_period: 30s
