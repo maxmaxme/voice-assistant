@@ -146,7 +146,7 @@ The agent has a single `schedule_action(goal, schedule_kind, schedule_expr)` too
 
 The `goal` is the natural-language description of what to do. At fire time the scheduler spawns a fresh `OpenAiAgent.respond()` in **goal mode** (no `ask` tool, fresh `Session`) with the goal as the user message. The agent gets the full tool surface (HA MCP, memory, send_to_telegram, optional `web_search` when `OPENAI_WEB_SEARCH=1`) and decides how to act. This is why goals like "Включи свет и напиши мне в Telegram" work — the agent at fire time is the same brain that the user normally talks to.
 
-Persistence: SQLite table `scheduled_actions` (migration v4). Cron rows reschedule themselves; once rows transition to `done` (or `error` if the goal threw). The legacy `reminders`/`timers` tables and their `SqliteReminders`/`SqliteTimers` adapters remain in the codebase for one release as a migration safety net but are NOT wired into the agent — `RemindersAdapter` and `TimersAdapter` are dead surface area.
+Persistence: SQLite table `scheduled_actions` (migration v4). Cron rows reschedule themselves; once rows transition to `done` (or `error` if the goal threw). The legacy `reminders` / `timers` SQL tables remain (v3 migration unchanged) for one release as a back-fill safety net — but their TypeScript adapters and tools are gone. v4 carried existing rows forward as `kind: 'once'` actions.
 
 Server timezone: `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). Always set it in `.env` — inside docker the system TZ is UTC. The `[unified] AGENT_MODE=… TZ=… [WEB_SEARCH=on]` startup line confirms which TZ is active and whether the optional `web_search` hosted tool is enabled.
 
