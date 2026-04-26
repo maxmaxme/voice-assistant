@@ -16,9 +16,15 @@ describe('FSM', () => {
   });
 
   it('thinking + agentReplied → speaking with speak', () => {
-    const r = transition('thinking', { type: 'agentReplied', text: 'ok' });
+    const r = transition('thinking', { type: 'agentReplied', text: 'ok', direction: null });
     expect(r.state).toBe('speaking');
-    expect(r.effects).toEqual([{ type: 'speak', text: 'ok' }]);
+    expect(r.effects).toEqual([{ type: 'speak', text: 'ok', direction: null }]);
+  });
+
+  it('thinking + agentReplied with direction → speak carries direction', () => {
+    const r = transition('thinking', { type: 'agentReplied', text: '', direction: 'on' });
+    expect(r.state).toBe('speaking');
+    expect(r.effects).toEqual([{ type: 'speak', text: '', direction: 'on' }]);
   });
 
   it('speaking + speechFinished → idle (default; follow-up disabled)', () => {

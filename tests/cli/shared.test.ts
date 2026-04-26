@@ -33,8 +33,8 @@ describe('buildSystemPromptFor', () => {
 
   it('wake adds the silent-confirmation rule', () => {
     const p = buildSystemPromptFor('wake');
-    expect(p).toContain('silent-confirmation');
-    expect(p).toContain('"✓"');
+    expect(p).toContain('SILENT-CONFIRMATION');
+    expect(p).toContain('"direction"');
   });
 
   it('telegram is identical to chat (no TTS, free-form text)', () => {

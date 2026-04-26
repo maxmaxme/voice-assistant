@@ -31,7 +31,14 @@ export function transition(
       if (event.type === 'agentReplied') {
         return {
           state: 'speaking',
-          effects: [{ type: 'speak', text: event.text, expectsFollowUp: event.expectsFollowUp }],
+          effects: [
+            {
+              type: 'speak',
+              text: event.text,
+              direction: event.direction,
+              expectsFollowUp: event.expectsFollowUp,
+            },
+          ],
         };
       }
       return { state, effects: [] };
