@@ -28,8 +28,9 @@ function fakeMcp(): McpClient {
 
 function fakeLlm(scripted: Array<unknown>) {
   let i = 0;
+  const create = vi.fn(async () => scripted[i++]);
   return {
-    responses: { create: vi.fn(async () => scripted[i++]) },
+    responses: { create, parse: create },
   };
 }
 
@@ -105,14 +106,14 @@ describe('OpenAiAgent + telegram', () => {
       },
       {
         id: 'resp_2',
+        output_parsed: { speak: 'Отправил.', direction: null },
         output: [
           {
             type: 'message',
             role: 'assistant',
-            content: [{ type: 'output_text', text: 'Отправил.' }],
+            content: [{ type: 'output_text', text: '{"speak":"Отправил.","direction":null}' }],
           },
         ],
-        output_text: 'Отправил.',
       },
     ]);
     const agent = new OpenAiAgent({

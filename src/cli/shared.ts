@@ -9,6 +9,7 @@ import { SqliteProfileMemory } from '../memory/sqliteProfileMemory.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
 import { telegramFromConfig, receiverFromConfig } from '../telegram/fromConfig.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
+import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from '../agent/agentOutput.ts';
 
 export const AGENT_MODES = ['chat', 'voice', 'wake', 'telegram', 'both'] as const;
 export type AgentMode = (typeof AGENT_MODES)[number];
@@ -97,6 +98,8 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       model: config.openai.model,
       llmClient: llm,
       telegram,
+      textFormat:
+        channel === 'chat' || channel === 'telegram' ? CHAT_TEXT_FORMAT : VOICE_TEXT_FORMAT,
     });
 
   let activeReceiver: TelegramReceiver | null = null;

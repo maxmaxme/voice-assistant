@@ -1,5 +1,8 @@
 import type OpenAI from 'openai';
-import type { ResponseInputItem, ResponseOutputItem } from 'openai/resources/responses/responses';
+import type {
+  ResponseInputItem,
+  ParsedResponseFunctionToolCall,
+} from 'openai/resources/responses/responses';
 import type { Agent, AgentResponse } from './types.ts';
 import type { McpClient } from '../mcp/types.ts';
 import type { MemoryAdapter } from '../memory/types.ts';
@@ -9,7 +12,7 @@ import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memory
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
 import type { TelegramSender } from '../telegram/types.ts';
-import { AGENT_TEXT_FORMAT, parseAgentOutput } from './agentOutput.ts';
+import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from './agentOutput.ts';
 
 export interface OpenAiAgentOptions {
   mcp: McpClient;
@@ -20,6 +23,10 @@ export interface OpenAiAgentOptions {
   maxToolIterations?: number;
   llmClient: OpenAI;
   telegram: TelegramSender;
+  /** Structured-output format for the final agent reply. Use VOICE_TEXT_FORMAT
+   * for voice/wake channels (speak nullable + direction), CHAT_TEXT_FORMAT for
+   * chat/telegram (speak always required, no direction). */
+  textFormat?: typeof VOICE_TEXT_FORMAT | typeof CHAT_TEXT_FORMAT;
 }
 
 export class OpenAiAgent implements Agent {
@@ -59,20 +66,26 @@ export class OpenAiAgent implements Agent {
     }
 
     for (let i = 0; i < this.maxIters; i++) {
-      const response = await llmClient.responses.create({
+      const response = await llmClient.responses.parse({
         model,
         ...(instructions !== undefined && i === 0 ? { instructions } : {}),
         input: nextInput,
         tools: tools.length > 0 ? tools : undefined,
         store: true,
         previous_response_id: previousResponseId,
-        text: { format: AGENT_TEXT_FORMAT },
+        text: { format: (this.opts.textFormat ?? VOICE_TEXT_FORMAT) as typeof VOICE_TEXT_FORMAT },
       });
 
-      const output: ResponseOutputItem[] = response.output ?? [];
-      const fnCalls = output.filter(
-        (it): it is Extract<ResponseOutputItem, { type: 'function_call' }> =>
-          it.type === 'function_call',
+      if (response.output_parsed != null) {
+        session.commit(response.id);
+        return {
+          text: response.output_parsed.speak ?? '',
+          direction: response.output_parsed.direction ?? null,
+        };
+      }
+
+      const fnCalls = (response.output ?? []).filter(
+        (it): it is ParsedResponseFunctionToolCall => it.type === 'function_call',
       );
 
       if (fnCalls.length > 0) {
@@ -115,7 +128,6 @@ export class OpenAiAgent implements Agent {
             resultText = result.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n');
             isError = result.isError;
           }
-          // Make tool calls visible.
           const argsStr = JSON.stringify(args);
           const tag = isError ? 'tool✗' : 'tool';
           process.stderr.write(`[${tag}] ${tc.name}(${argsStr}) → ${resultText}\n`);
@@ -130,11 +142,9 @@ export class OpenAiAgent implements Agent {
         continue;
       }
 
-      const rawText =
-        (response as { output_text?: string }).output_text ?? this.extractAssistantText(output);
-      const parsed = parseAgentOutput(rawText);
+      // No tool calls and no parsed output — shouldn't happen, but guard anyway
       session.commit(response.id);
-      return { text: parsed.speak ?? '', direction: parsed.direction };
+      return { text: '', direction: null };
     }
 
     throw new Error('Agent exceeded max tool iterations');
@@ -153,17 +163,5 @@ export class OpenAiAgent implements Agent {
     } catch {
       return {};
     }
-  }
-
-  /** Pull the assistant's plain text out of a Responses `output` array. */
-  private extractAssistantText(output: ResponseOutputItem[]): string {
-    const parts: string[] = [];
-    for (const item of output) {
-      if (item.type !== 'message') continue;
-      for (const c of item.content) {
-        if (c.type === 'output_text') parts.push(c.text);
-      }
-    }
-    return parts.join('');
   }
 }
