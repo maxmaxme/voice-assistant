@@ -30,36 +30,59 @@ export interface OpenAiAgentOptions {
    * for voice/wake channels (speak nullable + direction), CHAT_TEXT_FORMAT for
    * chat/telegram (speak always required, no direction). */
   textFormat?: typeof VOICE_TEXT_FORMAT | typeof CHAT_TEXT_FORMAT;
+  /** When 'goal', the agent runs in scheduled-fire mode:
+   *   - The system message is replaced by a directive to execute the
+   *     incoming user text as a previously-scheduled goal.
+   *   - The `ask` tool is omitted (no user is present).
+   *   - Each call uses a fresh chain (Session is reset before begin()).
+   *   Default: 'chat' */
+  mode?: 'chat' | 'goal';
 }
 
 export class OpenAiAgent implements Agent {
   private readonly maxIters: number;
   private readonly opts: OpenAiAgentOptions;
+  private readonly mode: 'chat' | 'goal';
 
   constructor(opts: OpenAiAgentOptions) {
     this.opts = opts;
     this.maxIters = opts.maxToolIterations ?? 5;
+    this.mode = opts.mode ?? 'chat';
   }
 
   async respond(userText: string): Promise<AgentResponse> {
     const { mcp, session, model, llmClient } = this.opts;
+
+    // In goal mode, every fire is a fresh chain — the directive (system
+    // prompt) must apply on every call, and there's no continuing user
+    // conversation to chain into.
+    if (this.mode === 'goal') {
+      session.reset();
+    }
 
     let previousResponseId = session.begin();
     // Send `instructions` (system prompt + profile) only when starting a
     // fresh chain. Within a chain OpenAI keeps the original instructions
     // alongside the rest of the conversation state.
     const isFreshChain = previousResponseId === undefined;
-    const instructions = isFreshChain ? this.buildSystemMessage() : undefined;
+    const instructions = isFreshChain
+      ? this.mode === 'goal'
+        ? this.buildGoalSystemMessage(userText)
+        : this.buildSystemMessage()
+      : undefined;
 
     const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
-    const tools = [
-      ...mcpTools,
+    const localTools = [
       ...buildMemoryTools(),
       ...buildReminderTools(),
       ...buildTimerTools(),
-      buildAskTool(),
+      ...(this.mode === 'goal' ? [] : [buildAskTool()]),
       buildTelegramTool(),
-    ].map((t) => ({ ...t, strict: t.strict ?? null }));
+    ];
+    const tools = [...mcpTools, ...localTools].map((t) => ({
+      ...t,
+      strict: t.strict ?? null,
+    }));
 
     // If the previous turn ended with an `ask` tool call, the API still has
     // an open function_call that needs a function_call_output. Submit the
@@ -196,6 +219,14 @@ export class OpenAiAgent implements Agent {
       return base + timeBlock;
     }
     return `${base}${timeBlock}\n\nKnown user profile: ${JSON.stringify(profile)}`;
+  }
+
+  private buildGoalSystemMessage(goal: string): string {
+    const base = this.buildSystemMessage();
+    return (
+      base +
+      `\n\nYou are running a previously-scheduled goal. There is NO USER PRESENT — do NOT call the 'ask' tool. Execute the goal end-to-end using your tools, then return a one-sentence summary of what you did.\n\nThe goal: ${goal}`
+    );
   }
 
   private parseArgs(raw: string | undefined): Record<string, unknown> {
