@@ -3,7 +3,7 @@ export interface NormalizedAudioFile {
   extension: string;
 }
 
-export function parseContentType(value: string | string[] | undefined): string {
+export function parseContentType(value: string | string[] | null | undefined): string {
   const raw = Array.isArray(value) ? value[0] : value;
   return raw?.split(';', 1)[0]?.trim().toLowerCase() || 'audio/wav';
 }

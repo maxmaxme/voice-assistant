@@ -16,7 +16,7 @@ export function constantTimeEquals(a: string, b: string): boolean {
  *  Iterates without short-circuiting so the matched index doesn't leak via
  *  timing. Returns false on missing / malformed header. */
 export function verifyBearerToken(
-  authHeader: string | undefined,
+  authHeader: string | null | undefined,
   allowedKeys: readonly string[],
 ): boolean {
   const header = authHeader ?? '';

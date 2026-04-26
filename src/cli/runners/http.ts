@@ -1,4 +1,4 @@
-import { H3, serve, assertBodySize, getRequestHeader, readRawBody, setResponseStatus } from 'h3';
+import { H3, serve, assertBodySize } from 'h3';
 import type { H3Event } from 'h3';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { AudioFileStt } from '../../audio/types.ts';
@@ -24,23 +24,23 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
 
   const app = new H3()
     .post('/audio', async (event: H3Event) => {
-      if (!verifyBearerToken(getRequestHeader(event, 'authorization'), apiKeys)) {
-        setResponseStatus(event, 401);
+      if (!verifyBearerToken(event.req.headers.get('authorization'), apiKeys)) {
+        event.res.status = 401;
         return { error: 'Unauthorized' };
       }
       try {
         await assertBodySize(event, MAX_BODY_BYTES);
       } catch {
-        setResponseStatus(event, 413);
+        event.res.status = 413;
         return { error: `Audio exceeds ${MAX_BODY_BYTES} bytes` };
       }
-      const raw = await readRawBody(event, false);
+      const raw = await event.req.arrayBuffer();
       if (!raw || raw.byteLength === 0) {
-        setResponseStatus(event, 400);
+        event.res.status = 400;
         return { error: 'No audio data' };
       }
       const body = Buffer.from(raw);
-      const receivedContentType = parseContentType(getRequestHeader(event, 'content-type'));
+      const receivedContentType = parseContentType(event.req.headers.get('content-type'));
       const audioFile = normalizeAudioFile(receivedContentType);
 
       process.stderr.write(`[http] POST /audio ${receivedContentType} ${body.length} bytes\n`);
@@ -53,7 +53,7 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
           })
         ).trim();
         if (!transcript) {
-          setResponseStatus(event, 400);
+          event.res.status = 400;
           return { error: 'No speech detected' };
         }
 
@@ -63,7 +63,7 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         process.stderr.write(`[http] audio handling failed: ${message}\n`);
-        setResponseStatus(event, 500);
+        event.res.status = 500;
         return { error: message };
       }
     })
