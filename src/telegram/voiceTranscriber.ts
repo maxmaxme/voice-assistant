@@ -39,7 +39,10 @@ export class BotVoiceTranscriber implements TelegramVoiceTranscriber {
       throw new Error(`Telegram file download failed: ${res.status} ${res.statusText}`);
     }
     const audio = Buffer.from(await res.arrayBuffer());
-    const file = await toFile(audio, fileNameFor(url), { type: 'audio/ogg' });
+    // Telegram serves voice as `.oga`, which OpenAI's transcribe endpoint
+    // rejects ("Unsupported file format oga") even though it is OGG/OPUS.
+    // Force the `.ogg` extension so the API picks the right decoder.
+    const file = await toFile(audio, 'voice.ogg', { type: 'audio/ogg' });
     const transcription = await this.client.audio.transcriptions.create({
       file,
       model: this.model,
@@ -47,10 +50,4 @@ export class BotVoiceTranscriber implements TelegramVoiceTranscriber {
     });
     return transcription.text;
   }
-}
-
-function fileNameFor(url: string | URL): string {
-  const path = typeof url === 'string' ? url : url.pathname;
-  const base = path.split('/').pop();
-  return base && base.length > 0 ? base : 'voice.ogg';
 }
