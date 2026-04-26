@@ -1,4 +1,4 @@
-/** Time/timezone utilities shared by the agent core and reminder/timer tools.
+/** Time/timezone utilities shared by the agent core and scheduled-action tools.
  *
  * The voice assistant talks to an LLM that is bad at timezone arithmetic, so
  * we keep one canonical pair of helpers:
@@ -7,7 +7,8 @@
  *     server's local TZ, including the offset. Used everywhere we surface a
  *     time back to the LLM (system prompt, tool responses).
  *   • `parseLocalWallClock(s)` — inverse: parse a wall-clock string in the
- *     server's TZ into a UTC epoch. Used by `add_reminder.at_local`.
+ *     server's TZ into a UTC epoch. Used by `schedule_action` for once-kind
+ *     wall-clock times.
  *
  * Both rely on `process.env.TZ` (or the system TZ when unset) at call time.
  */

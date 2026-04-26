@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Scheduler } from '../../src/scheduling/scheduler.ts';
 import type { ScheduledAction, ScheduledActionsAdapter } from '../../src/memory/types.ts';
 import type { GoalRunner } from '../../src/scheduling/goalRunner.ts';
+import * as cron from '../../src/scheduling/cron.ts';
 import { nextFireAt as computeNextFireAt } from '../../src/scheduling/cron.ts';
 
 function makeAdapter(initial: ScheduledAction[]): ScheduledActionsAdapter & {
@@ -220,6 +221,37 @@ describe('Scheduler', () => {
     expect(goalRunner.calls).toEqual([]);
     const calls = stderr.mock.calls.map((c) => String(c[0])).join('');
     expect(calls).toMatch(/listDue failed: db gone/);
+    stderr.mockRestore();
+  });
+
+  it('logs both advance and markError failures (double-error defensive path)', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    // Force computeNextFireAt to throw on a cron row to trigger the
+    // "advance failed" branch in the scheduler.
+    const cronSpy = vi.spyOn(cron, 'nextFireAt').mockImplementation(() => {
+      throw new Error('cron broke');
+    });
+    const adapter = makeAdapter([cronRow({ nextFireAt: 500 })]);
+    // Override markError to also throw, exercising the inner catch.
+    adapter.markError = () => {
+      throw new Error('db gone');
+    };
+    const goalRunner = makeGoalRunner();
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => 1000,
+    });
+    s.start();
+    await s.tick();
+    s.stop();
+    const calls = stderr.mock.calls.map((c) => String(c[0])).join('');
+    expect(calls).toMatch(/advance failed: cron broke/);
+    expect(calls).toMatch(/markError failed: db gone/);
+    // No fire happened because advance failed.
+    expect(goalRunner.calls).toEqual([]);
+    cronSpy.mockRestore();
     stderr.mockRestore();
   });
 

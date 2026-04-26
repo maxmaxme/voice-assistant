@@ -20,26 +20,6 @@ function fakeMemory(recallFn?: () => Record<string, unknown>): MemoryStore {
       forget: () => {},
       close: () => {},
     },
-    reminders: {
-      add: () => {
-        throw new Error('not used');
-      },
-      listPending: () => [],
-      listDue: () => [],
-      markFired: () => {},
-      cancel: () => false,
-      get: () => null,
-    },
-    timers: {
-      add: () => {
-        throw new Error('not used');
-      },
-      listActive: () => [],
-      listDue: () => [],
-      markFired: () => {},
-      cancel: () => false,
-      get: () => null,
-    },
     scheduledActions: {
       add: () => {
         throw new Error('not used');
