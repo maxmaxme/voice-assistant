@@ -68,7 +68,7 @@ export async function dispatch(
   await Promise.race(tasks);
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const mode = parseAgentMode(process.env.AGENT_MODE);
   console.log(`[unified] AGENT_MODE=${mode}`);
 
