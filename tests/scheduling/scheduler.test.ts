@@ -261,6 +261,39 @@ describe('Scheduler', () => {
     expect(goalRunner.calls).toHaveLength(1);
   });
 
+  it('tick is reentrancy-safe (overlapping ticks are no-ops)', async () => {
+    const adapter = makeAdapter([
+      onceRow({ id: 20, goal: 'a', nextFireAt: 100 }),
+      onceRow({ id: 21, goal: 'b', nextFireAt: 200 }),
+    ]);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const goalRunner = makeGoalRunner(async () => {
+      await gate;
+    });
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => 1000,
+    });
+    s.start();
+    // Fire two ticks in parallel: only the first should process due rows.
+    // The second must be a no-op while the first is still mid-flight.
+    const p1 = s.tick();
+    const p2 = s.tick();
+    // p2 resolves immediately as a no-op (does not await fire).
+    await p2;
+    expect(goalRunner.calls).toEqual(['a']);
+    release();
+    await p1;
+    s.stop();
+    // Both rows fired exactly once — not 2x rows from a re-entrant tick.
+    expect(goalRunner.calls).toEqual(['a', 'b']);
+  });
+
   it('stop() clears the interval cleanly — no further ticks fire', async () => {
     vi.setSystemTime(0);
     const adapter = makeAdapter([onceRow({ nextFireAt: 0 })]);

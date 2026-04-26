@@ -14,6 +14,7 @@ export interface SchedulerOptions {
 export class Scheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private ticking = false;
   private readonly scheduledActions: ScheduledActionsAdapter;
   private readonly goalRunner: GoalRunner;
   private readonly tickMs: number;
@@ -43,9 +44,18 @@ export class Scheduler {
   }
 
   async tick(): Promise<void> {
-    if (!this.running) {
+    if (!this.running || this.ticking) {
       return;
     }
+    this.ticking = true;
+    try {
+      await this.runTick();
+    } finally {
+      this.ticking = false;
+    }
+  }
+
+  private async runTick(): Promise<void> {
     const now = this.now();
     let due: ScheduledAction[];
     try {

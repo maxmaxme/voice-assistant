@@ -221,15 +221,20 @@ export class OpenAiAgent implements Agent {
     const timeBlock =
       `\n\nCurrent time: ${nowUtcIso} UTC = ${nowLocal} (server timezone: ${tzName}).` +
       ` Unix ms now: ${nowMs}.` +
-      `\nFor add_reminder, NEVER do timezone arithmetic yourself. Pick one of:` +
-      `\n  • Relative ("через час", "in 10 minutes") → use in_seconds (3600, 600).` +
-      `\n  • Absolute ("завтра в 9 утра", "tomorrow at 9am") → use at_local with the server-timezone wall clock, e.g. "2026-04-27 09:00".` +
-      `\n  • fire_at (Unix ms UTC) is a fallback — prefer the two above.` +
-      `\nSet the unused fields to null. The server will compute the exact UTC instant.`;
+      `\n\nScheduling actions: use schedule_action(goal, schedule_kind, schedule_expr).` +
+      `\n  • One-shot: schedule_kind="once", schedule_expr is a wall-clock string in the server timezone, e.g. "2026-04-27 09:00" or "2026-04-27 09:00:00". NO timezone offset — the server resolves it.` +
+      `\n  • Recurring: schedule_kind="cron", schedule_expr is a POSIX 5-field cron string evaluated in the server timezone. Examples: "0 8 * * *" (daily 08:00), "30 7 * * 1-5" (weekdays 07:30), "*/15 * * * *" (every 15 min).` +
+      `\n  • The "goal" is replayed verbatim to the agent at fire time, so write it as a self-contained instruction that can be acted on with no extra context (e.g. "Включи свет на кухне", not "do the thing we discussed").` +
+      `\n  • Compound goals are allowed in a single schedule_action: "Включи свет на кухне и напиши мне в Telegram «доброе утро»" → at fire time the agent calls both tools.` +
+      `\n  • Use list_scheduled / cancel_scheduled to inspect or remove existing schedules.`;
+    const webSearchBlock =
+      process.env.OPENAI_WEB_SEARCH === '1'
+        ? `\n\nThe web_search tool is available — use it for weather, news, and general-knowledge queries that no Home Assistant entity covers.`
+        : '';
     if (Object.keys(profile).length === 0) {
-      return base + timeBlock;
+      return base + timeBlock + webSearchBlock;
     }
-    return `${base}${timeBlock}\n\nKnown user profile: ${JSON.stringify(profile)}`;
+    return `${base}${timeBlock}${webSearchBlock}\n\nKnown user profile: ${JSON.stringify(profile)}`;
   }
 
   private buildGoalSystemMessage(goal: string): string {
