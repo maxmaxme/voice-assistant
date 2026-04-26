@@ -95,10 +95,11 @@ describe('dispatch', () => {
     expect(runners.wake).toHaveBeenCalledTimes(1);
   });
 
-  it('both mode invokes wake AND telegram concurrently', async () => {
+  it('both mode invokes wake, telegram, and http concurrently', async () => {
     const deps = makeDeps();
     const wakeStarted = vi.fn();
     const telegramStarted = vi.fn();
+    const httpStarted = vi.fn();
     const runners = {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
@@ -110,11 +111,18 @@ describe('dispatch', () => {
         telegramStarted();
         await new Promise((r) => setTimeout(r, 5));
       }),
-      http: vi.fn(async () => {}),
+      http: vi.fn(async () => {
+        httpStarted();
+        await new Promise((r) => setTimeout(r, 5));
+      }),
     };
     await dispatch('both' as AgentMode, deps, runners);
     expect(wakeStarted).toHaveBeenCalled();
     expect(telegramStarted).toHaveBeenCalled();
+    expect(httpStarted).toHaveBeenCalled();
+    expect(deps.buildAgent).toHaveBeenCalledWith('wake');
+    expect(deps.buildAgent).toHaveBeenCalledWith('telegram');
+    expect(deps.buildAgent).toHaveBeenCalledWith('http');
   });
 
   it('telegram mode invokes runTelegramMode only', async () => {

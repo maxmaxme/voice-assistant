@@ -75,9 +75,8 @@ npm run voice             # push-to-talk (AGENT_MODE=voice)
 npm run start             # default — all enabled channels at once (AGENT_MODE=both)
 npm run start:wake        # always-listening daemon only (AGENT_MODE=wake)
 
-# AGENT_MODE picks the runner(s). Valid: chat | voice | wake | telegram | both.
-# Default for `npm run start` is `both`, currently equivalent to `wake`
-# (Telegram inbound is added in a follow-up plan).
+# AGENT_MODE picks the runner(s). Valid: chat | voice | wake | telegram | http | both.
+# Default for `npm run start` is `both`: wake-word, Telegram, and HTTP.
 ```
 
 ### Telegram bot (text)
@@ -104,10 +103,10 @@ Setup:
    ```
 
 4. `npm run start` (default `AGENT_MODE=both`) runs the bot alongside the
-   wake-word listener. Or `AGENT_MODE=telegram npm run start` for bot-only.
+   wake-word listener and HTTP endpoint. Or `AGENT_MODE=telegram npm run start`
+   for bot-only.
 
-Commands: `/start`, `/help`, `/reset`, `/profile`. Voice notes are not yet
-supported (see roadmap).
+Commands: `/start`, `/help`, `/reset`, `/profile`.
 
 `WAKE_WORD_DEBUG=1` in `.env` makes the wake-word daemon print per-frame
 diagnostics — useful when wake doesn't fire.

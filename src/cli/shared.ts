@@ -17,7 +17,7 @@ export const AGENT_MODES = ['chat', 'voice', 'wake', 'telegram', 'http', 'both']
 export type AgentMode = (typeof AGENT_MODES)[number];
 
 /** "Channel" = a system-prompt flavour. Multiple modes can share a channel. */
-export type PromptChannel = 'chat' | 'voice' | 'wake' | 'telegram';
+export type PromptChannel = 'chat' | 'voice' | 'wake' | 'telegram' | 'http';
 
 const VOICE_ADDENDUM = `
 
@@ -50,6 +50,7 @@ export function buildSystemPromptFor(channel: PromptChannel): string {
   switch (channel) {
     case 'chat':
     case 'telegram':
+    case 'http':
       return BASE_SYSTEM_PROMPT;
     case 'voice':
       return `${BASE_SYSTEM_PROMPT}${VOICE_ADDENDUM}`;
@@ -121,7 +122,9 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       llmClient: llm,
       telegram,
       textFormat:
-        channel === 'chat' || channel === 'telegram' ? CHAT_TEXT_FORMAT : VOICE_TEXT_FORMAT,
+        channel === 'chat' || channel === 'telegram' || channel === 'http'
+          ? CHAT_TEXT_FORMAT
+          : VOICE_TEXT_FORMAT,
     });
 
   let activeReceiver: TelegramReceiver | null = null;
