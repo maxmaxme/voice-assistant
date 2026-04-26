@@ -50,6 +50,7 @@
     "vitest": "^4.1.5"
   },
   "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.44.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.9.0",
     "cron-parser": "^5.5.0",

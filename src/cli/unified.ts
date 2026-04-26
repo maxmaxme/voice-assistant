@@ -12,6 +12,8 @@ import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
 import type { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { OpenAiTts } from '../audio/openaiTts.ts';
+import { ElevenLabsTts } from '../audio/elevenlabsTts.ts';
+import type { Tts } from '../audio/types.ts';
 import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
 import { Scheduler } from '../scheduling/scheduler.ts';
 import { getServerTimezone } from '../utils/time.ts';
@@ -26,6 +28,20 @@ export interface RunnerSet {
   wake: (deps: WakeRunnerDeps) => Promise<void>;
   telegram: (deps: TelegramRunnerDeps) => Promise<void>;
   http: (deps: HttpRunnerDeps) => Promise<void>;
+}
+
+function buildTts(llm: import('openai').default): Tts {
+  if (process.env.TTS_PROVIDER === 'elevenlabs') {
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      throw new Error('TTS_PROVIDER=elevenlabs but ELEVENLABS_API_KEY is not set');
+    }
+    return new ElevenLabsTts({
+      apiKey,
+      voiceId: process.env.ELEVENLABS_VOICE_ID,
+    });
+  }
+  return new OpenAiTts({ client: llm });
 }
 
 /** Dispatch logic, exported for tests. Does NOT call initializeCommonDependencies
@@ -54,14 +70,16 @@ export async function dispatch(
       runners.voice({
         agent,
         stt: new OpenAiStt({ client: deps.llm }),
-        tts: new OpenAiTts({ client: deps.llm }),
+        tts: buildTts(deps.llm),
       }),
     );
   }
 
   if (mode === 'wake' || mode === 'both') {
     const agent = deps.buildAgent('wake');
-    tasks.push(runners.wake({ agent, llm: deps.llm, config: deps.config }));
+    tasks.push(
+      runners.wake({ agent, llm: deps.llm, config: deps.config, tts: buildTts(deps.llm) }),
+    );
   }
 
   if (mode === 'telegram' || mode === 'both') {

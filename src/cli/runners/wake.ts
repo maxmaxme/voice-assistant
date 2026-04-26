@@ -6,11 +6,13 @@ import { OpenAiStt } from '../../audio/openaiStt.ts';
 import { OpenAiTts } from '../../audio/openaiTts.ts';
 import { OpenWakeWord } from '../../audio/wakeWord.ts';
 import { Orchestrator } from '../../orchestrator/orchestrator.ts';
+import type { Tts } from '../../audio/types.ts';
 
 export interface WakeRunnerDeps {
   agent: OpenAiAgent;
   llm: OpenAI;
   config: Config;
+  tts?: Tts;
 }
 
 export async function runWakeMode(deps: WakeRunnerDeps): Promise<void> {
@@ -27,7 +29,7 @@ export async function runWakeMode(deps: WakeRunnerDeps): Promise<void> {
   const orch = new Orchestrator({
     agent,
     stt: new OpenAiStt({ client: llm }),
-    tts: new OpenAiTts({ client: llm }),
+    tts: deps.tts ?? new OpenAiTts({ client: llm }),
     speaker: new NodeSpeakerOutput(),
     wake,
     sampleRate: wake.sampleRate,
