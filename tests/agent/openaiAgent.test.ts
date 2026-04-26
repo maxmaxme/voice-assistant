@@ -386,21 +386,36 @@ describe('OpenAiAgent', () => {
     });
   });
 
-  it('routes add_reminder to the reminders adapter', async () => {
-    const added: Array<{ text: string; fireAt: number }> = [];
+  it('routes schedule_action to the scheduledActions adapter', async () => {
+    const added: Array<{ goal: string }> = [];
     const memory = emptyMemory();
-    memory.reminders = {
-      ...memory.reminders,
-      add: ({ text, fireAt }) => {
-        added.push({ text, fireAt });
-        return { id: 1, text, fireAt, status: 'pending', createdAt: Date.now(), firedAt: null };
+    const now = Date.now();
+    memory.scheduledActions = {
+      ...memory.scheduledActions,
+      add: ({ goal, schedule, nextFireAt }) => {
+        added.push({ goal });
+        return {
+          id: 1,
+          goal,
+          schedule,
+          nextFireAt,
+          status: 'active',
+          createdAt: now,
+          lastFiredAt: null,
+        };
       },
     };
 
-    const fireAt = Date.now() + 3_600_000; // 1 hour from now
     const llm = fakeLlm([
-      fnCallResponse('add_reminder', JSON.stringify({ text: 'call mom', fire_at: fireAt })),
-      textResponse('Reminder set.'),
+      fnCallResponse(
+        'schedule_action',
+        JSON.stringify({
+          goal: 'call mom',
+          schedule_kind: 'once',
+          schedule_expr: '2099-01-01 09:00',
+        }),
+      ),
+      textResponse('Scheduled.'),
     ]);
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
@@ -411,9 +426,9 @@ describe('OpenAiAgent', () => {
       llmClient: llm as unknown as OpenAI,
       telegram: noopTelegram,
     });
-    const result = await agent.respond('remind me to call mom in 1 hour');
-    expect(result.text).toBe('Reminder set.');
+    const result = await agent.respond('schedule a call to mom');
+    expect(result.text).toBe('Scheduled.');
     expect(added).toHaveLength(1);
-    expect(added[0].text).toBe('call mom');
+    expect(added[0].goal).toBe('call mom');
   });
 });
