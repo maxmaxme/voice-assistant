@@ -52,3 +52,22 @@ run_update() {
   grep -q "✗" "$CURL_LOG"
   grep -q "rolled back" "$CURL_LOG"
 }
+
+@test "rollback retag uses correct :rollback destination" {
+  export DIGEST_PREV="sha256:old"
+  export DIGEST_NEXT="sha256:new"
+  export HEALTH_STATUS="unhealthy"
+  run run_update
+  grep -qE "^image tag .* ghcr\.io/maxmaxme/voice-assistant:rollback$" "$DOCKER_LOG"
+  run grep -q ":latest:rollback" "$DOCKER_LOG"
+  [ "$status" -ne 0 ]
+}
+
+@test "first-deploy unhealthy bails with no-previous-digest message" {
+  export DIGEST_PREV=""
+  export DIGEST_NEXT="sha256:new"
+  export HEALTH_STATUS="unhealthy"
+  run run_update
+  [ "$status" -eq 1 ]
+  grep -q "no previous digest" "$CURL_LOG"
+}

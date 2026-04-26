@@ -13,7 +13,7 @@ case "$1" in
       if [[ -f "${DIGEST_STATE_FILE:-}" ]]; then
         cat "$DIGEST_STATE_FILE"
       else
-        echo "${DIGEST_PREV:-sha256:aaa}"
+        echo "${DIGEST_PREV-sha256:aaa}"
       fi
     elif [[ "${*:2}" == *Health.Status* ]]; then
       echo "${HEALTH_STATUS:-healthy}"
