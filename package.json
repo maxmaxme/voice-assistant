@@ -2,6 +2,7 @@
   "name": "voice-assistant",
   "version": "0.1.0",
   "description": "Voice assistant for smart home control via Home Assistant MCP",
+  "author": "Maxim Lepekha <lepekha11@gmail.com>",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
