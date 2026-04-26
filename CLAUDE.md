@@ -57,6 +57,8 @@ no `dist/`, no `tsx`. Two consequences:
 
 **Adapter pattern for every external dependency.** Each external concern lives behind an interface in `*/types.ts`, with a concrete implementation in a sibling file. Replacing OpenAI with a local Whisper, or `aplay` with `speaker`, is one new adapter — never a code-wide refactor. Honour this when adding anything that talks to the outside world.
 
+**One process, many channels.** `src/cli/unified.ts` is the single entry. Adding a new input channel = adding a runner under `src/cli/runners/` and a case in the `dispatch()` switch — never another top-level entry script. Per-channel system-prompt addenda live in `src/cli/shared.ts::buildSystemPromptFor`.
+
 **`speaker` npm is platform-conditional.** Its bundled mpg123 doesn't compile on Node 24 Linux. `NodeSpeakerOutput` (in `src/audio/speakerOutput.ts`) spawns `aplay` on Linux and dynamic-imports `speaker` on macOS. `speaker` is in `optionalDependencies` so a failed compile in the Pi container doesn't fail `npm ci`.
 
 **Git hooks via husky.** `pre-commit` runs `lint-staged` (prettier + eslint --fix on staged files only). `pre-push` runs `npm run typecheck && npm test`. Hooks install on `npm install` via the `prepare` script. Don't bypass with `--no-verify` to "make it work" — fix the underlying issue.
@@ -67,14 +69,16 @@ Three layers, four entry points.
 
 ### Entry points (`src/cli/`)
 
-| File          | What                                                                                  |
-| ------------- | ------------------------------------------------------------------------------------- |
-| `mcp-call.ts` | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.       |
-| `chat.ts`     | Text REPL → LLM → MCP. No audio.                                                      |
-| `voice.ts`    | Push-to-talk: Enter starts/stops recording. STT → agent → TTS.                        |
-| `run.ts`      | Always-listening daemon. Wake-word → VAD → STT → agent → TTS. The "production" entry. |
+| File                          | What                                                                                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/cli/mcp-call.ts`         | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.                                                                      |
+| `src/cli/unified.ts`          | **The entry point.** Reads `AGENT_MODE` (chat / voice / wake / telegram / both) and runs the matching runner(s). `npm run start` defaults to `both`. |
+| `src/cli/runners/chat.ts`     | Text REPL loop.                                                                                                                                      |
+| `src/cli/runners/voice.ts`    | Push-to-talk: Enter starts/stops recording.                                                                                                          |
+| `src/cli/runners/wake.ts`     | Always-listening: Wake-word → VAD → STT → agent → TTS.                                                                                               |
+| `src/cli/{chat,voice,run}.ts` | Thin shims that set `AGENT_MODE` and re-import `unified.ts`. Kept for backward-compat.                                                               |
 
-All four share the same `OpenAiAgent` core. The voice/run entries add audio adapters and (for `run.ts`) the orchestrator FSM.
+All share the same `OpenAiAgent` core. The voice/wake runners add audio adapters and the orchestrator FSM.
 
 ### Agent core (`src/agent/`)
 
