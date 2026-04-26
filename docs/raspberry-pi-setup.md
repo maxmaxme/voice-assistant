@@ -87,7 +87,7 @@ the Pi and point `.env` at it:
 
 ```bash
 # from the dev machine
-scp models/alisa.onnx pi@raspberrypi.local:/opt/voice-assistant/models/
+rsync -av models/alisa.onnx pi@raspberrypi.local:/opt/voice-assistant/models/
 ```
 
 In `/opt/voice-assistant/.env`:
