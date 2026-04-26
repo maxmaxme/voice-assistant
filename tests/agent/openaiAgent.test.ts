@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type OpenAI from 'openai';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
 import { Session } from '../../src/agent/session.ts';
@@ -11,23 +11,14 @@ const noopTelegram: TelegramSender = { send: async () => {} };
 
 /** A no-op MemoryStore for tests that don't care about memory state. */
 function emptyMemory(): MemoryStore {
-  const noopReminders = {
-    add: () => {
-      throw new Error('not used');
-    },
-    listPending: () => [],
-    listDue: () => [],
-    markFired: () => {},
-    cancel: () => false,
-    get: () => null,
-  };
-  const noopTimers = {
+  const noopScheduledActions = {
     add: () => {
       throw new Error('not used');
     },
     listActive: () => [],
     listDue: () => [],
     markFired: () => {},
+    markError: () => {},
     cancel: () => false,
     get: () => null,
   };
@@ -38,8 +29,7 @@ function emptyMemory(): MemoryStore {
       forget: () => {},
       close: () => {},
     },
-    reminders: noopReminders,
-    timers: noopTimers,
+    scheduledActions: noopScheduledActions,
     close: () => {},
   };
 }
@@ -307,21 +297,103 @@ describe('OpenAiAgent', () => {
     await expect(agent.respond('x')).rejects.toThrow(/max tool iterations/i);
   });
 
-  it('routes add_reminder to the reminders adapter', async () => {
-    const added: Array<{ text: string; fireAt: number }> = [];
+  describe('goal mode', () => {
+    it('runs a goal end-to-end and returns the final text', async () => {
+      const llm = fakeLlm([textResponse('I turned the kitchen lights on', 'resp_1')]);
+      const agent = new OpenAiAgent({
+        mcp: fakeMcp(),
+        memory: emptyMemory(),
+        session: new Session({ idleTimeoutMs: 60_000 }),
+        systemPrompt: 'You are helpful.',
+        model: 'gpt-4o',
+        llmClient: llm as never,
+        telegram: noopTelegram,
+        mode: 'goal',
+      });
+      const res = await agent.respond('включи свет на кухне');
+      expect(res.text).toBe('I turned the kitchen lights on');
+      const args = llm.calls[0]!;
+      expect(typeof args.instructions).toBe('string');
+      expect(args.instructions).toContain('включи свет на кухне');
+      expect(args.instructions).toMatch(/scheduled goal|NO USER PRESENT/);
+      // Must not contain chat-mode-only profile directive when chat would
+      // (in chat mode the system message ends after the time block when no
+      // profile is set; goal mode appends additional directive text).
+      expect(args.instructions).toContain('previously-scheduled goal');
+    });
+
+    it('omits the ask tool from the tools array in goal mode', async () => {
+      const llm = fakeLlm([textResponse('ok', 'resp_1')]);
+      const agent = new OpenAiAgent({
+        mcp: fakeMcp(),
+        memory: emptyMemory(),
+        session: new Session({ idleTimeoutMs: 60_000 }),
+        systemPrompt: 'sys',
+        model: 'gpt-4o',
+        llmClient: llm as never,
+        telegram: noopTelegram,
+        mode: 'goal',
+      });
+      await agent.respond('do it');
+      const callArgs = llm.calls[0]! as unknown as {
+        tools?: Array<{ name: string }>;
+      };
+      const tools = callArgs.tools ?? [];
+      expect(tools.find((t) => t.name === 'ask')).toBeUndefined();
+    });
+
+    it('does not chain across calls in goal mode (every call sends instructions, no previous_response_id)', async () => {
+      const llm = fakeLlm([textResponse('one', 'resp_1'), textResponse('two', 'resp_2')]);
+      const agent = new OpenAiAgent({
+        mcp: fakeMcp(),
+        memory: emptyMemory(),
+        session: new Session({ idleTimeoutMs: 60_000 }),
+        systemPrompt: 'sys',
+        model: 'gpt-4o',
+        llmClient: llm as never,
+        telegram: noopTelegram,
+        mode: 'goal',
+      });
+      await agent.respond('goal one');
+      await agent.respond('goal two');
+      expect(llm.calls[0]!.previous_response_id).toBeUndefined();
+      expect(llm.calls[0]!.instructions).toBeDefined();
+      expect(llm.calls[1]!.previous_response_id).toBeUndefined();
+      expect(llm.calls[1]!.instructions).toBeDefined();
+      expect(llm.calls[1]!.instructions).toContain('goal two');
+    });
+  });
+
+  it('routes schedule_action to the scheduledActions adapter', async () => {
+    const added: Array<{ goal: string }> = [];
     const memory = emptyMemory();
-    memory.reminders = {
-      ...memory.reminders,
-      add: ({ text, fireAt }) => {
-        added.push({ text, fireAt });
-        return { id: 1, text, fireAt, status: 'pending', createdAt: Date.now(), firedAt: null };
+    const now = Date.now();
+    memory.scheduledActions = {
+      ...memory.scheduledActions,
+      add: ({ goal, schedule, nextFireAt }) => {
+        added.push({ goal });
+        return {
+          id: 1,
+          goal,
+          schedule,
+          nextFireAt,
+          status: 'active',
+          createdAt: now,
+          lastFiredAt: null,
+        };
       },
     };
 
-    const fireAt = Date.now() + 3_600_000; // 1 hour from now
     const llm = fakeLlm([
-      fnCallResponse('add_reminder', JSON.stringify({ text: 'call mom', fire_at: fireAt })),
-      textResponse('Reminder set.'),
+      fnCallResponse(
+        'schedule_action',
+        JSON.stringify({
+          goal: 'call mom',
+          schedule_kind: 'once',
+          schedule_expr: '2099-01-01 09:00',
+        }),
+      ),
+      textResponse('Scheduled.'),
     ]);
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
@@ -332,9 +404,65 @@ describe('OpenAiAgent', () => {
       llmClient: llm as unknown as OpenAI,
       telegram: noopTelegram,
     });
-    const result = await agent.respond('remind me to call mom in 1 hour');
-    expect(result.text).toBe('Reminder set.');
+    const result = await agent.respond('schedule a call to mom');
+    expect(result.text).toBe('Scheduled.');
     expect(added).toHaveLength(1);
-    expect(added[0].text).toBe('call mom');
+    expect(added[0].goal).toBe('call mom');
+  });
+});
+
+describe('OpenAiAgent — OPENAI_WEB_SEARCH hosted tool', () => {
+  const original = process.env.OPENAI_WEB_SEARCH;
+  beforeEach(() => {
+    delete process.env.OPENAI_WEB_SEARCH;
+  });
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.OPENAI_WEB_SEARCH;
+    } else {
+      process.env.OPENAI_WEB_SEARCH = original;
+    }
+  });
+
+  function makeAgent(llm: ReturnType<typeof fakeLlm>, mode: 'chat' | 'goal' = 'chat') {
+    return new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as unknown as OpenAI,
+      telegram: noopTelegram,
+      mode,
+    });
+  }
+
+  it('does NOT include web_search in tools by default', async () => {
+    const llm = fakeLlm([textResponse('hi', 'r1')]);
+    const agent = makeAgent(llm);
+    await agent.respond('hello');
+    const callArgs = llm.calls[0]! as unknown as { tools?: Array<{ type: string }> };
+    const tools = callArgs.tools ?? [];
+    expect(tools.find((t) => t.type === 'web_search')).toBeUndefined();
+  });
+
+  it('includes web_search when OPENAI_WEB_SEARCH=1 (chat mode)', async () => {
+    process.env.OPENAI_WEB_SEARCH = '1';
+    const llm = fakeLlm([textResponse('hi', 'r1')]);
+    const agent = makeAgent(llm);
+    await agent.respond('what is the weather in Madrid');
+    const callArgs = llm.calls[0]! as unknown as { tools?: Array<{ type: string }> };
+    const tools = callArgs.tools ?? [];
+    expect(tools.find((t) => t.type === 'web_search')).toBeDefined();
+  });
+
+  it('includes web_search when OPENAI_WEB_SEARCH=1 (goal mode)', async () => {
+    process.env.OPENAI_WEB_SEARCH = '1';
+    const llm = fakeLlm([textResponse('done', 'r1')]);
+    const agent = makeAgent(llm, 'goal');
+    await agent.respond('check Madrid weather and tell me');
+    const callArgs = llm.calls[0]! as unknown as { tools?: Array<{ type: string }> };
+    const tools = callArgs.tools ?? [];
+    expect(tools.find((t) => t.type === 'web_search')).toBeDefined();
   });
 });

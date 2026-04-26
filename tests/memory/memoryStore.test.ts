@@ -11,14 +11,16 @@ describe('openMemoryStore', () => {
     dbPath = path.join(dir, 'a.db');
   });
 
-  it('exposes profile, reminders, timers on one DB', () => {
+  it('exposes profile and scheduledActions on one DB', () => {
     const m = openMemoryStore(dbPath);
     m.profile.remember('name', 'Maxim');
-    m.reminders.add({ text: 'r', fireAt: 1 });
-    m.timers.add({ label: 't', fireAt: 1, durationMs: 1 });
+    const created = m.scheduledActions.add({
+      goal: 'water plants',
+      schedule: { kind: 'once', at: 1000 },
+      nextFireAt: 1000,
+    });
     expect(m.profile.recall('name')).toEqual({ name: 'Maxim' });
-    expect(m.reminders.listPending()[0].text).toBe('r');
-    expect(m.timers.listActive()[0].label).toBe('t');
+    expect(m.scheduledActions.listActive()[0].id).toBe(created.id);
     m.close();
   });
 
@@ -26,12 +28,16 @@ describe('openMemoryStore', () => {
     {
       const m = openMemoryStore(dbPath);
       m.profile.remember('x', 1);
-      m.reminders.add({ text: 'persist', fireAt: 5 });
+      m.scheduledActions.add({
+        goal: 'persist me',
+        schedule: { kind: 'once', at: 5 },
+        nextFireAt: 5,
+      });
       m.close();
     }
     const m2 = openMemoryStore(dbPath);
     expect(m2.profile.recall('x')).toEqual({ x: 1 });
-    expect(m2.reminders.listPending()[0].text).toBe('persist');
+    expect(m2.scheduledActions.listActive()[0].goal).toBe('persist me');
     m2.close();
   });
 });

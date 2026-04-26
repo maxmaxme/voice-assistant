@@ -109,9 +109,8 @@ export async function dispatch(
   }
 
   const scheduler = new Scheduler({
-    reminders: deps.memory.reminders,
-    timers: deps.memory.timers,
-    sink: deps.fireSink,
+    scheduledActions: deps.memory.scheduledActions,
+    goalRunner: deps.goalRunner,
   });
   scheduler.start();
   try {
@@ -124,7 +123,8 @@ export async function dispatch(
 
 export async function main(): Promise<void> {
   const mode = parseAgentMode(process.env.AGENT_MODE);
-  console.log(`[unified] AGENT_MODE=${mode} TZ=${getServerTimezone()}`);
+  const webSearch = process.env.OPENAI_WEB_SEARCH === '1' ? ' WEB_SEARCH=on' : '';
+  console.log(`[unified] AGENT_MODE=${mode} TZ=${getServerTimezone()}${webSearch}`);
 
   const deps = await initializeCommonDependencies();
 
