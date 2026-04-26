@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import { config as loadDotenvConfig } from 'dotenv';
 import { z } from 'zod';
 
 const ConfigSchema = z.object({
@@ -38,6 +38,10 @@ const ConfigSchema = z.object({
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
+
+export function loadEnvFile(): void {
+  loadDotenvConfig();
+}
 
 const PATH_TO_ENV: Record<string, string> = {
   'ha.url': 'HA_URL',
