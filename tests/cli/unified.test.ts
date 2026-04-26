@@ -71,6 +71,7 @@ describe('dispatch', () => {
       voice: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
+      http: vi.fn(async () => {}),
     };
     await dispatch('chat' as AgentMode, deps, runners);
     expect(runners.chat).toHaveBeenCalledTimes(1);
@@ -85,6 +86,7 @@ describe('dispatch', () => {
       voice: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
+      http: vi.fn(async () => {}),
     };
     await dispatch('voice' as AgentMode, deps, runners);
     expect(runners.voice).toHaveBeenCalledTimes(1);
@@ -97,6 +99,7 @@ describe('dispatch', () => {
       voice: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
+      http: vi.fn(async () => {}),
     };
     await dispatch('wake' as AgentMode, deps, runners);
     expect(runners.wake).toHaveBeenCalledTimes(1);
@@ -117,6 +120,7 @@ describe('dispatch', () => {
         telegramStarted();
         await new Promise((r) => setTimeout(r, 5));
       }),
+      http: vi.fn(async () => {}),
     };
     await dispatch('both' as AgentMode, deps, runners);
     expect(wakeStarted).toHaveBeenCalled();
@@ -130,6 +134,7 @@ describe('dispatch', () => {
       voice: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
+      http: vi.fn(async () => {}),
     };
     await dispatch('telegram' as AgentMode, deps, runners);
     expect(runners.telegram).toHaveBeenCalledTimes(1);
@@ -142,6 +147,7 @@ describe('dispatch', () => {
       voice: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
+      http: vi.fn(async () => {}),
     };
     await dispatch('wake' as AgentMode, deps, runners);
     expect(deps.buildAgent).toHaveBeenCalledWith('wake');
@@ -156,6 +162,7 @@ describe('dispatch', () => {
       voice: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
+      http: vi.fn(async () => {}),
     };
     await dispatch('chat' as AgentMode, deps, runners);
     expect(startSpy).toHaveBeenCalledTimes(1);

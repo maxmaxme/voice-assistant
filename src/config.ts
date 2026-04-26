@@ -18,6 +18,9 @@ const ConfigSchema = z.object({
     chatId: z.string().min(1),
     allowedChatIds: z.array(z.number().int()).default([]),
   }),
+  http: z.object({
+    apiKeys: z.array(z.string()).min(1),
+  }),
   wakeWord: z.object({
     pythonPath: z.string().default('.venv/bin/python'),
     scriptPath: z.string().default('scripts/wake_word_daemon.py'),
@@ -45,6 +48,7 @@ const PATH_TO_ENV: Record<string, string> = {
   'telegram.botToken': 'TELEGRAM_BOT_TOKEN',
   'telegram.chatId': 'TELEGRAM_CHAT_ID',
   'telegram.allowedChatIds': 'TELEGRAM_ALLOWED_CHAT_IDS',
+  'http.apiKeys': 'HTTP_API_KEYS',
   'wakeWord.pythonPath': 'WAKE_WORD_PYTHON',
   'wakeWord.scriptPath': 'WAKE_WORD_SCRIPT',
   'wakeWord.keyword': 'WAKE_WORD_KEYWORD',
@@ -63,6 +67,14 @@ export function loadConfig(): Config {
       })
     : undefined;
 
+  const apiKeysRaw = process.env.HTTP_API_KEYS;
+  const apiKeys = apiKeysRaw
+    ? apiKeysRaw
+        .split(',')
+        .map((k) => k.trim())
+        .filter((k) => k.length > 0)
+    : [];
+
   const raw = {
     ha: {
       url: process.env.HA_URL,
@@ -79,6 +91,9 @@ export function loadConfig(): Config {
       botToken: process.env.TELEGRAM_BOT_TOKEN,
       chatId: process.env.TELEGRAM_CHAT_ID,
       allowedChatIds,
+    },
+    http: {
+      apiKeys,
     },
     wakeWord: {
       pythonPath: process.env.WAKE_WORD_PYTHON,

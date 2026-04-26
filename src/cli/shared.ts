@@ -13,7 +13,7 @@ import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
 import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from '../agent/agentOutput.ts';
 import type { FireSink } from '../scheduling/types.ts';
 
-export const AGENT_MODES = ['chat', 'voice', 'wake', 'telegram', 'both'] as const;
+export const AGENT_MODES = ['chat', 'voice', 'wake', 'telegram', 'http', 'both'] as const;
 export type AgentMode = (typeof AGENT_MODES)[number];
 
 /** "Channel" = a system-prompt flavour. Multiple modes can share a channel. */

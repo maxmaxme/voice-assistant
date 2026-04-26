@@ -29,6 +29,7 @@ npm run mcp:call -- call HassTurnOn '{"name":"Свет на кухне"}'
 
 npm run chat                       # text REPL — type commands, agent calls HA tools
 npm run voice                      # push-to-talk (Enter to start/stop recording)
+npm run http                       # HTTP server (default port 3000, customizable via HTTP_SERVER_PORT)
 npm run start                      # always-listening daemon (wake-word + VAD + FSM)
 
 # Dev HA in Docker (Mac, colima):
@@ -69,15 +70,16 @@ Three layers, four entry points.
 
 ### Entry points (`src/cli/`)
 
-| File                          | What                                                                                                                                                 |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/cli/mcp-call.ts`         | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.                                                                      |
-| `src/cli/unified.ts`          | **The entry point.** Reads `AGENT_MODE` (chat / voice / wake / telegram / both) and runs the matching runner(s). `npm run start` defaults to `both`. |
-| `src/cli/runners/chat.ts`     | Text REPL loop.                                                                                                                                      |
-| `src/cli/runners/voice.ts`    | Push-to-talk: Enter starts/stops recording.                                                                                                          |
-| `src/cli/runners/wake.ts`     | Always-listening: Wake-word → VAD → STT → agent → TTS.                                                                                               |
-| `src/cli/runners/telegram.ts` | Telegram bot loop: receiver → agent → sender.                                                                                                        |
-| `src/cli/{chat,voice,run}.ts` | Thin shims that set `AGENT_MODE` and re-import `unified.ts`. Kept for backward-compat.                                                               |
+| File                          | What                                                                                                                                                        |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/cli/mcp-call.ts`         | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.                                                                             |
+| `src/cli/unified.ts`          | **The entry point.** Reads `AGENT_MODE` (chat / voice / wake / telegram / http / both) and runs the matching runner(s). `npm run start` defaults to `both`. |
+| `src/cli/runners/chat.ts`     | Text REPL loop.                                                                                                                                             |
+| `src/cli/runners/voice.ts`    | Push-to-talk: Enter starts/stops recording.                                                                                                                 |
+| `src/cli/runners/wake.ts`     | Always-listening: Wake-word → VAD → STT → agent → TTS.                                                                                                      |
+| `src/cli/runners/telegram.ts` | Telegram bot loop: receiver → agent → sender.                                                                                                               |
+| `src/cli/runners/http.ts`     | HTTP server using h3 (default port 3000, customizable via `HTTP_SERVER_PORT` env var). Accepts POST `/audio` for voice commands from iPhone shortcuts.      |
+| `src/cli/{chat,voice,run}.ts` | Thin shims that set `AGENT_MODE` and re-import `unified.ts`. Kept for backward-compat.                                                                      |
 
 All share the same `OpenAiAgent` core. The voice/wake runners add audio adapters and the orchestrator FSM.
 
