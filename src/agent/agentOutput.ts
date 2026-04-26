@@ -1,37 +1,35 @@
 import { z } from 'zod';
 import { zodTextFormat } from 'openai/helpers/zod.js';
 
-export const AgentOutputSchema = z.object({
+/** Voice channel: speak can be null for silent device confirmations. */
+export const VoiceAgentOutputSchema = z.object({
   speak: z
     .string()
     .nullable()
     .describe(
-      'Text to say aloud to the user. Set to null only for a silent device action confirmation ' +
-        '(voice channel only) — the user will hear a chime instead.',
+      'Text to say aloud. Set to null for a silent device action confirmation — ' +
+        'the user hears a chime instead.',
     ),
   direction: z
     .enum(['on', 'off', 'neutral'])
     .nullable()
     .describe(
-      'Direction of the audio chime played when speak is null. ' +
-        '"on" = ascending tone (device turned on, opened, or activated). ' +
-        '"off" = descending tone (device turned off, closed, or deactivated). ' +
-        '"neutral" = single tone (scene applied, value set, or direction unclear). ' +
+      'Audio chime direction when speak is null. ' +
+        '"on" = ascending (device turned on/opened/activated). ' +
+        '"off" = descending (device turned off/closed/deactivated). ' +
+        '"neutral" = single tone (scene applied, value set). ' +
         'Must be null whenever speak contains text.',
     ),
 });
 
-export type AgentOutput = z.infer<typeof AgentOutputSchema>;
+/** Chat/Telegram channel: speak is always required text, no audio feedback. */
+export const ChatAgentOutputSchema = z.object({
+  speak: z.string().describe('Your response text.'),
+});
+
+export type VoiceAgentOutput = z.infer<typeof VoiceAgentOutputSchema>;
+export type ChatAgentOutput = z.infer<typeof ChatAgentOutputSchema>;
 export type ActionDirection = 'on' | 'off' | 'neutral';
 
-/** Passed directly to `text.format` in responses.create / responses.parse. */
-export const AGENT_TEXT_FORMAT = zodTextFormat(AgentOutputSchema, 'agent_output');
-
-/** Parse a JSON string from the LLM into AgentOutput, with a plain-text fallback. */
-export function parseAgentOutput(raw: string): AgentOutput {
-  try {
-    return AgentOutputSchema.parse(JSON.parse(raw));
-  } catch {
-    return { speak: raw.trim() || null, direction: null };
-  }
-}
+export const VOICE_TEXT_FORMAT = zodTextFormat(VoiceAgentOutputSchema, 'agent_output');
+export const CHAT_TEXT_FORMAT = zodTextFormat(ChatAgentOutputSchema, 'agent_output');

@@ -86,7 +86,7 @@ async function handleMessage(
     await ctx.sender.send(`Agent error: ${m}`);
     return;
   }
-  await ctx.sender.send(reply.text || '(empty reply)');
+  await ctx.sender.send(reply.text);
 }
 
 /** Build a sender that replies to a specific chat using the same bot token. */

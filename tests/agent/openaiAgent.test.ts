@@ -45,13 +45,17 @@ interface CreateArgs {
 function fakeLlm(scripted: Array<unknown>) {
   let i = 0;
   const calls: CreateArgs[] = [];
+  const create = vi.fn(async (args: CreateArgs) => {
+    calls.push(args);
+    return scripted[i++];
+  });
   return {
     calls,
     responses: {
-      create: vi.fn(async (args: CreateArgs) => {
-        calls.push(args);
-        return scripted[i++];
-      }),
+      create,
+      // responses.parse is a SDK helper wrapping create; reuse the same mock.
+      // extractParsedOutput falls back to parseAgentOutput when parsed is absent.
+      parse: create,
     },
   };
 }
@@ -61,17 +65,17 @@ function textResponse(
   id = `resp_${Math.random().toString(36).slice(2, 8)}`,
   direction: 'on' | 'off' | 'neutral' | null = null,
 ) {
-  const json = JSON.stringify({ speak, direction });
+  const output_parsed = { speak, direction };
   return {
     id,
+    output_parsed,
     output: [
       {
         type: 'message',
         role: 'assistant',
-        content: [{ type: 'output_text', text: json }],
+        content: [{ type: 'output_text', text: JSON.stringify(output_parsed) }],
       },
     ],
-    output_text: json,
   };
 }
 
@@ -173,10 +177,9 @@ describe('OpenAiAgent', () => {
 
   it('does not advance session.previous_response_id when LLM call throws', async () => {
     const session = new Session({ idleTimeoutMs: 60_000 });
+    const rejectFn = vi.fn().mockRejectedValue(new Error('boom'));
     const llm = {
-      responses: {
-        create: vi.fn().mockRejectedValue(new Error('boom')),
-      },
+      responses: { create: rejectFn, parse: rejectFn },
     };
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
