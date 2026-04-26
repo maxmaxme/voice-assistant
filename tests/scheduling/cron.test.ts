@@ -27,6 +27,7 @@ describe('nextFireAt — once', () => {
 describe('nextFireAt — cron in Europe/Madrid (CEST)', () => {
   it('"0 8 * * *" from noon Madrid local resolves to next-day 08:00 Madrid', () => {
     setTz('Europe/Madrid');
+    // April is month index 3 (0-indexed).
     // 2026-04-26 12:00 Madrid (CEST = UTC+2) → 10:00 UTC
     const now = Date.UTC(2026, 3, 26, 10, 0, 0);
     const next = nextFireAt({ kind: 'cron', expr: '0 8 * * *' }, now);
@@ -41,6 +42,19 @@ describe('nextFireAt — cron in Europe/Madrid (CEST)', () => {
     const first = nextFireAt(expr, start);
     const second = nextFireAt(expr, first);
     expect(second - first).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it('passing a previous fire back as `now` returns a strictly later time (non-DST week)', () => {
+    // Mid-June 2030 — well clear of any DST transition in Europe/Madrid, so
+    // consecutive 08:00 fires are exactly 24h apart.
+    setTz('Europe/Madrid');
+    const expr: Schedule = { kind: 'cron', expr: '0 8 * * *' };
+    // 2030-06-15 12:00 Madrid (CEST = UTC+2) → 10:00 UTC
+    const someStartingNow = Date.UTC(2030, 5, 15, 10, 0, 0);
+    const t1 = nextFireAt(expr, someStartingNow);
+    const t2 = nextFireAt(expr, t1);
+    expect(t2).toBeGreaterThan(t1);
+    expect(t2 - t1).toBe(24 * 60 * 60 * 1000);
   });
 
   it('successive nextFireAt calls are strictly monotonic', () => {
@@ -58,14 +72,32 @@ describe('nextFireAt — cron in Europe/Madrid (CEST)', () => {
   });
 });
 
+describe('nextFireAt — cron in UTC', () => {
+  it('"0 8 * * *" resolves to 08:00 UTC, not 08:00 local', () => {
+    setTz('UTC');
+    // 2026-04-26 06:00 UTC — before today's 08:00 fire.
+    const now = Date.UTC(2026, 3, 26, 6, 0, 0);
+    const next = nextFireAt({ kind: 'cron', expr: '0 8 * * *' }, now);
+    expect(next).toBe(Date.UTC(2026, 3, 26, 8, 0, 0));
+  });
+});
+
 describe('nextFireAt — DST edge in America/New_York', () => {
-  it('does not crash on the spring-forward day for "0 2 * * *"', () => {
+  it('handles the non-existent 02:00 on the spring-forward day for "0 2 * * *"', () => {
     setTz('America/New_York');
-    // 2030-03-09 23:00 New York (EST = UTC-5) → 04:00 UTC on 2030-03-10
+    // 2030-03-09 23:00 New York (EST = UTC-5) → 04:00 UTC on 2030-03-10.
+    // 2030-03-10 is the US "spring forward" day: local clocks jump 02:00 → 03:00,
+    // so wall-clock 02:00 simply does not exist that day.
+    //
+    // Empirically, cron-parser v5 does NOT skip to the following day. It fires
+    // the missing 02:00 slot at the moment the wall clock first re-enters
+    // valid time, i.e. 03:00 EDT (UTC-4) on the same day, which is 07:00 UTC.
+    // (Pinned to the observed behaviour so a future change in cron-parser's
+    // DST handling surfaces as a test failure rather than silently shifting
+    // user reminders by an hour.)
     const now = Date.UTC(2030, 2, 10, 4, 0, 0);
     const next = nextFireAt({ kind: 'cron', expr: '0 2 * * *' }, now);
-    expect(Number.isFinite(next)).toBe(true);
-    expect(next).toBeGreaterThan(now);
+    expect(next).toBe(Date.UTC(2030, 2, 10, 7, 0, 0));
   });
 });
 
