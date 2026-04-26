@@ -87,7 +87,9 @@ export class SqliteScheduledActions implements ScheduledActionsAdapter {
 
   markError(id: number): void {
     this.db
-      .prepare(`UPDATE scheduled_actions SET status = 'error' WHERE id = ? AND status = 'active'`)
+      .prepare(
+        `UPDATE scheduled_actions SET status = 'error' WHERE id = ? AND status IN ('active', 'done')`,
+      )
       .run(id);
   }
 
