@@ -31,6 +31,9 @@ Working features:
   shims over it.
 - Telegram bot accepts inbound text (polling). The agent answers in the
   same chat. Authorised by an allow-list of chat IDs.
+- Scheduled actions: `schedule_action` tool persists one-shot
+  (wall-clock) or recurring (cron) goals; a tick-based scheduler fires
+  them through a goal-mode agent with the full tool surface.
 
 ## Requirements
 

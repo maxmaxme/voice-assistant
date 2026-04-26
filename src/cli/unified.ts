@@ -102,7 +102,8 @@ export async function dispatch(
 
 export async function main(): Promise<void> {
   const mode = parseAgentMode(process.env.AGENT_MODE);
-  console.log(`[unified] AGENT_MODE=${mode} TZ=${getServerTimezone()}`);
+  const webSearch = process.env.OPENAI_WEB_SEARCH === '1' ? ' WEB_SEARCH=on' : '';
+  console.log(`[unified] AGENT_MODE=${mode} TZ=${getServerTimezone()}${webSearch}`);
 
   const deps = await initializeCommonDependencies();
 
