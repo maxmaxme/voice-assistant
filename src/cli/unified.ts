@@ -60,7 +60,7 @@ export async function dispatch(
     tasks.push(runners.wake({ agent, llm: deps.llm, config: deps.config }));
   }
 
-  const scheduleTelegram = (): void => {
+  if (mode === 'telegram' || mode === 'both') {
     const agent = deps.buildAgent('telegram');
     const session = (agent as unknown as { opts?: { session: Session } }).opts?.session;
     if (!session) {
@@ -81,17 +81,10 @@ export async function dispatch(
         }),
       }),
     );
-  };
-
-  if (mode === 'telegram') {
-    scheduleTelegram();
-  }
-  if (mode === 'both') {
-    scheduleTelegram();
   }
 
-  if (mode === 'http') {
-    const agent = deps.buildAgent('chat');
+  if (mode === 'http' || mode === 'both') {
+    const agent = deps.buildAgent('http');
     const port = parseInt(process.env.HTTP_SERVER_PORT ?? '3000', 10);
     tasks.push(
       runners.http({
