@@ -33,8 +33,6 @@ if [[ -d "$APP_DIR/.git" ]]; then
   sudo -u pi git -C "$APP_DIR" pull
 elif [[ -n "$REPO_URL" ]]; then
   sudo -u pi git clone "$REPO_URL" "$APP_DIR"
-elif [[ -f "$APP_DIR/package.json" ]]; then
-  echo "Sources found at $APP_DIR (no .git). Skipping git step — assuming rsync deploy."
 else
   echo "REPO_URL not set and $APP_DIR has no sources."
   echo "Either set REPO_URL or rsync sources to $APP_DIR before running."
