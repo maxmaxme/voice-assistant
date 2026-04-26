@@ -84,25 +84,3 @@ export function generateConfirmBlip(sampleRate = 24000): Buffer {
   }
   return buf;
 }
-
-/** Marker variants the LLM emits when an action completed with no speech needed. */
-export const ACK_ON_MARKER = '✓+'; // device turned on / opened / activated
-export const ACK_OFF_MARKER = '✓-'; // device turned off / closed / deactivated
-export const ACK_MARKER = '✓'; // neutral action (set value, etc.)
-
-export type AckVariant = 'on' | 'off' | 'neutral';
-
-/** True if the agent reply is *only* an ack marker (possibly with whitespace). */
-export function isAckOnly(text: string): boolean {
-  const t = text.trim();
-  return t === ACK_MARKER || t === ACK_ON_MARKER || t === ACK_OFF_MARKER;
-}
-
-/** Returns which ack variant the text is, or null if it's not an ack. */
-export function getAckVariant(text: string): AckVariant | null {
-  const t = text.trim();
-  if (t === ACK_ON_MARKER) return 'on';
-  if (t === ACK_OFF_MARKER) return 'off';
-  if (t === ACK_MARKER) return 'neutral';
-  return null;
-}

@@ -9,6 +9,7 @@ import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memory
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
 import type { TelegramSender } from '../telegram/types.ts';
+import { AGENT_TEXT_FORMAT, parseAgentOutput } from './agentOutput.ts';
 
 export interface OpenAiAgentOptions {
   mcp: McpClient;
@@ -65,6 +66,7 @@ export class OpenAiAgent implements Agent {
         tools: tools.length > 0 ? tools : undefined,
         store: true,
         previous_response_id: previousResponseId,
+        text: { format: AGENT_TEXT_FORMAT },
       });
 
       const output: ResponseOutputItem[] = response.output ?? [];
@@ -84,7 +86,7 @@ export class OpenAiAgent implements Agent {
           process.stderr.write(`[tool] ask(${JSON.stringify(args)}) → reopen capture\n`);
           session.pendingAskCallId = askCall.call_id;
           session.commit(response.id);
-          return { text, expectsFollowUp: true };
+          return { text, direction: null, expectsFollowUp: true };
         }
 
         const toolOutputs: ResponseInputItem[] = [];
@@ -128,10 +130,11 @@ export class OpenAiAgent implements Agent {
         continue;
       }
 
-      const finalText =
+      const rawText =
         (response as { output_text?: string }).output_text ?? this.extractAssistantText(output);
+      const parsed = parseAgentOutput(rawText);
       session.commit(response.id);
-      return { text: finalText };
+      return { text: parsed.speak ?? '', direction: parsed.direction };
     }
 
     throw new Error('Agent exceeded max tool iterations');

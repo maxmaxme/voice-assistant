@@ -56,18 +56,30 @@ function fakeLlm(scripted: Array<unknown>) {
   };
 }
 
-function textResponse(text: string, id = `resp_${Math.random().toString(36).slice(2, 8)}`) {
+function textResponse(
+  speak: string,
+  id = `resp_${Math.random().toString(36).slice(2, 8)}`,
+  direction: 'on' | 'off' | 'neutral' | null = null,
+) {
+  const json = JSON.stringify({ speak, direction });
   return {
     id,
     output: [
       {
         type: 'message',
         role: 'assistant',
-        content: [{ type: 'output_text', text }],
+        content: [{ type: 'output_text', text: json }],
       },
     ],
-    output_text: text,
+    output_text: json,
   };
+}
+
+function silentConfirmResponse(
+  direction: 'on' | 'off' | 'neutral',
+  id = `resp_${Math.random().toString(36).slice(2, 8)}`,
+) {
+  return textResponse('', id, direction);
 }
 
 function fnCallResponse(
@@ -104,6 +116,7 @@ describe('OpenAiAgent', () => {
     });
     const res = await agent.respond('hello');
     expect(res.text).toBe('Hi there');
+    expect(res.direction).toBeNull();
     expect(llm.responses.create).toHaveBeenCalledOnce();
     const args = llm.calls[0]!;
     // First call in a fresh session sends instructions and no previous_response_id.
@@ -147,6 +160,7 @@ describe('OpenAiAgent', () => {
     });
     const res = await agent.respond('turn on the lamp');
     expect(res.text).toBe('Lamp is on.');
+    expect(res.direction).toBeNull();
     expect(mcp.callTool).toHaveBeenCalledWith('HassTurnOn', { name: 'Test Lamp' });
     // Second call (the tool-result loop) chains from the function_call response id.
     const second = llm.calls[1]!;
@@ -195,6 +209,7 @@ describe('OpenAiAgent', () => {
     });
     const res = await agent.respond('меня зовут Максим');
     expect(res.text).toBe('Got it.');
+    expect(res.direction).toBeNull();
     expect(memory.recall()).toEqual({ name: 'Maxim' });
     expect(mcp.callTool).not.toHaveBeenCalled();
     memory.close();
@@ -216,9 +231,30 @@ describe('OpenAiAgent', () => {
     });
     const res = await agent.respond('включи свет');
     expect(res.text).toBe('Где включить — на кухне или в спальне?');
+    expect(res.direction).toBeNull();
     expect(res.expectsFollowUp).toBe(true);
     expect(mcp.callTool).not.toHaveBeenCalled();
     expect(llm.responses.create).toHaveBeenCalledOnce();
+  });
+
+  it('returns direction from silent confirm JSON response', async () => {
+    const mcp = fakeMcp();
+    const llm = fakeLlm([
+      fnCallResponse('HassTurnOn', '{"name":"Test Lamp"}', 'call_1', 'resp_1'),
+      silentConfirmResponse('on', 'resp_2'),
+    ]);
+    const agent = new OpenAiAgent({
+      mcp,
+      memory: emptyMemory(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+    });
+    const res = await agent.respond('включи лампу');
+    expect(res.text).toBe('');
+    expect(res.direction).toBe('on');
   });
 
   it('throws after max iterations to avoid infinite tool-loops', async () => {

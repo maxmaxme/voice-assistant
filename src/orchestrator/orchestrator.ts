@@ -10,8 +10,6 @@ import {
   generateConfirmOnBlip,
   generateConfirmOffBlip,
   generateListenBlip,
-  isAckOnly,
-  getAckVariant,
 } from '../audio/blip.ts';
 import { bufferToStream, isAbortError } from '../audio/streamHelpers.ts';
 
@@ -163,6 +161,7 @@ export class Orchestrator {
           await this.dispatch({
             type: 'agentReplied',
             text: reply.text,
+            direction: reply.direction,
             expectsFollowUp: reply.expectsFollowUp,
           });
         } catch (e) {
@@ -175,15 +174,14 @@ export class Orchestrator {
       case 'speak':
         this.currentSpeechAbort = new AbortController();
         try {
-          if (isAckOnly(eff.text)) {
-            const variant = getAckVariant(eff.text);
-            console.log(`Assistant: ${eff.text} (action confirmed)`);
+          if (eff.direction !== null) {
             const blip =
-              variant === 'on'
+              eff.direction === 'on'
                 ? CONFIRM_ON_BLIP
-                : variant === 'off'
+                : eff.direction === 'off'
                   ? CONFIRM_OFF_BLIP
                   : CONFIRM_BLIP;
+            console.log(`Assistant: [${eff.direction}] (silent confirm)`);
             await this.opts.speaker.playStream(bufferToStream(blip, BLIP_SAMPLE_RATE), {
               signal: this.currentSpeechAbort.signal,
             });

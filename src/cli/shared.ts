@@ -23,22 +23,25 @@ markdown, lists, code, or punctuation that doesn't read well out loud.`;
 
 const SILENT_CONFIRM_ADDENDUM = `
 
-CRITICAL silent-confirmation rule: when you successfully completed a simple
-device action and have no new information to share, reply with EXACTLY one
-of these markers and nothing else:
-  "✓+" — device turned ON, opened, activated, or brightness/volume raised
-  "✓-" — device turned OFF, closed, deactivated, or brightness/volume lowered
-  "✓"  — neutral action completed (set a specific value, scene applied, etc.)
-Examples:
-  user: "включи лампу"         → HassTurnOn succeeded  → reply: "✓+"
-  user: "выключи свет на кухне" → HassTurnOff succeeded → reply: "✓-"
-  user: "убавь яркость до 30%"  → HassLightSet succeeded → reply: "✓-"
-  user: "прибавь громкость"     → tool succeeded        → reply: "✓+"
-  user: "включи сцену «кино»"   → scene activated       → reply: "✓"
-  user: "включи лампу" → tool returned an error → reply: "Не получилось,
-        лампа не отвечает." (real text, NOT a marker)
-  user: "какая температура?" → reply: "22 градуса." (real text, NOT a marker)
-The user hears a directional chime matching the action. Don't add any words.`;
+SILENT-CONFIRMATION — MANDATORY RULE FOR THIS VOICE CHANNEL:
+
+After any successful device action (lights, switches, scenes, climate, covers),
+set speak to null and choose direction based on the action. Never add words.
+
+  speak: null, direction: "on"      → turned ON, raised, opened, activated
+  speak: null, direction: "off"     → turned OFF, lowered, closed, deactivated
+  speak: null, direction: "neutral" → scene applied, value set, unclear direction
+
+Examples (all use speak: null):
+  "включи свет"      → HassTurnOn  → {"speak":null,"direction":"on"}
+  "включи все лампы" → HassTurnOn  → {"speak":null,"direction":"on"}   (even 3 lamps)
+  "выключи всё"      → HassTurnOff → {"speak":null,"direction":"off"}  (even many)
+  "убавь яркость"    → HassSet     → {"speak":null,"direction":"off"}
+  "прибавь громкость"→ HassSet     → {"speak":null,"direction":"on"}
+  "включи сцену кино"→ activate    → {"speak":null,"direction":"neutral"}
+  "открой шторы"     → HassOpen    → {"speak":null,"direction":"on"}
+
+Use speak with real text ONLY when: tool returned an error, or user asked a question.`;
 
 export function buildSystemPromptFor(channel: PromptChannel): string {
   switch (channel) {
