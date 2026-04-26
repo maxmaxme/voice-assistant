@@ -1,3 +1,5 @@
+import 'dotenv/config';
+
 import {
   initializeCommonDependencies,
   parseAgentMode,
@@ -21,7 +23,6 @@ import { getServerTimezone } from '../utils/time.ts';
 import { createLogger } from '../utils/logger.ts';
 
 const log = createLogger('unified');
-import { loadEnvFile } from '../config.ts';
 
 export interface RunnerSet {
   chat: (deps: ChatRunnerDeps) => Promise<void>;
@@ -140,7 +141,6 @@ export async function dispatch(
 }
 
 export async function main(): Promise<void> {
-  loadEnvFile();
   const mode = parseAgentMode(process.env.AGENT_MODE);
   const webSearch = process.env.OPENAI_WEB_SEARCH === '1' ? ' WEB_SEARCH=on' : '';
   log.info(

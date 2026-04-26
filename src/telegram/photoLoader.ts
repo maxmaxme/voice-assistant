@@ -1,4 +1,7 @@
 import { Telegram } from 'telegraf';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('telegram.photoLoader');
 
 export interface LoadedPhoto {
   data: Buffer;
@@ -45,6 +48,7 @@ export class BotPhotoLoader implements TelegramPhotoLoader {
   async load(fileId: string): Promise<LoadedPhoto> {
     const link = await this.telegram.getFileLink(fileId);
     const url = typeof link === 'string' ? link : link.toString();
+    log.debug({ fileId, url }, 'resolved Telegram file URL');
     const res = await this.fetchImpl(url);
     if (!res.ok) {
       throw new Error(`Telegram photo download failed: ${res.status} ${res.statusText}`);

@@ -1,4 +1,5 @@
-import { loadConfig, loadEnvFile } from '../config.ts';
+import 'dotenv/config';
+import { loadConfig } from '../config.ts';
 import { HaMcpClient } from '../mcp/haMcpClient.ts';
 
 function usage(): never {
@@ -13,7 +14,6 @@ function usage(): never {
 }
 
 async function main(): Promise<void> {
-  loadEnvFile();
   const [, , cmd, ...rest] = process.argv;
   if (!cmd) {
     usage();
