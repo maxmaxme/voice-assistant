@@ -80,7 +80,11 @@ export interface ScheduledActionsAdapter {
   /** When `nextFireAt` is null, mark `status='done'` (one-shot complete).
    *  When non-null, update `next_fire_at` (cron rescheduling) and set `last_fired_at = at`. */
   markFired(id: number, at: number, nextFireAt: number | null): void;
-  /** Mark as `status='error'` (terminal). Used for one-shot actions whose goal threw. */
+  /** Mark a row as `status='error'` (terminal failure). Acts on rows in
+   *  `'active'` or `'done'` status — used both during initial fire failure
+   *  and to override the brief `'done'` window the scheduler creates by
+   *  advancing once-rows BEFORE firing. Cancelled and already-error rows
+   *  are left alone. */
   markError(id: number): void;
   cancel(id: number): boolean;
   get(id: number): ScheduledAction | null;

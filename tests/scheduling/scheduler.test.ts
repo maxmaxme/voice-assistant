@@ -20,7 +20,7 @@ function makeAdapter(initial: ScheduledAction[]): ScheduledActionsAdapter & {
         .sort((a, b) => a.nextFireAt - b.nextFireAt),
     markFired: (id: number, at: number, next: number | null) => {
       const r = rows.find((x) => x.id === id);
-      if (!r) {
+      if (!r || r.status !== 'active') {
         return;
       }
       r.lastFiredAt = at;
@@ -32,7 +32,7 @@ function makeAdapter(initial: ScheduledAction[]): ScheduledActionsAdapter & {
     },
     markError: (id: number) => {
       const r = rows.find((x) => x.id === id);
-      if (r) {
+      if (r && (r.status === 'active' || r.status === 'done')) {
         r.status = 'error';
       }
     },

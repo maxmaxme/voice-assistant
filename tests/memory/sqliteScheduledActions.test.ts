@@ -111,6 +111,14 @@ describe('SqliteScheduledActions', () => {
     expect(out?.lastFiredAt).toBeNull();
   });
 
+  it('markError on a done row transitions to error (override path)', () => {
+    const x = s.add({ goal: 'g', schedule: { kind: 'once', at: 100 }, nextFireAt: 100 });
+    s.markFired(x.id, 200, null);
+    expect(s.get(x.id)?.status).toBe('done');
+    s.markError(x.id);
+    expect(s.get(x.id)?.status).toBe('error');
+  });
+
   it('markError is a no-op on cancelled rows', () => {
     const x = s.add({
       goal: 'x',

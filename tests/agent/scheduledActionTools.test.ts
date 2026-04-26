@@ -33,7 +33,7 @@ function memScheduled(): ScheduledActionsAdapter {
     listDue: (now) => items.filter((i) => i.status === 'active' && i.nextFireAt <= now),
     markFired: (id, at, nextFireAt) => {
       const r = items.find((x) => x.id === id);
-      if (!r) {
+      if (!r || r.status !== 'active') {
         return;
       }
       if (nextFireAt === null) {
@@ -46,7 +46,7 @@ function memScheduled(): ScheduledActionsAdapter {
     },
     markError: (id) => {
       const r = items.find((x) => x.id === id);
-      if (r) {
+      if (r && (r.status === 'active' || r.status === 'done')) {
         r.status = 'error';
       }
     },
