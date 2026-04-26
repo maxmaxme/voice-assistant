@@ -5,11 +5,20 @@ import { transition } from './fsm.ts';
 import { StreamingMic } from '../audio/streamingMic.ts';
 import type { WakeWord } from '../audio/wakeWord.ts';
 import { RmsVad } from '../audio/vad.ts';
-import { generateConfirmBlip, generateListenBlip, isAckOnly } from '../audio/blip.ts';
+import {
+  generateConfirmBlip,
+  generateConfirmOnBlip,
+  generateConfirmOffBlip,
+  generateListenBlip,
+  isAckOnly,
+  getAckVariant,
+} from '../audio/blip.ts';
 import { bufferToStream, isAbortError } from '../audio/streamHelpers.ts';
 
 const BLIP_SAMPLE_RATE = 24000;
 const CONFIRM_BLIP = generateConfirmBlip(BLIP_SAMPLE_RATE);
+const CONFIRM_ON_BLIP = generateConfirmOnBlip(BLIP_SAMPLE_RATE);
+const CONFIRM_OFF_BLIP = generateConfirmOffBlip(BLIP_SAMPLE_RATE);
 const LISTEN_BLIP = generateListenBlip(BLIP_SAMPLE_RATE);
 
 export interface OrchestratorOptions {
@@ -167,8 +176,15 @@ export class Orchestrator {
         this.currentSpeechAbort = new AbortController();
         try {
           if (isAckOnly(eff.text)) {
-            console.log('Assistant: ✓ (action confirmed)');
-            await this.opts.speaker.playStream(bufferToStream(CONFIRM_BLIP, BLIP_SAMPLE_RATE), {
+            const variant = getAckVariant(eff.text);
+            console.log(`Assistant: ${eff.text} (action confirmed)`);
+            const blip =
+              variant === 'on'
+                ? CONFIRM_ON_BLIP
+                : variant === 'off'
+                  ? CONFIRM_OFF_BLIP
+                  : CONFIRM_BLIP;
+            await this.opts.speaker.playStream(bufferToStream(blip, BLIP_SAMPLE_RATE), {
               signal: this.currentSpeechAbort.signal,
             });
           } else {

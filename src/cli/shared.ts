@@ -24,17 +24,21 @@ markdown, lists, code, or punctuation that doesn't read well out loud.`;
 const SILENT_CONFIRM_ADDENDUM = `
 
 CRITICAL silent-confirmation rule: when you successfully completed a simple
-device action (turning lights/switches/scenes on or off, setting a value)
-and have no new information to share, reply with EXACTLY the single
-character "✓" and nothing else. Examples:
-  user: "включи лампу" → tool call HassTurnOn → reply: "✓"
-  user: "выключи свет в кухне" → tool call → reply: "✓"
+device action and have no new information to share, reply with EXACTLY one
+of these markers and nothing else:
+  "✓+" — device turned ON, opened, activated, or brightness/volume raised
+  "✓-" — device turned OFF, closed, deactivated, or brightness/volume lowered
+  "✓"  — neutral action completed (set a specific value, scene applied, etc.)
+Examples:
+  user: "включи лампу"         → HassTurnOn succeeded  → reply: "✓+"
+  user: "выключи свет на кухне" → HassTurnOff succeeded → reply: "✓-"
+  user: "убавь яркость до 30%"  → HassLightSet succeeded → reply: "✓-"
+  user: "прибавь громкость"     → tool succeeded        → reply: "✓+"
+  user: "включи сцену «кино»"   → scene activated       → reply: "✓"
   user: "включи лампу" → tool returned an error → reply: "Не получилось,
-        лампа не отвечает." (real text, NOT ✓)
-  user: "какая температура?" → reply: "22 градуса." (real text, NOT ✓)
-  user: "что я ел вчера?" → reply: "Я не помню." (real text, NOT ✓)
-The user hears a short chime when you reply "✓" — they understand the
-action is done. Don't add words like "готово" or "сделано" — just "✓".`;
+        лампа не отвечает." (real text, NOT a marker)
+  user: "какая температура?" → reply: "22 градуса." (real text, NOT a marker)
+The user hears a directional chime matching the action. Don't add any words.`;
 
 export function buildSystemPromptFor(channel: PromptChannel): string {
   switch (channel) {
