@@ -21,7 +21,7 @@ input_boolean:
 
 input_number:
   bedroom_temperature:
-    name: Спальня температура
+    name: Bedroom Temperature
     min: 16
     max: 28
     step: 0.5
@@ -29,11 +29,11 @@ input_number:
     unit_of_measurement: "°C"
     icon: mdi:thermometer
 
-# Real `light.*` entities so "выключи свет" / "выключи весь свет" work via
+# Real `light.*` entities so "turn off lights" / "turn off all lights" work via
 # HA Assist's HassTurnOff with domain target.
 template:
   - light:
-      - name: Свет на кухне
+      - name: Kitchen Light
         unique_id: kitchen_light
         state: "{{ is_state('input_boolean.kitchen_light_state', 'on') }}"
         turn_on:
@@ -44,7 +44,7 @@ template:
           service: input_boolean.turn_off
           target:
             entity_id: input_boolean.kitchen_light_state
-      - name: Свет в спальне
+      - name: Bedroom Light
         unique_id: bedroom_light
         state: "{{ is_state('input_boolean.bedroom_light_state', 'on') }}"
         turn_on:
@@ -55,7 +55,7 @@ template:
           service: input_boolean.turn_off
           target:
             entity_id: input_boolean.bedroom_light_state
-      - name: Свет в гостиной
+      - name: Living Room Light
         unique_id: living_room_light
         state: "{{ is_state('input_boolean.living_room_light_state', 'on') }}"
         turn_on:
@@ -67,7 +67,7 @@ template:
           target:
             entity_id: input_boolean.living_room_light_state
   - switch:
-      - name: Кофеварка
+      - name: Coffee Maker
         unique_id: coffee_maker
         state: "{{ is_state('input_boolean.coffee_maker_state', 'on') }}"
         turn_on:

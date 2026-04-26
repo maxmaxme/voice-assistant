@@ -104,7 +104,7 @@ describe('scheduledActionTools — schedule_action once', () => {
     process.env.TZ = 'Europe/Madrid';
     const a = memScheduled();
     const out = executeScheduledActionTool(a, 'schedule_action', {
-      goal: 'Включи свет на кухне',
+      goal: 'Turn on the kitchen light',
       schedule_kind: 'once',
       schedule_expr: '2099-06-15 09:00',
     });
@@ -112,7 +112,7 @@ describe('scheduledActionTools — schedule_action once', () => {
     expect(out.next_fire_at).toBe(Date.UTC(2099, 5, 15, 7, 0, 0));
     expect(out.schedule_kind).toBe('once');
     expect(out.schedule_expr).toBe(toLocalIso(Date.UTC(2099, 5, 15, 7, 0, 0)));
-    expect(out.goal).toBe('Включи свет на кухне');
+    expect(out.goal).toBe('Turn on the kitchen light');
     expect(out.id).toBe(1);
     expect(out.next_fire_at_local).toContain('2099-06-15');
   });
@@ -178,7 +178,7 @@ describe('scheduledActionTools — schedule_action cron', () => {
     process.env.TZ = 'Europe/Madrid';
     const a = memScheduled();
     const out = executeScheduledActionTool(a, 'schedule_action', {
-      goal: 'утренний свет',
+      goal: 'morning light',
       schedule_kind: 'cron',
       schedule_expr: '0 8 * * *',
     });

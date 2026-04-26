@@ -4,7 +4,7 @@ import { BotVoiceTranscriber } from '../../src/telegram/voiceTranscriber.ts';
 describe('BotVoiceTranscriber', () => {
   it('downloads Telegram voice audio and delegates transcription to AudioFileStt', async () => {
     const audio = Buffer.from('ogg-bytes');
-    const transcribeFile = vi.fn(async () => 'включи свет');
+    const transcribeFile = vi.fn(async () => 'turn on the light');
     const fetchImpl = vi.fn(async () => new Response(audio));
     const telegram = {
       getFileLink: vi.fn(async () => new URL('https://example.test/voice.oga')),
@@ -18,7 +18,7 @@ describe('BotVoiceTranscriber', () => {
 
     const result = await transcriber.transcribe('file-id');
 
-    expect(result).toBe('включи свет');
+    expect(result).toBe('turn on the light');
     expect(telegram.getFileLink).toHaveBeenCalledWith('file-id');
     expect(fetchImpl).toHaveBeenCalledWith(new URL('https://example.test/voice.oga'));
     expect(transcribeFile).toHaveBeenCalledWith(audio, {

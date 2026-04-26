@@ -19,7 +19,7 @@ export function buildScheduledActionTools(): OpenAiFunctionTool[] {
         'Schedule a future natural-language goal for the assistant to carry out at a later time. ' +
         'REPLACES `add_reminder` and `set_timer` — use this for any future-time goal, one-shot or recurring. ' +
         'At fire time, `goal` is replayed to the assistant verbatim, so write it as a clear, self-contained instruction ' +
-        '(include any context the assistant will need, e.g. "Включи свет на кухне и напиши мне в Telegram «доброе утро»"). ' +
+        '(include any context the assistant will need, e.g. "turn on the kitchen light and send me a good morning message in Telegram"). ' +
         'For `schedule_kind: "once"`, set `schedule_expr` to a wall-clock time string in the SERVER timezone, ' +
         'either "YYYY-MM-DD HH:mm" or "YYYY-MM-DD HH:mm:ss" (NO timezone offset). Must be in the future. ' +
         'For `schedule_kind: "cron"`, set `schedule_expr` to a POSIX 5-field cron expression evaluated in the server timezone. ' +

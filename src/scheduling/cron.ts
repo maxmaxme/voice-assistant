@@ -2,7 +2,7 @@
  *
  * Cron expressions use the POSIX 5-field form (`minute hour day-of-month
  * month day-of-week`) and are evaluated in the server's timezone — see
- * `getServerTimezone()` — so that a user saying "каждый день в 8 утра"
+ * `getServerTimezone()` — so that a user saying "every day at 8 in the morning"
  * fires at 08:00 local, regardless of whether the host (or container) is
  * UTC.
  *

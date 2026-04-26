@@ -22,7 +22,7 @@ describe('OpenAiTts', () => {
     const fakeClient = { audio: { speech: { create } } } as never;
 
     const tts = new OpenAiTts({ client: fakeClient, model: 'gpt-4o-mini-tts', voice: 'alloy' });
-    const stream = tts.stream('привет');
+    const stream = tts.stream('hello');
     expect(stream.sampleRate).toBe(24000);
 
     const got: Buffer[] = [];
@@ -36,7 +36,7 @@ describe('OpenAiTts', () => {
 
     const callArgs = create.mock.calls[0][0];
     expect(callArgs.response_format).toBe('pcm');
-    expect(callArgs.input).toBe('привет');
+    expect(callArgs.input).toBe('hello');
     expect(callArgs.model).toBe('gpt-4o-mini-tts');
   });
 

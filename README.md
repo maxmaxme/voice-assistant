@@ -22,7 +22,7 @@ Working features:
 - Barge-in (interrupt the assistant by saying the wake word again)
 - Explicit follow-up via the `ask` tool — clarifying questions reopen
   capture without another wake word
-- Silent confirmation chime for simple actions ("включи свет" → 🔔)
+- Silent confirmation chime for simple actions ("turn on the light" → 🔔)
 - Auto-update on the Pi via GitHub Actions + GHCR: `main` builds an
   arm64 image, a daily systemd timer pulls and restarts with
   healthcheck-gated rollback and Telegram notification

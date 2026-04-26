@@ -19,8 +19,8 @@ export function buildAskTool(): OpenAiFunctionTool {
       'Use this when you need the user to answer a clarifying question ' +
       'before you can act. Pass the question as `text`. The user will ' +
       'hear it and respond by voice; treat their next utterance as the ' +
-      'answer. Prefer this over making up an excuse like "уточни ' +
-      'пожалуйста" or wrapping a question in plain text.',
+      'answer. Prefer this over making up an excuse like "please clarify" ' +
+      'or wrapping a question in plain text.',
     parameters: {
       type: 'object',
       properties: {

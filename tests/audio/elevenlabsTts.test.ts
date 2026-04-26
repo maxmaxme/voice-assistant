@@ -31,7 +31,7 @@ beforeEach(() => {
 describe('ElevenLabsTts', () => {
   it('returns a 24kHz stream', () => {
     const tts = new ElevenLabsTts({ apiKey: 'test-key' });
-    expect(tts.stream('привет').sampleRate).toBe(24000);
+    expect(tts.stream('hello').sampleRate).toBe(24000);
   });
 
   it('yields PCM chunks from the ElevenLabs stream', async () => {
@@ -40,7 +40,7 @@ describe('ElevenLabsTts', () => {
 
     const tts = new ElevenLabsTts({ apiKey: 'test-key' });
     const got: Buffer[] = [];
-    for await (const chunk of tts.stream('текст').chunks) {
+    for await (const chunk of tts.stream('text').chunks) {
       got.push(chunk);
     }
 

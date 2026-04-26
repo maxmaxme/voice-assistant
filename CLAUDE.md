@@ -25,7 +25,7 @@ npx vitest run path/to/file.test.ts -t "name"   # one test
 RUN_INTEGRATION=1 npm test         # also runs tests gated against a live HA on http://localhost:8123
 
 npm run mcp:call -- list           # list HA's MCP tools (sanity check)
-npm run mcp:call -- call HassTurnOn '{"name":"Свет на кухне"}'
+npm run mcp:call -- call HassTurnOn '{"name":"Kitchen Light"}'
 
 npm run chat                       # text REPL — type commands, agent calls HA tools
 npm run voice                      # push-to-talk (Enter to start/stop recording)
@@ -174,7 +174,7 @@ The agent has a single `schedule_action(goal, schedule_kind, schedule_expr)` too
 - **One-shot**: `schedule_kind: 'once'` + a wall-clock string in the server timezone (`"2026-04-27 09:00"`).
 - **Recurring**: `schedule_kind: 'cron'` + a POSIX 5-field cron string evaluated in the server timezone (`"0 8 * * *"`, `"*/15 * * * *"`).
 
-The `goal` is the natural-language description of what to do. At fire time the scheduler spawns a fresh `OpenAiAgent.respond()` in **goal mode** (no `ask` tool, fresh `Session`) with the goal as the user message. The agent gets the full tool surface (HA MCP, memory, send_to_telegram, optional `web_search` when `OPENAI_WEB_SEARCH=1`) and decides how to act. This is why goals like "Включи свет и напиши мне в Telegram" work — the agent at fire time is the same brain that the user normally talks to.
+The `goal` is the natural-language description of what to do. At fire time the scheduler spawns a fresh `OpenAiAgent.respond()` in **goal mode** (no `ask` tool, fresh `Session`) with the goal as the user message. The agent gets the full tool surface (HA MCP, memory, send_to_telegram, optional `web_search` when `OPENAI_WEB_SEARCH=1`) and decides how to act. This is why goals like "turn on the light and send me a message in Telegram" work — the agent at fire time is the same brain that the user normally talks to.
 
 Persistence: SQLite table `scheduled_actions` (migration v4). Cron rows reschedule themselves; once rows transition to `done` (or `error` if the goal threw). The legacy `reminders` / `timers` SQL tables remain (v3 migration unchanged) for one release as a back-fill safety net — but their TypeScript adapters and tools are gone. v4 carried existing rows forward as `kind: 'once'` actions.
 

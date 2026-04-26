@@ -55,7 +55,7 @@ describe('migration v4 back-fill', () => {
     expect(rows).toHaveLength(3);
 
     // Reminder 1: pending -> active
-    expect(rows[0].goal).toBe('Напиши мне в Telegram: call mom');
+    expect(rows[0].goal).toBe('Send me a message in Telegram: call mom');
     expect(rows[0].schedule_kind).toBe('once');
     expect(rows[0].schedule_expr).toBe('1000');
     expect(rows[0].status).toBe('active');
@@ -63,12 +63,12 @@ describe('migration v4 back-fill', () => {
     expect(rows[0].last_fired_at).toBeNull();
 
     // Reminder 2: fired -> done
-    expect(rows[1].goal).toBe('Напиши мне в Telegram: water plants');
+    expect(rows[1].goal).toBe('Send me a message in Telegram: water plants');
     expect(rows[1].status).toBe('done');
     expect(rows[1].last_fired_at).toBe(850);
 
     // Timer: active -> active
-    expect(rows[2].goal).toBe('Напиши мне в Telegram: ⏱ Timer "pasta" finished.');
+    expect(rows[2].goal).toBe('Send me a message in Telegram: ⏱ Timer "pasta" finished.');
     expect(rows[2].schedule_kind).toBe('once');
     expect(rows[2].schedule_expr).toBe('2000');
     expect(rows[2].status).toBe('active');

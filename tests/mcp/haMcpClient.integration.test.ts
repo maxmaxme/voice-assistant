@@ -25,10 +25,10 @@ describe.runIf(RUN)('HaMcpClient (integration)', () => {
       const hasTurnOn = tools.some((t) => t.name === 'HassTurnOn');
       expect(hasTurnOn).toBe(true);
 
-      const onResult = await client.callTool('HassTurnOn', { name: 'Свет на кухне' });
+      const onResult = await client.callTool('HassTurnOn', { name: 'Kitchen Light' });
       expect(onResult.isError).toBe(false);
 
-      const offResult = await client.callTool('HassTurnOff', { name: 'Свет на кухне' });
+      const offResult = await client.callTool('HassTurnOff', { name: 'Kitchen Light' });
       expect(offResult.isError).toBe(false);
     } finally {
       await client.disconnect();

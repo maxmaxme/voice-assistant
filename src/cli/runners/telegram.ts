@@ -91,12 +91,12 @@ async function handleMessage(
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       ctx.log.error({ err }, `voice transcription failed: ${m}`);
-      await ctx.sender.send(`Не смог распознать голосовое: ${m}`);
+      await ctx.sender.send(`Could not transcribe voice message: ${m}`);
       return;
     }
     transcript = transcript.trim();
     if (!transcript) {
-      await ctx.sender.send('Голосовое пустое — ничего не услышал.');
+      await ctx.sender.send('Voice message is empty — no speech detected.');
       return;
     }
     let reply;

@@ -101,19 +101,19 @@ describe('OpenAiAgent + telegram', () => {
             type: 'function_call',
             call_id: 'tg_1',
             name: 'send_to_telegram',
-            arguments: '{"text":"Рецепт блинов: ..."}',
+            arguments: '{"text":"Pancake recipe: ..."}',
           },
         ],
         output_text: '',
       },
       {
         id: 'resp_2',
-        output_parsed: { speak: 'Отправил.', direction: null },
+        output_parsed: { speak: 'Sent.', direction: null },
         output: [
           {
             type: 'message',
             role: 'assistant',
-            content: [{ type: 'output_text', text: '{"speak":"Отправил.","direction":null}' }],
+            content: [{ type: 'output_text', text: '{"speak":"Sent.","direction":null}' }],
           },
         ],
       },
@@ -127,9 +127,9 @@ describe('OpenAiAgent + telegram', () => {
       llmClient: llm as never,
       telegram,
     });
-    const res = await agent.respond('отправь рецепт в телеграм');
-    expect(res.text).toBe('Отправил.');
-    expect(sent).toEqual(['Рецепт блинов: ...']);
+    const res = await agent.respond('send the recipe to telegram');
+    expect(res.text).toBe('Sent.');
+    expect(sent).toEqual(['Pancake recipe: ...']);
     expect(mcp.callTool).not.toHaveBeenCalled();
   });
 });

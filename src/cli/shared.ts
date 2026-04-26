@@ -36,13 +36,13 @@ set speak to null and choose direction based on the action. Never add words.
   speak: null, direction: "neutral" → scene applied, value set, unclear direction
 
 Examples (all use speak: null):
-  "включи свет"      → HassTurnOn  → {"speak":null,"direction":"on"}
-  "включи все лампы" → HassTurnOn  → {"speak":null,"direction":"on"}   (even 3 lamps)
-  "выключи всё"      → HassTurnOff → {"speak":null,"direction":"off"}  (even many)
-  "убавь яркость"    → HassSet     → {"speak":null,"direction":"off"}
-  "прибавь громкость"→ HassSet     → {"speak":null,"direction":"on"}
-  "включи сцену кино"→ activate    → {"speak":null,"direction":"neutral"}
-  "открой шторы"     → HassOpen    → {"speak":null,"direction":"on"}
+  "turn on the lights"    → HassTurnOn  → {"speak":null,"direction":"on"}
+  "turn on all lamps"     → HassTurnOn  → {"speak":null,"direction":"on"}   (even 3 lamps)
+  "turn off everything"   → HassTurnOff → {"speak":null,"direction":"off"}  (even many)
+  "dim the lights"        → HassSet     → {"speak":null,"direction":"off"}
+  "raise the volume"      → HassSet     → {"speak":null,"direction":"on"}
+  "activate movie scene"  → activate    → {"speak":null,"direction":"neutral"}
+  "open the blinds"       → HassOpen    → {"speak":null,"direction":"on"}
 
 Use speak with real text ONLY when: tool returned an error, or user asked a question.`;
 

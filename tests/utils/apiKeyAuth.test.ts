@@ -20,8 +20,8 @@ describe('constantTimeEquals', () => {
   });
 
   it('handles non-ASCII characters byte-wise', () => {
-    expect(constantTimeEquals('пароль', 'пароль')).toBe(true);
-    expect(constantTimeEquals('пароль', 'парол!')).toBe(false);
+    expect(constantTimeEquals('café', 'café')).toBe(true);
+    expect(constantTimeEquals('café', 'cafè')).toBe(false);
   });
 });
 

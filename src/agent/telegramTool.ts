@@ -10,7 +10,7 @@ export function buildTelegramTool(): OpenAiFunctionTool {
     description:
       'Send a text message to the user in Telegram from the assistant bot. ' +
       'Use when the user asks to send/forward something to Telegram (e.g. ' +
-      '"отправь это в телеграм", "пришли мне в телеграм", "скинь список в телеграм"). ' +
+      '"send this to Telegram", "forward this to me in Telegram", "post the list to Telegram"). ' +
       'Pass the full message body as `text` — include the actual content to deliver, ' +
       'not just a confirmation. Plain text only (no Markdown).',
     parameters: {

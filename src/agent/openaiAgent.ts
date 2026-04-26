@@ -231,8 +231,8 @@ export class OpenAiAgent implements Agent {
       `\n\nScheduling actions: use schedule_action(goal, schedule_kind, schedule_expr).` +
       `\n  • One-shot: schedule_kind="once", schedule_expr is a wall-clock string in the server timezone, e.g. "2026-04-27 09:00" or "2026-04-27 09:00:00". NO timezone offset — the server resolves it.` +
       `\n  • Recurring: schedule_kind="cron", schedule_expr is a POSIX 5-field cron string evaluated in the server timezone. Examples: "0 8 * * *" (daily 08:00), "30 7 * * 1-5" (weekdays 07:30), "*/15 * * * *" (every 15 min).` +
-      `\n  • The "goal" is replayed verbatim to the agent at fire time, so write it as a self-contained instruction that can be acted on with no extra context (e.g. "Включи свет на кухне", not "do the thing we discussed").` +
-      `\n  • Compound goals are allowed in a single schedule_action: "Включи свет на кухне и напиши мне в Telegram «доброе утро»" → at fire time the agent calls both tools.` +
+      `\n  • The "goal" is replayed verbatim to the agent at fire time, so write it as a self-contained instruction that can be acted on with no extra context (e.g. "turn on the kitchen light", not "do the thing we discussed").` +
+      `\n  • Compound goals are allowed in a single schedule_action: "turn on the kitchen light and send me a good morning message in Telegram" → at fire time the agent calls both tools.` +
       `\n  • Use list_scheduled / cancel_scheduled to inspect or remove existing schedules.`;
     const webSearchBlock =
       process.env.OPENAI_WEB_SEARCH === '1'

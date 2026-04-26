@@ -80,7 +80,7 @@ export const MIGRATIONS: Migration[] = [
       -- (runMigrations re-executes every migration's SQL on every open).
       INSERT INTO scheduled_actions (goal, schedule_kind, schedule_expr, status, next_fire_at, last_fired_at, created_at)
       SELECT
-        'Напиши мне в Telegram: ' || text,
+        'Send me a message in Telegram: ' || text,
         'once',
         CAST(fire_at AS TEXT),
         CASE status WHEN 'pending' THEN 'active' WHEN 'fired' THEN 'done' ELSE status END,
@@ -92,7 +92,7 @@ export const MIGRATIONS: Migration[] = [
 
       INSERT INTO scheduled_actions (goal, schedule_kind, schedule_expr, status, next_fire_at, last_fired_at, created_at)
       SELECT
-        'Напиши мне в Telegram: ⏱ Timer "' || label || '" finished.',
+        'Send me a message in Telegram: ⏱ Timer "' || label || '" finished.',
         'once',
         CAST(fire_at AS TEXT),
         CASE status WHEN 'active' THEN 'active' WHEN 'fired' THEN 'done' ELSE status END,

@@ -150,12 +150,12 @@ describe('runTelegramMode', () => {
       allowedChatIds: [42],
     });
     expect(respond).not.toHaveBeenCalled();
-    expect(cap.sent[0]).toMatch(/help|команд|hi/i);
+    expect(cap.sent[0]).toMatch(/help|ready|hi/i);
   });
 
   it('transcribes voice messages and forwards the transcript to the agent', async () => {
     const respond = vi.fn(async (text: string) => ({ text: `ok:${text}` }));
-    const transcribe = vi.fn(async () => 'включи свет на кухне');
+    const transcribe = vi.fn(async () => 'turn on the kitchen light');
     const cap = captureSender();
     await runTelegramMode({
       receiver: recvFromMessages([
@@ -177,10 +177,10 @@ describe('runTelegramMode', () => {
       voiceTranscriber: { transcribe },
     });
     expect(transcribe).toHaveBeenCalledWith('F');
-    expect(respond).toHaveBeenCalledWith('включи свет на кухне');
+    expect(respond).toHaveBeenCalledWith('turn on the kitchen light');
     expect(cap.sent).toHaveLength(1);
-    expect(cap.sent[0]).toContain('включи свет на кухне');
-    expect(cap.sent[0]).toContain('ok:включи свет на кухне');
+    expect(cap.sent[0]).toContain('turn on the kitchen light');
+    expect(cap.sent[0]).toContain('ok:turn on the kitchen light');
   });
 
   it('reports transcription errors back to the user', async () => {
@@ -209,7 +209,7 @@ describe('runTelegramMode', () => {
       voiceTranscriber: { transcribe },
     });
     expect(respond).not.toHaveBeenCalled();
-    expect(cap.sent[0]).toMatch(/stt down|распозна/i);
+    expect(cap.sent[0]).toMatch(/stt down|transcribe|Could/i);
   });
 
   it('replies to voice messages with a "not yet supported" notice when no transcriber wired', async () => {
@@ -234,7 +234,7 @@ describe('runTelegramMode', () => {
       allowedChatIds: [42],
     });
     expect(respond).not.toHaveBeenCalled();
-    expect(cap.sent[0]).toMatch(/voice|голос/i);
+    expect(cap.sent[0]).toMatch(/voice|not supported/i);
   });
 
   it('reports agent errors back to the user instead of crashing', async () => {
@@ -252,7 +252,7 @@ describe('runTelegramMode', () => {
       memory: fakeMemory(),
       allowedChatIds: [42],
     });
-    expect(cap.sent[0]).toMatch(/error|ошибк/i);
+    expect(cap.sent[0]).toMatch(/error|Agent/i);
   });
 
   it('handles /update by writing to the FIFO and sending a start notification', async () => {

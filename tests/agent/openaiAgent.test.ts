@@ -231,7 +231,7 @@ describe('OpenAiAgent', () => {
       llmClient: llm as never,
       telegram: noopTelegram,
     });
-    const res = await agent.respond('меня зовут Максим');
+    const res = await agent.respond('my name is Maxim');
     expect(res.text).toBe('Got it.');
     expect(res.direction).toBeNull();
     expect(profile.recall()).toEqual({ name: 'Maxim' });
@@ -242,7 +242,12 @@ describe('OpenAiAgent', () => {
   it('ask tool ends the turn and sets expectsFollowUp=true', async () => {
     const mcp = fakeMcp();
     const llm = fakeLlm([
-      fnCallResponse('ask', '{"text":"Где включить — на кухне или в спальне?"}', 'ask_1', 'resp_1'),
+      fnCallResponse(
+        'ask',
+        '{"text":"Where should I turn it on — in the kitchen or bedroom?"}',
+        'ask_1',
+        'resp_1',
+      ),
     ]);
     const agent = new OpenAiAgent({
       mcp,
@@ -253,8 +258,8 @@ describe('OpenAiAgent', () => {
       llmClient: llm as never,
       telegram: noopTelegram,
     });
-    const res = await agent.respond('включи свет');
-    expect(res.text).toBe('Где включить — на кухне или в спальне?');
+    const res = await agent.respond('turn on the light');
+    expect(res.text).toBe('Where should I turn it on — in the kitchen or bedroom?');
     expect(res.direction).toBeNull();
     expect(res.expectsFollowUp).toBe(true);
     expect(mcp.callTool).not.toHaveBeenCalled();
@@ -276,14 +281,14 @@ describe('OpenAiAgent', () => {
       llmClient: llm as never,
       telegram: noopTelegram,
     });
-    const res = await agent.respond('включи лампу');
+    const res = await agent.respond('turn on the lamp');
     expect(res.text).toBe('');
     expect(res.direction).toBe('on');
   });
 
   it('strips <title=...> API artifact from speak text', async () => {
     const raw =
-      'Могу помочь с этими задачами!\n<title="Маленький дебют": The debut of personal devices control>';
+      'I can help with these tasks!\n<title="Small debut": The debut of personal devices control>';
     const llm = fakeLlm([textResponse(raw, 'resp_title')]);
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
@@ -294,13 +299,13 @@ describe('OpenAiAgent', () => {
       llmClient: llm as never,
       telegram: noopTelegram,
     });
-    const res = await agent.respond('что ты умеешь?');
-    expect(res.text).toBe('Могу помочь с этими задачами!');
+    const res = await agent.respond('what can you do?');
+    expect(res.text).toBe('I can help with these tasks!');
     expect(res.text).not.toContain('<title=');
   });
 
   it('leaves normal text untouched when no API artifact present', async () => {
-    const llm = fakeLlm([textResponse('Всё хорошо.', 'resp_clean')]);
+    const llm = fakeLlm([textResponse('All good.', 'resp_clean')]);
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
       memory: emptyMemory(),
@@ -310,8 +315,8 @@ describe('OpenAiAgent', () => {
       llmClient: llm as never,
       telegram: noopTelegram,
     });
-    const res = await agent.respond('как дела?');
-    expect(res.text).toBe('Всё хорошо.');
+    const res = await agent.respond('how are you?');
+    expect(res.text).toBe('All good.');
   });
 
   it('throws after max iterations to avoid infinite tool-loops', async () => {
@@ -343,11 +348,11 @@ describe('OpenAiAgent', () => {
         telegram: noopTelegram,
         mode: 'goal',
       });
-      const res = await agent.respond('включи свет на кухне');
+      const res = await agent.respond('turn on the kitchen light');
       expect(res.text).toBe('I turned the kitchen lights on');
       const args = llm.calls[0]!;
       expect(typeof args.instructions).toBe('string');
-      expect(args.instructions).toContain('включи свет на кухне');
+      expect(args.instructions).toContain('turn on the kitchen light');
       expect(args.instructions).toMatch(/scheduled goal|NO USER PRESENT/);
       // Must not contain chat-mode-only profile directive when chat would
       // (in chat mode the system message ends after the time block when no

@@ -22,7 +22,7 @@ of 2–3 seconds. Saves 1–3 seconds of round-trip on long responses.
 ### Custom Russian wake-word
 
 Currently we catch built-in English keywords from openWakeWord (`hey_jarvis`,
-`alexa`, ...). A custom Russian word (e.g. «Алиса», «Слушай», «Эй друг») can be
+`alexa`, ...). A custom word in any language (e.g. "Alice", "Listen", "Hey friend") can be
 trained via the openWakeWord notebook in Colab in ~1 hour. We get an `.onnx` file,
 place it in `models/`, and switch `WAKE_WORD_KEYWORD`.
 
@@ -75,7 +75,7 @@ system PipeWire `module-echo-cancel` on Pi (no code). 4–6 hours.
 ### Multiple wake-words
 
 Currently one keyword at a time. openWakeWord can load multiple models simultaneously.
-Useful for a home: "Алиса" for me, "Окей дом" for guests, plus separate "Стоп"
+Useful for a home: "Alice" for me, "Okay home" for guests, plus separate "Stop"
 keyword as hardware-level emergency.
 
 ### Settle delay after TTS
@@ -209,7 +209,7 @@ for main UX (voice is the primary interface), but handy for administration.
 
 ### Regression: "device not found" with verb case
 
-In one session the agent said "couldn't find device 'лампа'" even though the same
+In one session the agent said "couldn't find device 'lamp'" even though the same
 phrase worked 5 minutes before. Possibly memory or history trim interfered.
 Reproduce and fix.
 
