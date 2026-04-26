@@ -176,9 +176,29 @@ export class OpenAiAgent implements Agent {
   private buildSystemMessage(): string {
     const base = this.opts.systemPrompt;
     const profile = this.opts.memory.profile.recall();
-    const nowIso = new Date().toISOString();
     const nowMs = Date.now();
-    const timeBlock = `\n\nCurrent time: ${nowIso} (Unix ms: ${nowMs}).`;
+    // Include both UTC ISO and local time with offset so the LLM can express
+    // dates in the server's local timezone without doing timezone arithmetic.
+    const nowUtcIso = new Date(nowMs).toISOString();
+    const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const nowLocal = new Intl.DateTimeFormat('sv-SE', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone: tzName,
+      timeZoneName: 'longOffset',
+    })
+      .format(new Date(nowMs))
+      .replace(',', '');
+    // Give the LLM a direct formula so it doesn't need to do timezone math.
+    const timeBlock =
+      `\n\nCurrent time: ${nowUtcIso} UTC = ${nowLocal} (timezone: ${tzName}).` +
+      ` Unix ms now: ${nowMs}.` +
+      ` For add_reminder: fire_at = ${nowMs} + (seconds_from_now × 1000). Do NOT do timezone arithmetic — just add milliseconds to Unix ms now.`;
     if (Object.keys(profile).length === 0) return base + timeBlock;
     return `${base}${timeBlock}\n\nKnown user profile: ${JSON.stringify(profile)}`;
   }

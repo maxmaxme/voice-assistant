@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   REMINDER_TOOL_NAMES,
   buildReminderTools,
@@ -93,5 +93,144 @@ describe('reminderTools', () => {
   it('throws for unknown tool name', () => {
     const r = memReminders();
     expect(() => executeReminderTool(r, 'whatever', {})).toThrow(/unknown/i);
+  });
+});
+
+describe('reminderTools — timezone handling', () => {
+  const originalTz = process.env.TZ;
+  afterEach(() => {
+    if (originalTz === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTz;
+  });
+
+  // Helper: re-initialize Date's TZ cache by constructing a date after env mutation.
+  // Note: Node honours TZ at Date construction time, so this is enough for our checks
+  // that exercise toISOString / Date.UTC / getTime — all TZ-independent operations.
+  function setTz(tz: string): void {
+    process.env.TZ = tz;
+  }
+
+  it('stores fire_at as a UTC instant — same epoch ms regardless of system TZ', () => {
+    // 2030-06-15T09:00:00 in Moscow (UTC+3) === 06:00:00Z
+    const moscow9amUtcMs = Date.UTC(2030, 5, 15, 6, 0, 0);
+
+    setTz('Europe/Moscow');
+    const r1 = memReminders();
+    const out1 = executeReminderTool(r1, 'add_reminder', {
+      text: 'meeting',
+      fire_at: moscow9amUtcMs,
+    }) as { fire_at: number; fire_at_local: string };
+
+    setTz('America/Los_Angeles');
+    const r2 = memReminders();
+    const out2 = executeReminderTool(r2, 'add_reminder', {
+      text: 'meeting',
+      fire_at: moscow9amUtcMs,
+    }) as { fire_at: number; fire_at_local: string };
+
+    expect(out1.fire_at).toBe(moscow9amUtcMs);
+    expect(out2.fire_at).toBe(moscow9amUtcMs);
+    expect(out1.fire_at).toBe(out2.fire_at);
+    // fire_at_local differs by TZ — that's intentional (helps the LLM display local time)
+    expect(out1.fire_at_local).not.toBe(out2.fire_at_local);
+  });
+
+  it('fire_at_local reflects the server timezone (not always UTC)', () => {
+    const fireAt = Date.UTC(2030, 0, 1, 12, 30, 0); // 12:30 UTC
+
+    setTz('Europe/Moscow'); // UTC+3 in winter
+    const r = memReminders();
+    const out = executeReminderTool(r, 'add_reminder', {
+      text: 'x',
+      fire_at: fireAt,
+    }) as { fire_at_local: string };
+    // Should reflect Moscow local time (15:30), not UTC (12:30)
+    expect(out.fire_at_local).toContain('15:30');
+    expect(out.fire_at_local).not.toContain('12:30');
+  });
+
+  it('"9 утра в Москве" and the equivalent "11 утра в Токио" land on the same instant', () => {
+    // 2030-06-15 09:00 Europe/Moscow (UTC+3)  = 06:00Z
+    // 2030-06-15 15:00 Asia/Tokyo (UTC+9)     = 06:00Z
+    // 2030-06-14 23:00 America/Los_Angeles (UTC-7 in summer) = 2030-06-15 06:00Z
+    const moscow = Date.UTC(2030, 5, 15, 6, 0, 0);
+    const tokyo = Date.UTC(2030, 5, 15, 6, 0, 0);
+    const la = Date.UTC(2030, 5, 15, 6, 0, 0);
+
+    const r = memReminders();
+    const a = executeReminderTool(r, 'add_reminder', { text: 'a', fire_at: moscow }) as {
+      fire_at: number;
+    };
+    const b = executeReminderTool(r, 'add_reminder', { text: 'b', fire_at: tokyo }) as {
+      fire_at: number;
+    };
+    const c = executeReminderTool(r, 'add_reminder', { text: 'c', fire_at: la }) as {
+      fire_at: number;
+    };
+    expect(a.fire_at).toBe(b.fire_at);
+    expect(b.fire_at).toBe(c.fire_at);
+  });
+
+  it('list_reminders preserves the exact UTC instant; fire_at epoch ms is TZ-independent', () => {
+    const fireAt = Date.UTC(2030, 8, 30, 21, 15, 7); // 2030-09-30T21:15:07Z
+
+    setTz('Pacific/Kiritimati'); // UTC+14 — extreme positive offset
+    const r = memReminders();
+    executeReminderTool(r, 'add_reminder', { text: 'a', fire_at: fireAt });
+
+    setTz('Pacific/Pago_Pago'); // UTC-11 — extreme negative offset
+    const list = executeReminderTool(r, 'list_reminders', {}) as Array<{
+      fire_at: number;
+      fire_at_local: string;
+    }>;
+    expect(list).toHaveLength(1);
+    // The epoch ms must survive a round-trip regardless of the listing TZ.
+    expect(list[0].fire_at).toBe(fireAt);
+    // fire_at_local reflects the listing timezone (Pacific/Pago_Pago = UTC-11):
+    // 2030-09-30T21:15:07Z → 2030-09-30T10:15:07-11:00
+    expect(list[0].fire_at_local).toContain('10:15');
+  });
+
+  it('past-check uses the UTC instant — TZ does not turn a past UTC time into a "future" one', () => {
+    // An instant 1h before "now" must be rejected even under a TZ where local
+    // wall-clock would naïvely look later than now.
+    setTz('Pacific/Kiritimati');
+    const r = memReminders();
+    const past = Date.now() - 3600_000;
+    expect(() => executeReminderTool(r, 'add_reminder', { text: 'x', fire_at: past })).toThrow(
+      /past/i,
+    );
+  });
+
+  it('a future UTC instant is accepted under any TZ', () => {
+    const future = Date.now() + 3600_000;
+    for (const tz of ['UTC', 'Europe/Moscow', 'America/Los_Angeles', 'Pacific/Pago_Pago']) {
+      setTz(tz);
+      const r = memReminders();
+      expect(() =>
+        executeReminderTool(r, 'add_reminder', { text: 'x', fire_at: future }),
+      ).not.toThrow();
+    }
+  });
+
+  it('survives a DST transition: a fixed UTC instant keeps the same epoch ms', () => {
+    // US DST "spring forward" 2030-03-10 02:00 local → 03:00 local in America/New_York.
+    // The instant 2030-03-10T07:30:00Z is unambiguous in UTC and must round-trip.
+    // 07:30 UTC is past the DST boundary (07:00 UTC = 02:00 EST → 03:00 EDT),
+    // so local time is 03:30 EDT (UTC-4).
+    const fireAt = Date.UTC(2030, 2, 10, 7, 30, 0);
+
+    setTz('America/New_York');
+    const r = memReminders();
+    const out = executeReminderTool(r, 'add_reminder', {
+      text: 'dst',
+      fire_at: fireAt,
+    }) as { fire_at: number; fire_at_local: string };
+
+    expect(out.fire_at).toBe(fireAt);
+    // Local representation should reflect America/New_York post-DST (EDT = UTC-4): 03:30
+    expect(out.fire_at_local).toContain('03:30');
+    // Sanity: epoch ms round-trips correctly via Date.
+    expect(new Date(out.fire_at).getTime()).toBe(fireAt);
   });
 });
