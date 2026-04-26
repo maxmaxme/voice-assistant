@@ -1,13 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
-import { loadConfig } from '../../src/config.ts';
+import { loadEnvFile } from '../../src/config.ts';
 
 const RUN = process.env.RUN_INTEGRATION === '1';
 
+function getHaConfig(): { url: string; token: string } {
+  loadEnvFile();
+
+  const { HA_URL: url, HA_TOKEN: token } = process.env;
+  if (!url || !token) {
+    throw new Error('RUN_INTEGRATION=1 requires HA_URL and HA_TOKEN in env or repo .env');
+  }
+  return { url, token };
+}
+
 describe.runIf(RUN)('HaMcpClient (integration)', () => {
   it('connects, lists tools, and toggles a mock light', async () => {
-    const cfg = loadConfig();
-    const client = new HaMcpClient({ url: cfg.ha.url, token: cfg.ha.token });
+    const cfg = getHaConfig();
+    const client = new HaMcpClient({ url: cfg.url, token: cfg.token });
     await client.connect();
     try {
       const tools = await client.listTools();
