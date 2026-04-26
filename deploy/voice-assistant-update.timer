@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily auto-update for voice-assistant
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=10min
+Unit=voice-assistant-update.service
+
+[Install]
+WantedBy=timers.target

@@ -1,5 +1,9 @@
 services:
   voice-assistant:
+    # CI publishes the image to GHCR; deploy/update.sh pulls it on a timer.
+    # To build locally instead: `docker compose build voice-assistant`.
+    image: ghcr.io/maxmaxme/voice-assistant:latest
+    pull_policy: always
     build:
       context: ..
       dockerfile: deploy/Dockerfile

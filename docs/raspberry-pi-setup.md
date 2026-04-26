@@ -78,7 +78,8 @@ The script:
 - adds `pi` to the `docker` group
 - copies `.env.example` → `.env` and resolves the host's `audio` group gid
 - creates `models/` and `data/` directories
-- builds the image and starts the container
+- pulls the prebuilt image from GHCR and starts the container
+- installs and enables the `voice-assistant-update.timer` systemd timer
 
 After it finishes, edit `/opt/voice-assistant/.env` to fill in real values
 (`HA_URL`, `HA_TOKEN`, `OPENAI_API_KEY`, etc.) and restart:
@@ -120,11 +121,44 @@ healthcheck is about to flip to `healthy`.
 
 ## Updating
 
+The `voice-assistant-update.timer` systemd unit fires `deploy/update.sh`
+daily at 04:00 (with up to 10 min jitter). The script pulls
+`ghcr.io/maxmaxme/voice-assistant:latest`, restarts the container if the
+digest changed, waits up to 90 s for the healthcheck, and rolls back to
+the previous image on failure. Outcome (success or rollback) is posted
+to the same Telegram bot the agent uses.
+
+Inspect:
+
 ```bash
-cd /opt/voice-assistant
-sudo -u pi git pull
-cd deploy
-sudo -u pi docker compose up -d --build
+systemctl list-timers voice-assistant-update.timer
+journalctl -u voice-assistant-update -n 100 --no-pager
+```
+
+Force an update right now:
+
+```bash
+sudo systemctl start voice-assistant-update.service
+```
+
+Manual rollback to the previous image (kept locally as `:rollback`):
+
+```bash
+cd /opt/voice-assistant/deploy
+sudo -u pi docker compose -f docker-compose.yml \
+  up -d --no-deps \
+  --pull never \
+  voice-assistant
+# then edit the image: line back to :latest after fixing CI
+```
+
+Build locally on the Pi (no GHCR roundtrip — useful when iterating
+on a hot-fix):
+
+```bash
+cd /opt/voice-assistant/deploy
+sudo -u pi docker compose build voice-assistant
+sudo -u pi docker compose up -d voice-assistant
 ```
 
 ## Troubleshooting
@@ -145,6 +179,12 @@ sudo -u pi docker compose up -d --build
   or wired Ethernet if RTT is high.
 - **First boot slow (~30-60s).** Normal — `openwakeword` loads ONNX models
   on startup. The compose `healthcheck` has `start_period: 30s` for this.
+- **Auto-update didn't fire / rolled back.** Check the timer and journal:
+  `systemctl list-timers voice-assistant-update.timer` and
+  `journalctl -u voice-assistant-update -n 200 --no-pager`. A rollback
+  message in Telegram means the new image started but its healthcheck
+  never went green within 90 s — the previous image is now active. Fix
+  the breaking commit, push again, and the next 04:00 run picks it up.
 
 ## Verified deployments
 

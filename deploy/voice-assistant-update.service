@@ -1,0 +1,15 @@
+[Unit]
+Description=Pull latest voice-assistant image and restart with rollback
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+Group=docker
+WorkingDirectory=/opt/voice-assistant
+ExecStart=/opt/voice-assistant/deploy/update.sh
+# Pull + 90s healthcheck + possible rollback can exceed the 90s default.
+TimeoutStartSec=15min
+StandardOutput=journal
+StandardError=journal

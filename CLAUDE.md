@@ -20,6 +20,7 @@ npm test                           # vitest run, all unit tests
 npm run test:watch                 # vitest watch mode
 npm run lint                       # eslint (flat config: eslint.config.js)
 npm run format                     # prettier --write .
+npm run test:shell                 # bats tests for deploy/update.sh
 npx vitest run path/to/file.test.ts -t "name"   # one test
 RUN_INTEGRATION=1 npm test         # also runs tests gated against a live HA on http://localhost:8123
 
@@ -39,6 +40,9 @@ docker compose -f deploy/docker-compose.yml up -d
 
 `WAKE_WORD_DEBUG=1` in `.env` makes the wake-word daemon print per-frame
 max score and RMS to stderr — invaluable when wake doesn't fire.
+
+`npm run test:shell` requires `bats-core`: `brew install bats-core` on
+macOS, `apt-get install bats` on the Pi.
 
 ## Critical conventions (will bite you if ignored)
 
@@ -144,6 +148,10 @@ them. Use the `telegramFromConfig()` helper when constructing the agent.
 ### MCP client (`src/mcp/haMcpClient.ts`)
 
 Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth against HA's `/api/mcp`. Single replaceable adapter — the `McpClient` interface is the contract used by everything else.
+
+### Deployment & auto-update (`deploy/`)
+
+CI (`.github/workflows/build-image.yml`) cross-builds an arm64 image on every push to `main` and publishes it to `ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via `deploy/update.sh`, run by `voice-assistant-update.timer` at 04:00 daily. The script bails when the digest hasn't changed, rolls back to the previous image if the existing healthcheck doesn't go green within 90 s, and posts the outcome to the same Telegram bot the agent uses. There is no blue/green: a single ALSA mic forces a serial restart, and 5 s of unavailability at 04:00 is invisible.
 
 ## Home Assistant — gotchas
 

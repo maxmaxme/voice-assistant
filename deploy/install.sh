@@ -65,10 +65,18 @@ fi
 # 7. data dir
 sudo -u pi mkdir -p "$APP_DIR/data"
 
-# 8. Build and start
+# 8. First-run image fetch + start.
+# Subsequent runs go through the systemd timer; no `docker compose build`
+# in the host install path because CI builds the image now.
 cd "$APP_DIR/deploy"
-sudo -u pi docker compose build
+sudo -u pi docker compose pull voice-assistant
 sudo -u pi docker compose up -d
+
+# 9. Install systemd update timer.
+install -m 0644 voice-assistant-update.service /etc/systemd/system/
+install -m 0644 voice-assistant-update.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now voice-assistant-update.timer
 
 cat <<EOM
 
@@ -76,4 +84,8 @@ Service is starting. Tail logs with:
   cd $APP_DIR/deploy && docker compose logs -f
 First boot loads the openwakeword ONNX models — give it ~30 seconds
 before the healthcheck flips green.
+
+Auto-update is armed (04:00 daily). Inspect with:
+  systemctl list-timers voice-assistant-update.timer
+  journalctl -u voice-assistant-update -n 50
 EOM
