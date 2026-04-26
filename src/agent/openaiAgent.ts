@@ -125,7 +125,7 @@ export class OpenAiAgent implements Agent {
       if (response.output_parsed != null) {
         session.commit(response.id);
         return {
-          text: response.output_parsed.speak ?? '',
+          text: stripApiArtifacts(response.output_parsed.speak ?? ''),
           direction: response.output_parsed.direction ?? null,
         };
       }
@@ -252,4 +252,10 @@ export class OpenAiAgent implements Agent {
       return {};
     }
   }
+}
+
+// OpenAI Responses API with store:true sometimes leaks conversation-title
+// annotations (e.g. `<title="...": ...>`) into the structured output text.
+function stripApiArtifacts(text: string): string {
+  return text.replace(/<title=[^>]*>/g, '').trim();
 }

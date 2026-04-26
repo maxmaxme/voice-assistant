@@ -281,6 +281,39 @@ describe('OpenAiAgent', () => {
     expect(res.direction).toBe('on');
   });
 
+  it('strips <title=...> API artifact from speak text', async () => {
+    const raw =
+      'Могу помочь с этими задачами!\n<title="Маленький дебют": The debut of personal devices control>';
+    const llm = fakeLlm([textResponse(raw, 'resp_title')]);
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+    });
+    const res = await agent.respond('что ты умеешь?');
+    expect(res.text).toBe('Могу помочь с этими задачами!');
+    expect(res.text).not.toContain('<title=');
+  });
+
+  it('leaves normal text untouched when no API artifact present', async () => {
+    const llm = fakeLlm([textResponse('Всё хорошо.', 'resp_clean')]);
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+    });
+    const res = await agent.respond('как дела?');
+    expect(res.text).toBe('Всё хорошо.');
+  });
+
   it('throws after max iterations to avoid infinite tool-loops', async () => {
     const looping = fnCallResponse('HassTurnOn', '{}', 'c', 'resp_loop');
     const llm = fakeLlm([looping, looping, looping, looping, looping, looping]);
