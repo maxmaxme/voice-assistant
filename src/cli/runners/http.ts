@@ -78,12 +78,54 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         return { error: message };
       }
     })
+    .post('/text', async (event: H3Event) => {
+      if (!verifyBearerToken(event.req.headers.get('authorization'), apiKeys)) {
+        event.res.status = 401;
+        return { error: 'Unauthorized' };
+      }
+      try {
+        await assertBodySize(event, MAX_BODY_BYTES);
+      } catch {
+        event.res.status = 413;
+        return { error: `Text exceeds ${MAX_BODY_BYTES} bytes` };
+      }
+
+      const contentType = parseContentType(event.req.headers.get('content-type'));
+      let text: string;
+      if (contentType.startsWith('application/json')) {
+        const parsed = (await event.req.json().catch(() => null)) as { text?: unknown } | null;
+        if (!parsed || typeof parsed.text !== 'string') {
+          event.res.status = 400;
+          return { error: 'Expected JSON body with string "text" field' };
+        }
+        text = parsed.text;
+      } else {
+        text = await event.req.text();
+      }
+      text = text.trim();
+      if (!text) {
+        event.res.status = 400;
+        return { error: 'No text provided' };
+      }
+
+      log.debug({ contentType, bytes: text.length }, `text payload ${text.length} chars`);
+
+      try {
+        const reply = await agent.respond(text);
+        return { response: reply.text };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err }, `text handling failed: ${message}`);
+        event.res.status = 500;
+        return { error: message };
+      }
+    })
     .get('/health', () => {
       return { status: 'ok' };
     });
 
   log.info({ port }, `listening on http://localhost:${port}`);
-  log.info('POST /audio to send audio, GET /health for healthcheck');
+  log.info('POST /audio for audio, POST /text for text, GET /health for healthcheck');
 
   // silent: skip srvx's "➜ Listening on …" / "Server closed successfully."
   // chatter; we already log startup ourselves.
