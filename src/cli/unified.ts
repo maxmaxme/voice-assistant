@@ -8,6 +8,7 @@ import { runChatMode, type ChatRunnerDeps } from './runners/chat.ts';
 import { runVoiceMode, type VoiceRunnerDeps } from './runners/voice.ts';
 import { runWakeMode, type WakeRunnerDeps } from './runners/wake.ts';
 import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runners/telegram.ts';
+import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
 import type { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { OpenAiTts } from '../audio/openaiTts.ts';
@@ -20,6 +21,7 @@ export interface RunnerSet {
   voice: (deps: VoiceRunnerDeps) => Promise<void>;
   wake: (deps: WakeRunnerDeps) => Promise<void>;
   telegram: (deps: TelegramRunnerDeps) => Promise<void>;
+  http: (deps: HttpRunnerDeps) => Promise<void>;
 }
 
 /** Dispatch logic, exported for tests. Does NOT call initializeCommonDependencies
@@ -88,6 +90,20 @@ export async function dispatch(
     scheduleTelegram();
   }
 
+  if (mode === 'http') {
+    const agent = deps.buildAgent('chat');
+    const port = parseInt(process.env.HTTP_SERVER_PORT ?? '3000', 10);
+    tasks.push(
+      runners.http({
+        agent,
+        session: (agent as unknown as { opts?: { session: Session } }).opts?.session as Session,
+        memory: deps.memory,
+        port,
+        config: deps.config,
+      }),
+    );
+  }
+
   if (tasks.length === 0) {
     throw new Error(`No runners scheduled for AGENT_MODE=${mode}`);
   }
@@ -126,6 +142,7 @@ export async function main(): Promise<void> {
       voice: runVoiceMode,
       wake: runWakeMode,
       telegram: runTelegramMode,
+      http: runHttpMode,
     });
   } finally {
     await deps.dispose();
