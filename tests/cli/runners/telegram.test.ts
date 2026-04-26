@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('child_process', () => ({ exec: vi.fn() }));
+import { exec } from 'child_process';
 import { runTelegramMode } from '../../../src/cli/runners/telegram.ts';
 import type {
   TelegramMessage,
@@ -31,6 +34,7 @@ const captureSender = (): { sender: TelegramSender; sent: string[] } => {
 };
 
 describe('runTelegramMode', () => {
+  beforeEach(() => vi.clearAllMocks());
   it('forwards a text message to the agent and replies', async () => {
     const respond = vi.fn(async (text: string) => ({ text: `echo:${text}` }));
     const session = { reset: vi.fn() } as unknown as Session;
@@ -167,7 +171,7 @@ describe('runTelegramMode', () => {
     expect(cap.sent[0]).toMatch(/error|ошибк/i);
   });
 
-  it('handles /update by sending a notification message', async () => {
+  it('handles /update by writing to the FIFO and sending a start notification', async () => {
     const respond = vi.fn();
     const cap = captureSender();
     await runTelegramMode({
@@ -182,5 +186,6 @@ describe('runTelegramMode', () => {
     });
     expect(respond).not.toHaveBeenCalled();
     expect(cap.sent[0]).toMatch(/starting.*update|🔄/i);
+    expect(exec).toHaveBeenCalledWith('echo trigger > /tmp/va-update');
   });
 });
