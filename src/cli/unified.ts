@@ -15,6 +15,7 @@ import { OpenAiTts } from '../audio/openaiTts.ts';
 import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
 import { Scheduler } from '../scheduling/scheduler.ts';
 import { getServerTimezone } from '../utils/time.ts';
+import { loadEnvFile } from '../config.ts';
 
 export interface RunnerSet {
   chat: (deps: ChatRunnerDeps) => Promise<void>;
@@ -116,6 +117,7 @@ export async function dispatch(
 }
 
 export async function main(): Promise<void> {
+  loadEnvFile();
   const mode = parseAgentMode(process.env.AGENT_MODE);
   const webSearch = process.env.OPENAI_WEB_SEARCH === '1' ? ' WEB_SEARCH=on' : '';
   console.log(`[unified] AGENT_MODE=${mode} TZ=${getServerTimezone()}${webSearch}`);
