@@ -116,6 +116,10 @@ async function handleMessage(
     return;
   }
   if (text === '/update') {
+    if (process.platform !== 'linux') {
+      await ctx.sender.send('Update only works on the Pi. Locally, restart manually.');
+      return;
+    }
     await ctx.sender.send('🔄 Starting update...');
     // Writes to a host-side FIFO; va-update-listener.service picks it up and
     // runs deploy/update.sh. The script itself posts the result to Telegram.

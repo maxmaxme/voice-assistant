@@ -267,18 +267,46 @@ describe('runTelegramMode', () => {
   it('handles /update by writing to the FIFO and sending a start notification', async () => {
     const respond = vi.fn();
     const cap = captureSender();
-    await runTelegramMode({
-      receiver: recvFromMessages([
-        { updateId: 1, chatId: 42, fromUserId: 7, kind: 'text', text: '/update', receivedAt: 0 },
-      ]),
-      sender: cap.sender,
-      agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
-    });
-    expect(respond).not.toHaveBeenCalled();
-    expect(cap.sent[0]).toMatch(/starting.*update|🔄/i);
-    expect(exec).toHaveBeenCalledWith('echo trigger > /tmp/va-update');
+    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    try {
+      await runTelegramMode({
+        receiver: recvFromMessages([
+          { updateId: 1, chatId: 42, fromUserId: 7, kind: 'text', text: '/update', receivedAt: 0 },
+        ]),
+        sender: cap.sender,
+        agent: { respond } as unknown as OpenAiAgent,
+        session: { reset: vi.fn() } as unknown as Session,
+        memory: fakeMemory(),
+        allowedChatIds: [42],
+      });
+      expect(respond).not.toHaveBeenCalled();
+      expect(cap.sent[0]).toMatch(/starting.*update|🔄/i);
+      expect(exec).toHaveBeenCalledWith('echo trigger > /tmp/va-update');
+    } finally {
+      platformSpy.mockRestore();
+    }
+  });
+
+  it('rejects /update on non-Linux platforms', async () => {
+    const respond = vi.fn();
+    const cap = captureSender();
+    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+    try {
+      await runTelegramMode({
+        receiver: recvFromMessages([
+          { updateId: 1, chatId: 42, fromUserId: 7, kind: 'text', text: '/update', receivedAt: 0 },
+        ]),
+        sender: cap.sender,
+        agent: { respond } as unknown as OpenAiAgent,
+        session: { reset: vi.fn() } as unknown as Session,
+        memory: fakeMemory(),
+        allowedChatIds: [42],
+      });
+      expect(respond).not.toHaveBeenCalled();
+      expect(cap.sent[0]).toMatch(/update only works on the pi/i);
+      expect(exec).not.toHaveBeenCalled();
+    } finally {
+      platformSpy.mockRestore();
+    }
   });
 });
