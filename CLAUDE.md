@@ -154,8 +154,8 @@ agent as the `send_to_telegram` tool.
 `src/cli/runners/telegram.ts` wires the receiver to a per-channel
 `OpenAiAgent`, applies the `TELEGRAM_ALLOWED_CHAT_IDS` allow-list, handles
 `/reset` / `/profile` / `/start` / `/update` locally, and forwards everything else.
-`/update` triggers an immediate pull and restart via `sudo /opt/voice-assistant/deploy/update.sh`
-(requires passwordless sudo entry in `/etc/sudoers`).
+`/update` writes a trigger to `/tmp/va-update` (a host-side FIFO); the
+`va-update-listener.service` systemd unit on the Pi reads it and runs `deploy/update.sh`.
 
 Voice messages currently reply "not supported yet"; transcription is a
 follow-up plan.
@@ -172,13 +172,18 @@ Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth aga
 
 CI (`.github/workflows/build-image.yml`) cross-builds an arm64 image on every push to `main` and publishes it to `ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via `deploy/update.sh`, run by `voice-assistant-update.timer` at 04:00 daily or manually via `/update` Telegram command. The script bails when the digest hasn't changed, rolls back to the previous image if the existing healthcheck doesn't go green within 90 s, and posts the outcome to Telegram. There is no blue/green: a single ALSA mic forces a serial restart, and 5 s of unavailability at 04:00 is invisible.
 
-**Sudo setup for `/update`:** To allow the container to run `update.sh` on the host, add this line to `/etc/sudoers` on the Pi (via `sudo visudo`):
+**FIFO setup for `/update`:** The container writes to a FIFO mounted from the host. A
+lightweight systemd service on the Pi reads from it and calls `update.sh`. Install once:
 
-```
-pi ALL=(ALL) NOPASSWD: /opt/voice-assistant/deploy/update.sh
+```bash
+sudo cp /opt/voice-assistant/deploy/va-update-listener.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now va-update-listener.service
 ```
 
-This allows the `pi` user to run update.sh without a password prompt, which the Telegram runner invokes via `sudo /opt/voice-assistant/deploy/update.sh`. The container process must have permission to run sudo (typically it does if docker is launched by `pi`).
+The service creates `/tmp/va-update` on startup if it doesn't exist. The FIFO is
+mounted into the container via `deploy/docker-compose.yml`. No sudo, no docker socket
+inside the container.
 
 ## Home Assistant — gotchas
 

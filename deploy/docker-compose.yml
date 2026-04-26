@@ -20,6 +20,9 @@ services:
       - ../data:/app/data
       # Wake-word models (custom .onnx files trained outside the image).
       - ../models:/app/models:ro
+      # FIFO for /update Telegram command. The host-side va-update-listener.service
+      # creates this FIFO and runs deploy/update.sh when a trigger is written to it.
+      - /tmp/va-update:/tmp/va-update
     environment:
       # Make the same Node code that uses .venv/bin/python locally point at
       # the system Python inside the image.

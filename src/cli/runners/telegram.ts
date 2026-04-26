@@ -81,14 +81,9 @@ async function handleMessage(
   }
   if (text === '/update') {
     await ctx.sender.send('🔄 Starting update...');
-    exec('sudo /opt/voice-assistant/deploy/update.sh', (error, stdout, stderr) => {
-      const output = error ? `Error:\n${stderr}` : `✓ Update completed:\n${stdout}`;
-      ctx.sender.send(output).catch((err) => {
-        process.stderr.write(
-          `[telegram] failed to send update result: ${err instanceof Error ? err.message : String(err)}\n`,
-        );
-      });
-    });
+    // Writes to a host-side FIFO; va-update-listener.service picks it up and
+    // runs deploy/update.sh. The script itself posts the result to Telegram.
+    exec('echo trigger > /tmp/va-update');
     return;
   }
 
