@@ -21,6 +21,8 @@ export class Session {
   private lastTouch = 0;
   private readonly idleTimeoutMs: number;
   private readonly now: () => number;
+  /** call_id of a pending `ask` tool call that needs a function_call_output on the next turn. */
+  pendingAskCallId?: string;
 
   constructor(opts: SessionOptions = {}) {
     this.idleTimeoutMs = opts.idleTimeoutMs ?? SESSION_IDLE_TIMEOUT_MS;
@@ -33,7 +35,10 @@ export class Session {
    * activity so concurrent quick retries don't drop the chain.
    */
   begin(): string | undefined {
-    if (this.isStale()) this.lastResponseId = undefined;
+    if (this.isStale()) {
+      this.lastResponseId = undefined;
+      this.pendingAskCallId = undefined;
+    }
     this.lastTouch = this.now();
     return this.lastResponseId;
   }
@@ -47,6 +52,7 @@ export class Session {
   /** Force a fresh chain on the next call (used by `/reset`). */
   reset(): void {
     this.lastResponseId = undefined;
+    this.pendingAskCallId = undefined;
     this.lastTouch = 0;
   }
 
