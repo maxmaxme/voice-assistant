@@ -108,7 +108,7 @@ async function handleMessage(
       await ctx.sender.send(`Agent error: ${m}`);
       return;
     }
-    await ctx.sender.send(`🎤 «${transcript}»\n\n${reply.text}`);
+    await ctx.sender.send(reply.text);
     return;
   }
   if (msg.kind === 'unsupported') {
