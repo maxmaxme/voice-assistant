@@ -68,11 +68,48 @@ export function buildReminderTools(): OpenAiFunctionTool[] {
   ];
 }
 
+export interface AddReminderResult {
+  id: number;
+  fire_at: number;
+  fire_at_local: string;
+  text: string;
+}
+export interface ListReminderItem {
+  id: number;
+  text: string;
+  fire_at: number;
+  fire_at_local: string;
+}
+export interface CancelResult {
+  ok: boolean;
+}
+export type ReminderToolResult = AddReminderResult | ListReminderItem[] | CancelResult;
+
+export function executeReminderTool(
+  reminders: RemindersAdapter,
+  name: 'add_reminder',
+  args: Record<string, unknown>,
+): AddReminderResult;
+export function executeReminderTool(
+  reminders: RemindersAdapter,
+  name: 'list_reminders',
+  args: Record<string, unknown>,
+): ListReminderItem[];
+export function executeReminderTool(
+  reminders: RemindersAdapter,
+  name: 'cancel_reminder',
+  args: Record<string, unknown>,
+): CancelResult;
 export function executeReminderTool(
   reminders: RemindersAdapter,
   name: string,
   args: Record<string, unknown>,
-): unknown {
+): ReminderToolResult;
+export function executeReminderTool(
+  reminders: RemindersAdapter,
+  name: string,
+  args: Record<string, unknown>,
+): ReminderToolResult {
   switch (name) {
     case 'add_reminder': {
       const text = String(args.text ?? '').trim();
