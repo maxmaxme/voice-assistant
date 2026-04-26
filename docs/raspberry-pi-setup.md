@@ -49,12 +49,24 @@ groups pi | grep -q audio || sudo usermod -aG audio pi
 
 ## 3. Deploy
 
+> **Note:** The instructions below use `pi` as the username and
+> `raspberrypi.local` as the hostname — the defaults from Pi Imager. If you
+> chose a different username during OS setup, substitute it everywhere
+> (`sudo -u pi`, `pi@raspberrypi.local`, `chown pi:pi`, `usermod -aG docker pi`).
+
 Get the project sources to `/opt/voice-assistant`. Two options:
 
 **Option A — rsync from your dev machine:**
 
+On the Pi, create the target directory first:
+
 ```bash
-# from the dev machine
+sudo mkdir -p /opt/voice-assistant && sudo chown pi:pi /opt/voice-assistant
+```
+
+Then from the dev machine:
+
+```bash
 rsync -av --exclude node_modules --exclude .venv --exclude data --exclude .git \
   ./ pi@raspberrypi.local:/opt/voice-assistant/
 ```
@@ -65,11 +77,16 @@ Then on the Pi:
 sudo /opt/voice-assistant/deploy/install.sh
 ```
 
-**Option B — git clone via the install script:**
+`install.sh` detects that sources are already present (no `.git` required for
+this path) and skips the git step.
+
+**Option B — clone directly on the Pi:**
+
+On a fresh Pi, `install.sh` doesn't exist yet. Clone the repo first, then run it:
 
 ```bash
-sudo REPO_URL=https://github.com/<you>/voice-assistant.git \
-  /opt/voice-assistant/deploy/install.sh
+sudo git clone https://github.com/<you>/voice-assistant.git /opt/voice-assistant
+sudo /opt/voice-assistant/deploy/install.sh
 ```
 
 The script:
@@ -81,8 +98,20 @@ The script:
 - pulls the prebuilt image from GHCR and starts the container
 - installs and enables the `voice-assistant-update.timer` systemd timer
 
-After it finishes, edit `/opt/voice-assistant/.env` to fill in real values
-(`HA_URL`, `HA_TOKEN`, `OPENAI_API_KEY`, etc.) and restart:
+After it finishes, edit `/opt/voice-assistant/.env` to fill in real values and restart:
+
+```bash
+nano /opt/voice-assistant/.env
+```
+
+Key values to set:
+
+| Variable                                  | Value                                                                   |
+| ----------------------------------------- | ----------------------------------------------------------------------- |
+| `HA_URL`                                  | `http://home-assistant:8123` ← Docker service name, **not** `localhost` |
+| `HA_TOKEN`                                | Long-lived access token from Home Assistant                             |
+| `OPENAI_API_KEY`                          | Your OpenAI key                                                         |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | From @BotFather / @userinfobot                                          |
 
 ```bash
 cd /opt/voice-assistant/deploy
@@ -163,16 +192,22 @@ The service creates `/tmp/va-update` (the FIFO) on startup. The FIFO is
 mounted into the container via `docker-compose.yml` — no docker socket or
 sudo inside the container is required.
 
-Manual rollback to the previous image (kept locally as `:rollback`):
+Manual rollback to the previous image (kept locally as `:rollback` by `update.sh`):
 
 ```bash
 cd /opt/voice-assistant/deploy
-sudo -u pi docker compose -f docker-compose.yml \
-  up -d --no-deps \
-  --pull never \
-  voice-assistant
-# then edit the image: line back to :latest after fixing CI
+# Override the image for this run only — does not modify docker-compose.yml
+cat > /tmp/rollback-override.yml <<'EOF'
+services:
+  voice-assistant:
+    image: ghcr.io/maxmaxme/voice-assistant:rollback
+EOF
+sudo -u pi docker compose -f docker-compose.yml -f /tmp/rollback-override.yml \
+  up -d --pull never voice-assistant
 ```
+
+After fixing the bad commit and pushing, the next timer run (or `/update`) will
+pull `:latest` again and clear the override automatically — no manual cleanup needed.
 
 Build locally on the Pi (no GHCR roundtrip — useful when iterating
 on a hot-fix):
