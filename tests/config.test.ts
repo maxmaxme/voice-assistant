@@ -10,6 +10,7 @@ describe('loadConfig', () => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.TELEGRAM_BOT_TOKEN;
     delete process.env.TELEGRAM_CHAT_ID;
+    delete process.env.HTTP_API_KEYS;
   });
 
   function setRequired(): void {
@@ -18,6 +19,7 @@ describe('loadConfig', () => {
     process.env.OPENAI_API_KEY = 'sk-xxx';
     process.env.TELEGRAM_BOT_TOKEN = 'tg_tok';
     process.env.TELEGRAM_CHAT_ID = '42';
+    process.env.HTTP_API_KEYS = 'test-http-key';
   }
 
   afterEach(() => {
@@ -72,6 +74,12 @@ describe('loadConfig', () => {
     setRequired();
     delete process.env.TELEGRAM_CHAT_ID;
     expect(() => loadConfig()).toThrow(/TELEGRAM_CHAT_ID/);
+  });
+
+  it('throws when HTTP_API_KEYS is missing', () => {
+    setRequired();
+    delete process.env.HTTP_API_KEYS;
+    expect(() => loadConfig()).toThrow(/HTTP_API_KEYS/);
   });
 
   it('allowed chat ids defaults to [Number(chatId)] when TELEGRAM_ALLOWED_CHAT_IDS is unset', () => {
