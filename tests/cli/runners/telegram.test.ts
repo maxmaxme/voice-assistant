@@ -166,4 +166,21 @@ describe('runTelegramMode', () => {
     });
     expect(cap.sent[0]).toMatch(/error|ошибк/i);
   });
+
+  it('handles /update by sending a notification message', async () => {
+    const respond = vi.fn();
+    const cap = captureSender();
+    await runTelegramMode({
+      receiver: recvFromMessages([
+        { updateId: 1, chatId: 42, fromUserId: 7, kind: 'text', text: '/update', receivedAt: 0 },
+      ]),
+      sender: cap.sender,
+      agent: { respond } as unknown as OpenAiAgent,
+      session: { reset: vi.fn() } as unknown as Session,
+      memory: { recall: vi.fn(() => ({})) } as unknown as MemoryAdapter,
+      allowedChatIds: [42],
+    });
+    expect(respond).not.toHaveBeenCalled();
+    expect(cap.sent[0]).toMatch(/starting.*update|🔄/i);
+  });
 });

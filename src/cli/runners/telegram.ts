@@ -1,3 +1,4 @@
+import { exec } from 'child_process';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { Session } from '../../agent/session.ts';
 import type { MemoryAdapter } from '../../memory/types.ts';
@@ -22,6 +23,7 @@ const HELP_TEXT = `Personal-agent bot ready. Just type — I forward to the agen
 Commands:
   /reset — clear conversation context
   /profile — dump remembered profile
+  /update — pull latest image and restart
   /help — show this`;
 
 export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
@@ -75,6 +77,18 @@ async function handleMessage(
   }
   if (text === '/profile') {
     await ctx.sender.send(JSON.stringify(ctx.memory.recall(), null, 2));
+    return;
+  }
+  if (text === '/update') {
+    await ctx.sender.send('🔄 Starting update...');
+    exec('sudo /opt/voice-assistant/deploy/update.sh', (error, stdout, stderr) => {
+      const output = error ? `Error:\n${stderr}` : `✓ Update completed:\n${stdout}`;
+      ctx.sender.send(output).catch((err) => {
+        process.stderr.write(
+          `[telegram] failed to send update result: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      });
+    });
     return;
   }
 

@@ -153,7 +153,9 @@ agent as the `send_to_telegram` tool.
 `data/telegram-offset.json` so restarts don't replay history. The runner
 `src/cli/runners/telegram.ts` wires the receiver to a per-channel
 `OpenAiAgent`, applies the `TELEGRAM_ALLOWED_CHAT_IDS` allow-list, handles
-`/reset` / `/profile` / `/start` locally, and forwards everything else.
+`/reset` / `/profile` / `/start` / `/update` locally, and forwards everything else.
+`/update` triggers an immediate pull and restart via `sudo /opt/voice-assistant/deploy/update.sh`
+(requires passwordless sudo entry in `/etc/sudoers`).
 
 Voice messages currently reply "not supported yet"; transcription is a
 follow-up plan.
@@ -168,7 +170,15 @@ Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth aga
 
 ### Deployment & auto-update (`deploy/`)
 
-CI (`.github/workflows/build-image.yml`) cross-builds an arm64 image on every push to `main` and publishes it to `ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via `deploy/update.sh`, run by `voice-assistant-update.timer` at 04:00 daily. The script bails when the digest hasn't changed, rolls back to the previous image if the existing healthcheck doesn't go green within 90 s, and posts the outcome to the same Telegram bot the agent uses. There is no blue/green: a single ALSA mic forces a serial restart, and 5 s of unavailability at 04:00 is invisible.
+CI (`.github/workflows/build-image.yml`) cross-builds an arm64 image on every push to `main` and publishes it to `ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via `deploy/update.sh`, run by `voice-assistant-update.timer` at 04:00 daily or manually via `/update` Telegram command. The script bails when the digest hasn't changed, rolls back to the previous image if the existing healthcheck doesn't go green within 90 s, and posts the outcome to Telegram. There is no blue/green: a single ALSA mic forces a serial restart, and 5 s of unavailability at 04:00 is invisible.
+
+**Sudo setup for `/update`:** To allow the container to run `update.sh` on the host, add this line to `/etc/sudoers` on the Pi (via `sudo visudo`):
+
+```
+pi ALL=(ALL) NOPASSWD: /opt/voice-assistant/deploy/update.sh
+```
+
+This allows the `pi` user to run update.sh without a password prompt, which the Telegram runner invokes via `sudo /opt/voice-assistant/deploy/update.sh`. The container process must have permission to run sudo (typically it does if docker is launched by `pi`).
 
 ## Home Assistant — gotchas
 
