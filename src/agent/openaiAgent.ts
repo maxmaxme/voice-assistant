@@ -55,7 +55,7 @@ export class OpenAiAgent implements Agent {
 
   constructor(opts: OpenAiAgentOptions) {
     this.opts = opts;
-    this.maxIters = opts.maxToolIterations ?? 5;
+    this.maxIters = opts.maxToolIterations ?? 20;
     this.mode = opts.mode ?? 'chat';
   }
 
