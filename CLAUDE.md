@@ -76,6 +76,7 @@ Three layers, four entry points.
 | `src/cli/runners/chat.ts`     | Text REPL loop.                                                                                                                                      |
 | `src/cli/runners/voice.ts`    | Push-to-talk: Enter starts/stops recording.                                                                                                          |
 | `src/cli/runners/wake.ts`     | Always-listening: Wake-word → VAD → STT → agent → TTS.                                                                                               |
+| `src/cli/runners/telegram.ts` | Telegram bot loop: receiver → agent → sender.                                                                                                        |
 | `src/cli/{chat,voice,run}.ts` | Thin shims that set `AGENT_MODE` and re-import `unified.ts`. Kept for backward-compat.                                                               |
 
 All share the same `OpenAiAgent` core. The voice/wake runners add audio adapters and the orchestrator FSM.
@@ -142,12 +143,24 @@ Out of scope (see `docs/superpowers/roadmap.md`): episodic memory (vector search
 
 ### Telegram (`src/telegram/`)
 
-Outbound channel for delivering text to the user. `TelegramSender`
-interface; `BotTelegramSender` posts to
-`https://api.telegram.org/bot<token>/sendMessage`. Wired into the agent
-as the `send_to_telegram` tool. `TELEGRAM_BOT_TOKEN` and
-`TELEGRAM_CHAT_ID` are required env vars — `loadConfig()` throws without
-them. Use the `telegramFromConfig()` helper when constructing the agent.
+Bidirectional. **Outbound:** `TelegramSender` interface, `BotTelegramSender`
+posts to `https://api.telegram.org/bot<token>/sendMessage`. Wired into the
+agent as the `send_to_telegram` tool.
+
+**Inbound:** `TelegramReceiver` interface, `PollingTelegramReceiver` long-polls
+`getUpdates` (timeout 30s) and emits typed `TelegramMessage` events
+(`text` / `voice` / `unsupported`). The persisted `update_id` lives in
+`data/telegram-offset.json` so restarts don't replay history. The runner
+`src/cli/runners/telegram.ts` wires the receiver to a per-channel
+`OpenAiAgent`, applies the `TELEGRAM_ALLOWED_CHAT_IDS` allow-list, handles
+`/reset` / `/profile` / `/start` locally, and forwards everything else.
+
+Voice messages currently reply "not supported yet"; transcription is a
+follow-up plan.
+
+Required env vars: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Optional:
+`TELEGRAM_ALLOWED_CHAT_IDS` (comma list of integer chat ids; defaults to
+`TELEGRAM_CHAT_ID`).
 
 ### MCP client (`src/mcp/haMcpClient.ts`)
 
@@ -193,6 +206,9 @@ Specifically watch for:
 - Iteration / roadmap status. When an iteration lands or a roadmap
   item gets implemented, reflect it in `README.md`'s Status section
   AND remove it from `docs/superpowers/roadmap.md`.
+- Changes to the Telegram message types (`TelegramMessage` union) — keep
+  the runner's switch exhaustive, and update the test that exercises each
+  branch.
 
 A useful rule of thumb: if you changed `package.json`, `tsconfig.json`,
 the shape of any `*/types.ts`, or a CLI entry point, re-skim this

@@ -18,4 +18,15 @@ export const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO schema_version (version) VALUES (1);
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE IF NOT EXISTS kv (
+        key        TEXT PRIMARY KEY,
+        value      TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT OR IGNORE INTO schema_version (version) VALUES (2);
+    `,
+  },
 ];

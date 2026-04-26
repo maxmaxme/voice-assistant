@@ -16,6 +16,7 @@ const ConfigSchema = z.object({
   telegram: z.object({
     botToken: z.string().min(1),
     chatId: z.string().min(1),
+    allowedChatIds: z.array(z.number().int()).default([]),
   }),
   wakeWord: z.object({
     pythonPath: z.string().default('.venv/bin/python'),
@@ -43,6 +44,7 @@ const PATH_TO_ENV: Record<string, string> = {
   'memory.dbPath': 'MEMORY_DB_PATH',
   'telegram.botToken': 'TELEGRAM_BOT_TOKEN',
   'telegram.chatId': 'TELEGRAM_CHAT_ID',
+  'telegram.allowedChatIds': 'TELEGRAM_ALLOWED_CHAT_IDS',
   'wakeWord.pythonPath': 'WAKE_WORD_PYTHON',
   'wakeWord.scriptPath': 'WAKE_WORD_SCRIPT',
   'wakeWord.keyword': 'WAKE_WORD_KEYWORD',
@@ -50,6 +52,15 @@ const PATH_TO_ENV: Record<string, string> = {
 };
 
 export function loadConfig(): Config {
+  const allowedRaw = process.env.TELEGRAM_ALLOWED_CHAT_IDS;
+  const allowedChatIds = allowedRaw
+    ? allowedRaw.split(',').map((s) => {
+        const n = Number(s.trim());
+        if (!Number.isFinite(n)) throw new Error(`TELEGRAM_ALLOWED_CHAT_IDS: not a number: ${s}`);
+        return n;
+      })
+    : undefined;
+
   const raw = {
     ha: {
       url: process.env.HA_URL,
@@ -65,6 +76,7 @@ export function loadConfig(): Config {
     telegram: {
       botToken: process.env.TELEGRAM_BOT_TOKEN,
       chatId: process.env.TELEGRAM_CHAT_ID,
+      allowedChatIds,
     },
     wakeWord: {
       pythonPath: process.env.WAKE_WORD_PYTHON,
@@ -86,5 +98,10 @@ export function loadConfig(): Config {
       .join(', ');
     throw new Error(`Invalid config: ${fields}: ${parsed.error.message}`);
   }
-  return parsed.data;
+  const data = parsed.data;
+  if (data.telegram.allowedChatIds.length === 0) {
+    const fromChat = Number(data.telegram.chatId);
+    data.telegram.allowedChatIds = Number.isFinite(fromChat) ? [fromChat] : [];
+  }
+  return data;
 }
