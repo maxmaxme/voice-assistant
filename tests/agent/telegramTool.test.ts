@@ -14,23 +14,14 @@ import { BotTelegramSender } from '../../src/telegram/telegramSender.ts';
 function emptyMemory(): MemoryStore {
   return {
     profile: { remember: () => {}, recall: () => ({}), forget: () => {}, close: () => {} },
-    reminders: {
-      add: () => {
-        throw new Error('not used');
-      },
-      listPending: () => [],
-      listDue: () => [],
-      markFired: () => {},
-      cancel: () => false,
-      get: () => null,
-    },
-    timers: {
+    scheduledActions: {
       add: () => {
         throw new Error('not used');
       },
       listActive: () => [],
       listDue: () => [],
       markFired: () => {},
+      markError: () => {},
       cancel: () => false,
       get: () => null,
     },

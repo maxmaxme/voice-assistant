@@ -139,11 +139,20 @@ Originally Picovoice Porcupine; switched to **openWakeWord** because Picovoice n
 
 Long-term user profile. SQLite via `better-sqlite3`. `MemoryAdapter` interface; `SqliteProfileMemory` implementation; migrations live as **TS string constants** in `migrations.ts` (not `.sql` files — there's no build step to copy them into a container).
 
-### Reminders & timers — server timezone
+### Scheduled actions
 
-`add_reminder` accepts three mutually-exclusive time inputs: `in_seconds` (relative), `at_local` (wall-clock string in the server's TZ, e.g. `"2026-04-27 09:00"`), and `fire_at` (Unix ms UTC, fallback). The first two avoid timezone arithmetic by the LLM, which previously caused systematic CEST↔UTC sign errors. The system prompt steers the LLM toward `in_seconds`/`at_local`.
+The agent has a single `schedule_action(goal, schedule_kind, schedule_expr)` tool that replaces the old `add_reminder` + `set_timer`. Two forms:
 
-Server timezone comes from `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). Set it in `.env` — inside docker the system TZ is UTC, so `at_local` would otherwise interpret "9:00" as 9:00 UTC. The `[unified] AGENT_MODE=… TZ=…` startup line confirms which TZ is active.
+- **One-shot**: `schedule_kind: 'once'` + a wall-clock string in the server timezone (`"2026-04-27 09:00"`).
+- **Recurring**: `schedule_kind: 'cron'` + a POSIX 5-field cron string evaluated in the server timezone (`"0 8 * * *"`, `"*/15 * * * *"`).
+
+The `goal` is the natural-language description of what to do. At fire time the scheduler spawns a fresh `OpenAiAgent.respond()` in **goal mode** (no `ask` tool, fresh `Session`) with the goal as the user message. The agent gets the full tool surface (HA MCP, memory, send_to_telegram, optional `web_search` when `OPENAI_WEB_SEARCH=1`) and decides how to act. This is why goals like "Включи свет и напиши мне в Telegram" work — the agent at fire time is the same brain that the user normally talks to.
+
+Persistence: SQLite table `scheduled_actions` (migration v4). Cron rows reschedule themselves; once rows transition to `done` (or `error` if the goal threw). The legacy `reminders` / `timers` SQL tables remain (v3 migration unchanged) for one release as a back-fill safety net — but their TypeScript adapters and tools are gone. v4 carried existing rows forward as `kind: 'once'` actions.
+
+Server timezone: `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). Always set it in `.env` — inside docker the system TZ is UTC. The `[unified] AGENT_MODE=… TZ=… [WEB_SEARCH=on]` startup line confirms which TZ is active and whether the optional `web_search` hosted tool is enabled.
+
+`Scheduler.tick()` runs every 15 s, processes due rows in series, and is re-entrancy-guarded so a slow goal can't cause overlapping fires.
 
 The current profile is injected into the system prompt on every turn via `OpenAiAgent.buildSystemMessage()`.
 

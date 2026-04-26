@@ -2,6 +2,7 @@ import type OpenAI from 'openai';
 import type {
   ResponseInputItem,
   ParsedResponseFunctionToolCall,
+  Tool,
 } from 'openai/resources/responses/responses';
 import type { Agent, AgentResponse } from './types.ts';
 import type { McpClient } from '../mcp/types.ts';
@@ -9,8 +10,11 @@ import type { MemoryStore } from '../memory/types.ts';
 import { Session } from './session.ts';
 import { mcpToolsToOpenAi } from './toolBridge.ts';
 import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
-import { REMINDER_TOOL_NAMES, buildReminderTools, executeReminderTool } from './reminderTools.ts';
-import { TIMER_TOOL_NAMES, buildTimerTools, executeTimerTool } from './timerTools.ts';
+import {
+  SCHEDULED_ACTION_TOOL_NAMES,
+  buildScheduledActionTools,
+  executeScheduledActionTool,
+} from './scheduledActionTools.ts';
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
 import type { TelegramSender } from '../telegram/types.ts';
@@ -30,36 +34,70 @@ export interface OpenAiAgentOptions {
    * for voice/wake channels (speak nullable + direction), CHAT_TEXT_FORMAT for
    * chat/telegram (speak always required, no direction). */
   textFormat?: typeof VOICE_TEXT_FORMAT | typeof CHAT_TEXT_FORMAT;
+  /** When 'goal', the agent runs in scheduled-fire mode:
+   *   - The system message is replaced by a directive to execute the
+   *     incoming user text as a previously-scheduled goal.
+   *   - The `ask` tool is omitted (no user is present).
+   *   - Each call uses a fresh chain (Session is reset before begin()).
+   *   Default: 'chat' */
+  mode?: 'chat' | 'goal';
 }
 
 export class OpenAiAgent implements Agent {
   private readonly maxIters: number;
   private readonly opts: OpenAiAgentOptions;
+  private readonly mode: 'chat' | 'goal';
 
   constructor(opts: OpenAiAgentOptions) {
     this.opts = opts;
     this.maxIters = opts.maxToolIterations ?? 5;
+    this.mode = opts.mode ?? 'chat';
   }
 
   async respond(userText: string): Promise<AgentResponse> {
     const { mcp, session, model, llmClient } = this.opts;
+
+    // In goal mode, every fire is a fresh chain — the directive (system
+    // prompt) must apply on every call, and there's no continuing user
+    // conversation to chain into.
+    if (this.mode === 'goal') {
+      session.reset();
+    }
 
     let previousResponseId = session.begin();
     // Send `instructions` (system prompt + profile) only when starting a
     // fresh chain. Within a chain OpenAI keeps the original instructions
     // alongside the rest of the conversation state.
     const isFreshChain = previousResponseId === undefined;
-    const instructions = isFreshChain ? this.buildSystemMessage() : undefined;
+    const instructions = isFreshChain
+      ? this.mode === 'goal'
+        ? this.buildGoalSystemMessage(userText)
+        : this.buildSystemMessage()
+      : undefined;
 
     const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
-    const tools = [
-      ...mcpTools,
+    const localTools = [
       ...buildMemoryTools(),
-      ...buildReminderTools(),
-      ...buildTimerTools(),
-      buildAskTool(),
+      ...buildScheduledActionTools(),
+      ...(this.mode === 'goal' ? [] : [buildAskTool()]),
       buildTelegramTool(),
-    ].map((t) => ({ ...t, strict: t.strict ?? null }));
+    ];
+    const functionTools = [...mcpTools, ...localTools].map((t) => ({
+      ...t,
+      strict: t.strict ?? null,
+    }));
+    // Hosted tools (e.g. OpenAI's web_search) have a different shape than
+    // function tools — no name/parameters, just `{ type: 'web_search' }`.
+    // Mix both into a single array of unknowns; the SDK's Tool union covers
+    // both. Re-read the env var on every turn so toggling it on a running
+    // process takes effect immediately, no restart required.
+    // Cast: our function-tool shape (`OpenAiFunctionTool`-derived) matches
+    // the SDK's `FunctionTool` member of the `Tool` union structurally, but
+    // our locally-built objects don't carry the SDK's exact nominal type.
+    const tools: Tool[] = [...functionTools] as Tool[];
+    if (process.env.OPENAI_WEB_SEARCH === '1') {
+      tools.push({ type: 'web_search' });
+    }
 
     // If the previous turn ended with an `ask` tool call, the API still has
     // an open function_call that needs a function_call_output. Submit the
@@ -123,17 +161,13 @@ export class OpenAiAgent implements Agent {
               resultText = e instanceof Error ? e.message : String(e);
               isError = true;
             }
-          } else if (REMINDER_TOOL_NAMES.has(tc.name)) {
+          } else if (SCHEDULED_ACTION_TOOL_NAMES.has(tc.name)) {
             try {
-              const r = executeReminderTool(this.opts.memory.reminders, tc.name, args);
-              resultText = JSON.stringify(r);
-            } catch (e) {
-              resultText = e instanceof Error ? e.message : String(e);
-              isError = true;
-            }
-          } else if (TIMER_TOOL_NAMES.has(tc.name)) {
-            try {
-              const r = executeTimerTool(this.opts.memory.timers, tc.name, args);
+              const r = executeScheduledActionTool(
+                this.opts.memory.scheduledActions,
+                tc.name,
+                args,
+              );
               resultText = JSON.stringify(r);
             } catch (e) {
               resultText = e instanceof Error ? e.message : String(e);
@@ -187,15 +221,28 @@ export class OpenAiAgent implements Agent {
     const timeBlock =
       `\n\nCurrent time: ${nowUtcIso} UTC = ${nowLocal} (server timezone: ${tzName}).` +
       ` Unix ms now: ${nowMs}.` +
-      `\nFor add_reminder, NEVER do timezone arithmetic yourself. Pick one of:` +
-      `\n  • Relative ("через час", "in 10 minutes") → use in_seconds (3600, 600).` +
-      `\n  • Absolute ("завтра в 9 утра", "tomorrow at 9am") → use at_local with the server-timezone wall clock, e.g. "2026-04-27 09:00".` +
-      `\n  • fire_at (Unix ms UTC) is a fallback — prefer the two above.` +
-      `\nSet the unused fields to null. The server will compute the exact UTC instant.`;
+      `\n\nScheduling actions: use schedule_action(goal, schedule_kind, schedule_expr).` +
+      `\n  • One-shot: schedule_kind="once", schedule_expr is a wall-clock string in the server timezone, e.g. "2026-04-27 09:00" or "2026-04-27 09:00:00". NO timezone offset — the server resolves it.` +
+      `\n  • Recurring: schedule_kind="cron", schedule_expr is a POSIX 5-field cron string evaluated in the server timezone. Examples: "0 8 * * *" (daily 08:00), "30 7 * * 1-5" (weekdays 07:30), "*/15 * * * *" (every 15 min).` +
+      `\n  • The "goal" is replayed verbatim to the agent at fire time, so write it as a self-contained instruction that can be acted on with no extra context (e.g. "Включи свет на кухне", not "do the thing we discussed").` +
+      `\n  • Compound goals are allowed in a single schedule_action: "Включи свет на кухне и напиши мне в Telegram «доброе утро»" → at fire time the agent calls both tools.` +
+      `\n  • Use list_scheduled / cancel_scheduled to inspect or remove existing schedules.`;
+    const webSearchBlock =
+      process.env.OPENAI_WEB_SEARCH === '1'
+        ? `\n\nThe web_search tool is available — use it for weather, news, and general-knowledge queries that no Home Assistant entity covers.`
+        : '';
     if (Object.keys(profile).length === 0) {
-      return base + timeBlock;
+      return base + timeBlock + webSearchBlock;
     }
-    return `${base}${timeBlock}\n\nKnown user profile: ${JSON.stringify(profile)}`;
+    return `${base}${timeBlock}${webSearchBlock}\n\nKnown user profile: ${JSON.stringify(profile)}`;
+  }
+
+  private buildGoalSystemMessage(goal: string): string {
+    const base = this.buildSystemMessage();
+    return (
+      base +
+      `\n\nYou are running a previously-scheduled goal. There is NO USER PRESENT — do NOT call the 'ask' tool. Execute the goal end-to-end using your tools, then return a one-sentence summary of what you did.\n\nThe goal: ${goal}`
+    );
   }
 
   private parseArgs(raw: string | undefined): Record<string, unknown> {

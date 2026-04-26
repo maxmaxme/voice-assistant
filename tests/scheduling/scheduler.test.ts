@@ -1,45 +1,92 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Scheduler } from '../../src/scheduling/scheduler.ts';
-import type { RemindersAdapter, TimersAdapter, Reminder, Timer } from '../../src/memory/types.ts';
-import type { DueItem } from '../../src/scheduling/types.ts';
+import type { ScheduledAction, ScheduledActionsAdapter } from '../../src/memory/types.ts';
+import type { GoalRunner } from '../../src/scheduling/goalRunner.ts';
+import * as cron from '../../src/scheduling/cron.ts';
+import { nextFireAt as computeNextFireAt } from '../../src/scheduling/cron.ts';
 
-function makeReminders(initial: Reminder[]): RemindersAdapter {
-  const items = [...initial];
+function makeAdapter(initial: ScheduledAction[]): ScheduledActionsAdapter & {
+  rows: ScheduledAction[];
+} {
+  const rows = initial.map((r) => ({ ...r }));
   return {
-    add: () => {
+    rows,
+    add: (): ScheduledAction => {
       throw new Error('not used');
     },
-    listPending: () => items.filter((i) => i.status === 'pending'),
-    listDue: (now) => items.filter((i) => i.status === 'pending' && i.fireAt <= now),
-    markFired: (id, at) => {
-      const r = items.find((x) => x.id === id);
-      if (r) {
-        r.status = 'fired';
-        r.firedAt = at;
+    listActive: () => rows.filter((r) => r.status === 'active'),
+    listDue: (now: number) =>
+      rows
+        .filter((r) => r.status === 'active' && r.nextFireAt <= now)
+        .sort((a, b) => a.nextFireAt - b.nextFireAt),
+    markFired: (id: number, at: number, next: number | null) => {
+      const r = rows.find((x) => x.id === id);
+      if (!r || r.status !== 'active') {
+        return;
+      }
+      r.lastFiredAt = at;
+      if (next === null) {
+        r.status = 'done';
+      } else {
+        r.nextFireAt = next;
       }
     },
-    cancel: () => false,
-    get: (id) => items.find((x) => x.id === id) ?? null,
+    markError: (id: number) => {
+      const r = rows.find((x) => x.id === id);
+      if (r && (r.status === 'active' || r.status === 'done')) {
+        r.status = 'error';
+      }
+    },
+    cancel: (id: number) => {
+      const r = rows.find((x) => x.id === id);
+      if (!r) {
+        return false;
+      }
+      r.status = 'cancelled';
+      return true;
+    },
+    get: (id: number) => rows.find((x) => x.id === id) ?? null,
   };
 }
 
-function makeTimers(initial: Timer[]): TimersAdapter {
-  const items = [...initial];
+function makeGoalRunner(impl?: (goal: string) => Promise<void>): GoalRunner & {
+  calls: string[];
+} {
+  const calls: string[] = [];
   return {
-    add: () => {
-      throw new Error('not used');
-    },
-    listActive: () => items.filter((i) => i.status === 'active'),
-    listDue: (now) => items.filter((i) => i.status === 'active' && i.fireAt <= now),
-    markFired: (id, at) => {
-      const t = items.find((x) => x.id === id);
-      if (t) {
-        t.status = 'fired';
-        t.firedAt = at;
+    calls,
+    fire: async (goal: string): Promise<void> => {
+      calls.push(goal);
+      if (impl) {
+        await impl(goal);
       }
     },
-    cancel: () => false,
-    get: (id) => items.find((x) => x.id === id) ?? null,
+  };
+}
+
+function onceRow(over: Partial<ScheduledAction> = {}): ScheduledAction {
+  return {
+    id: 1,
+    goal: 'remind me water plants',
+    schedule: { kind: 'once', at: 1000 },
+    status: 'active',
+    nextFireAt: 1000,
+    lastFiredAt: null,
+    createdAt: 0,
+    ...over,
+  };
+}
+
+function cronRow(over: Partial<ScheduledAction> = {}): ScheduledAction {
+  return {
+    id: 2,
+    goal: 'morning briefing',
+    schedule: { kind: 'cron', expr: '0 8 * * *' },
+    status: 'active',
+    nextFireAt: 1000,
+    lastFiredAt: null,
+    createdAt: 0,
+    ...over,
   };
 }
 
@@ -47,125 +94,251 @@ describe('Scheduler', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('fires due reminders and timers on each tick', async () => {
-    vi.setSystemTime(2000);
-    const fired: DueItem[] = [];
-    const r = makeReminders([
-      { id: 1, text: 'past', fireAt: 1000, status: 'pending', createdAt: 0, firedAt: null },
-      { id: 2, text: 'future', fireAt: 5000, status: 'pending', createdAt: 0, firedAt: null },
-    ]);
-    const t = makeTimers([
-      {
-        id: 1,
-        label: 'pasta',
-        fireAt: 1500,
-        durationMs: 1,
-        status: 'active',
-        createdAt: 0,
-        firedAt: null,
-      },
-    ]);
+  it('fires a due once-row and marks it done', async () => {
+    const adapter = makeAdapter([onceRow({ nextFireAt: 500 })]);
+    const goalRunner = makeGoalRunner();
     const s = new Scheduler({
-      reminders: r,
-      timers: t,
-      sink: { fire: async (it) => void fired.push(it) },
+      scheduledActions: adapter,
+      goalRunner,
       tickMs: 100,
+      now: () => 2000,
     });
+    s.start();
+    await s.tick();
+    s.stop();
+    expect(goalRunner.calls).toEqual(['remind me water plants']);
+    expect(adapter.rows[0].status).toBe('done');
+    expect(adapter.rows[0].lastFiredAt).toBe(2000);
+  });
+
+  it('fires a due cron-row and advances nextFireAt; status stays active', async () => {
+    const now = Date.UTC(2026, 3, 26, 6, 0, 0); // some fixed UTC instant
+    const cron = cronRow({ nextFireAt: now - 1000 });
+    const adapter = makeAdapter([cron]);
+    const goalRunner = makeGoalRunner();
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => now,
+    });
+    s.start();
+    await s.tick();
+    s.stop();
+    expect(goalRunner.calls).toHaveLength(1);
+    expect(adapter.rows[0].status).toBe('active');
+    expect(adapter.rows[0].nextFireAt).toBeGreaterThan(now);
+    // sanity: matches cron utility
+    const expected = computeNextFireAt({ kind: 'cron', expr: '0 8 * * *' }, now);
+    expect(adapter.rows[0].nextFireAt).toBe(expected);
+  });
+
+  it('cron throw leaves status active; nextFireAt advanced; logs to stderr', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const now = Date.UTC(2026, 3, 26, 6, 0, 0);
+    const adapter = makeAdapter([cronRow({ nextFireAt: now - 1000 })]);
+    const goalRunner = makeGoalRunner(async () => {
+      throw new Error('agent boom');
+    });
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => now,
+    });
+    s.start();
+    await s.tick();
+    s.stop();
+    expect(adapter.rows[0].status).toBe('active');
+    expect(adapter.rows[0].nextFireAt).toBeGreaterThan(now);
+    const calls = stderr.mock.calls.map((c) => String(c[0])).join('');
+    expect(calls).toMatch(/action 2 fire failed: agent boom/);
+    stderr.mockRestore();
+  });
+
+  it('once throw flips status to error', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const adapter = makeAdapter([onceRow({ nextFireAt: 500 })]);
+    const goalRunner = makeGoalRunner(async () => {
+      throw new Error('nope');
+    });
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => 1000,
+    });
+    s.start();
+    await s.tick();
+    s.stop();
+    expect(adapter.rows[0].status).toBe('error');
+    stderr.mockRestore();
+  });
+
+  it('fires multiple due rows in listDue ascending order', async () => {
+    const adapter = makeAdapter([
+      onceRow({ id: 10, goal: 'second', nextFireAt: 900 }),
+      onceRow({ id: 11, goal: 'first', nextFireAt: 500 }),
+    ]);
+    const goalRunner = makeGoalRunner();
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => 1000,
+    });
+    s.start();
+    await s.tick();
+    s.stop();
+    expect(goalRunner.calls).toEqual(['first', 'second']);
+  });
+
+  it('listDue throwing bails the tick; no fires; logs to stderr', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const goalRunner = makeGoalRunner();
+    const broken: ScheduledActionsAdapter = {
+      add: () => {
+        throw new Error('not used');
+      },
+      listActive: () => [],
+      listDue: () => {
+        throw new Error('db gone');
+      },
+      markFired: () => {},
+      markError: () => {},
+      cancel: () => false,
+      get: () => null,
+    };
+    const s = new Scheduler({
+      scheduledActions: broken,
+      goalRunner,
+      tickMs: 100,
+      now: () => 1000,
+    });
+    s.start();
+    await expect(s.tick()).resolves.toBeUndefined();
+    s.stop();
+    expect(goalRunner.calls).toEqual([]);
+    const calls = stderr.mock.calls.map((c) => String(c[0])).join('');
+    expect(calls).toMatch(/listDue failed: db gone/);
+    stderr.mockRestore();
+  });
+
+  it('logs both advance and markError failures (double-error defensive path)', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    // Force computeNextFireAt to throw on a cron row to trigger the
+    // "advance failed" branch in the scheduler.
+    const cronSpy = vi.spyOn(cron, 'nextFireAt').mockImplementation(() => {
+      throw new Error('cron broke');
+    });
+    const adapter = makeAdapter([cronRow({ nextFireAt: 500 })]);
+    // Override markError to also throw, exercising the inner catch.
+    adapter.markError = () => {
+      throw new Error('db gone');
+    };
+    const goalRunner = makeGoalRunner();
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => 1000,
+    });
+    s.start();
+    await s.tick();
+    s.stop();
+    const calls = stderr.mock.calls.map((c) => String(c[0])).join('');
+    expect(calls).toMatch(/advance failed: cron broke/);
+    expect(calls).toMatch(/markError failed: db gone/);
+    // No fire happened because advance failed.
+    expect(goalRunner.calls).toEqual([]);
+    cronSpy.mockRestore();
+    stderr.mockRestore();
+  });
+
+  it('tick() is a no-op when the scheduler is not running', async () => {
+    const adapter = makeAdapter([onceRow({ nextFireAt: 500 })]);
+    const goalRunner = makeGoalRunner();
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => 1000,
+    });
+    // Never started.
+    await s.tick();
+    expect(goalRunner.calls).toEqual([]);
+    // Started then stopped.
+    s.start();
+    s.stop();
+    await s.tick();
+    expect(goalRunner.calls).toEqual([]);
+  });
+
+  it('start() is idempotent — no double interval', async () => {
+    vi.setSystemTime(0);
+    const adapter = makeAdapter([onceRow({ nextFireAt: 0 })]);
+    const goalRunner = makeGoalRunner();
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => 1000,
+    });
+    s.start();
     s.start();
     await vi.advanceTimersByTimeAsync(150);
     s.stop();
-    expect(fired.map((f) => f.kind).sort()).toEqual(['reminder', 'timer']);
-    expect(r.listPending()).toHaveLength(1); // future left alone
+    // Only one interval scheduled, so only one tick fired the row before
+    // it was marked done.
+    expect(goalRunner.calls).toHaveLength(1);
   });
 
-  it('does not fire the same reminder twice across ticks', async () => {
-    vi.setSystemTime(5000);
-    const fired: DueItem[] = [];
-    const r = makeReminders([
-      { id: 1, text: 'x', fireAt: 1000, status: 'pending', createdAt: 0, firedAt: null },
+  it('tick is reentrancy-safe (overlapping ticks are no-ops)', async () => {
+    const adapter = makeAdapter([
+      onceRow({ id: 20, goal: 'a', nextFireAt: 100 }),
+      onceRow({ id: 21, goal: 'b', nextFireAt: 200 }),
     ]);
-    const t = makeTimers([]);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const goalRunner = makeGoalRunner(async () => {
+      await gate;
+    });
     const s = new Scheduler({
-      reminders: r,
-      timers: t,
-      sink: { fire: async (it) => void fired.push(it) },
+      scheduledActions: adapter,
+      goalRunner,
       tickMs: 100,
+      now: () => 1000,
     });
     s.start();
+    // Fire two ticks in parallel: only the first should process due rows.
+    // The second must be a no-op while the first is still mid-flight.
+    const p1 = s.tick();
+    const p2 = s.tick();
+    // p2 resolves immediately as a no-op (does not await fire).
+    await p2;
+    expect(goalRunner.calls).toEqual(['a']);
+    release();
+    await p1;
+    s.stop();
+    // Both rows fired exactly once — not 2x rows from a re-entrant tick.
+    expect(goalRunner.calls).toEqual(['a', 'b']);
+  });
+
+  it('stop() clears the interval cleanly — no further ticks fire', async () => {
+    vi.setSystemTime(0);
+    const adapter = makeAdapter([onceRow({ nextFireAt: 0 })]);
+    const goalRunner = makeGoalRunner();
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => 1000,
+    });
+    s.start();
+    s.stop();
     await vi.advanceTimersByTimeAsync(500);
-    s.stop();
-    expect(fired).toHaveLength(1);
-  });
-
-  it('does not mark fired if sink throws', async () => {
-    vi.setSystemTime(5000);
-    const r = makeReminders([
-      { id: 1, text: 'x', fireAt: 1000, status: 'pending', createdAt: 0, firedAt: null },
-    ]);
-    const t = makeTimers([]);
-    const s = new Scheduler({
-      reminders: r,
-      timers: t,
-      sink: {
-        fire: async () => {
-          throw new Error('telegram down');
-        },
-      },
-      tickMs: 100,
-    });
-    s.start();
-    await vi.advanceTimersByTimeAsync(150);
-    s.stop();
-    expect(r.listPending()[0].id).toBe(1);
-  });
-
-  it('survives a thrown sink and continues firing other items', async () => {
-    vi.setSystemTime(5000);
-    const fired: DueItem[] = [];
-    const r = makeReminders([
-      { id: 1, text: 'a', fireAt: 1000, status: 'pending', createdAt: 0, firedAt: null },
-      { id: 2, text: 'b', fireAt: 1100, status: 'pending', createdAt: 0, firedAt: null },
-    ]);
-    const t = makeTimers([]);
-    let calls = 0;
-    const s = new Scheduler({
-      reminders: r,
-      timers: t,
-      sink: {
-        fire: async (it) => {
-          calls++;
-          if (it.kind === 'reminder' && it.id === 1) {
-            throw new Error('fail one');
-          }
-          fired.push(it);
-        },
-      },
-      tickMs: 100,
-    });
-    s.start();
-    await vi.advanceTimersByTimeAsync(150);
-    s.stop();
-    expect(calls).toBe(2);
-    expect(fired.map((f) => (f.kind === 'reminder' ? f.id : -1))).toEqual([2]);
-  });
-
-  it('stop() halts ticks', async () => {
-    vi.setSystemTime(5000);
-    const fired: DueItem[] = [];
-    const r = makeReminders([
-      { id: 1, text: 'x', fireAt: 6000, status: 'pending', createdAt: 0, firedAt: null },
-    ]);
-    const t = makeTimers([]);
-    const s = new Scheduler({
-      reminders: r,
-      timers: t,
-      sink: { fire: async (it) => void fired.push(it) },
-      tickMs: 100,
-    });
-    s.start();
-    s.stop();
-    vi.setSystemTime(7000);
-    await vi.advanceTimersByTimeAsync(500);
-    expect(fired).toHaveLength(0);
+    expect(goalRunner.calls).toEqual([]);
   });
 });
