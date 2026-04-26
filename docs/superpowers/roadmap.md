@@ -1,223 +1,220 @@
 # Roadmap
 
-Идеи и хотелки, которые мы обсудили в процессе разработки и сознательно
-отложили на потом. Не план — скорее «бэклог» для будущих итераций.
+Ideas and feature requests discussed during development and intentionally
+deferred for later. Not a plan — more of a "backlog" for future iterations.
 
-Когда руки дойдут — какой-то пункт выберем, прогрумим, превратим в spec
-и план. Не все пункты одинаково важны и не все станут отдельными
-итерациями: некоторые тянут на пару строк кода, другие — на целый
-переписанный модуль.
+When we get to it, we'll pick one item, implement it, turn it into a spec
+and plan. Not all items are equally important and not all will become separate
+iterations: some are just a few lines of code, others require rewriting an entire module.
 
-Группировка по темам, не по приоритету.
+Grouped by topic, not by priority.
 
 ---
 
-## Голос и аудио
-
-### Acoustic Echo Cancellation (AEC)
-
-Когда ассистент говорит через колонки, его голос попадает обратно в
-микрофон. Из-за этого мы выключили follow-up listening по умолчанию —
-ассистент начинал общаться сам с собой. С AEC можно вернуть «безопасный»
-follow-up и безопасный always-listen во время speaking. Варианты:
-WebRTC AEC через `webrtc-audio-processing`, Speex AEC, или системный
-PipeWire `module-echo-cancel` на Pi (без кода). Часов на 4-6.
-
-### Custom Russian wake-word
-
-Сейчас ловим встроенные английские keywords openWakeWord (`hey_jarvis`,
-`alexa`, ...). Кастомное русское слово (например, «Алиса», «Слушай»,
-«Эй друг») тренируется через openWakeWord-notebook в Colab за ~1 час
-
-- 30 минут на сэмплы. Получаем `.onnx` файл, кладём в `models/`,
-  переключаем `WAKE_WORD_KEYWORD`. Уже подготовили проект под это
-  (папка `models/` в gitignore, путь к `.onnx` принимается). Тренировку
-  начали — нужно довести до конца.
-
-### Multiple wake-words
-
-Сейчас один keyword за раз. openWakeWord умеет грузить несколько моделей
-одновременно. Полезно для дома: «Алиса» для меня, «Окей дом» для гостей,
-плюс отдельный keyword «Стоп» как hardware-уровневый emergency.
-
-### Settle delay после TTS
-
-Сразу после `speaker.stop()` хвост речи иногда болтается в воздухе и
-VAD цепляет его как речь пользователя. Добавить 200-300 мс «mute
-window» перед открытием capture в follow-up.
+## ✅ Done
 
 ### Streaming TTS
 
-`gpt-4o-mini-tts` поддерживает streaming PCM. Сейчас мы ждём полный
-буфер, потом играем. Если подключить streaming — начинаем играть через
-~300мс после отправки, не через 2-3 сек. -1 до -3 сек к round-trip
-на длинных ответах.
+`gpt-4o-mini-tts` supports streaming PCM. Currently we wait for the full
+buffer, then play. With streaming, we start playing ~300ms after send instead
+of 2–3 seconds. Saves 1–3 seconds of round-trip on long responses.
+
+### Custom Russian wake-word
+
+Currently we catch built-in English keywords from openWakeWord (`hey_jarvis`,
+`alexa`, ...). A custom Russian word (e.g. «Алиса», «Слушай», «Эй друг») can be
+trained via the openWakeWord notebook in Colab in ~1 hour. We get an `.onnx` file,
+place it in `models/`, and switch `WAKE_WORD_KEYWORD`.
+
+**Status:** ✅ Project set up. `WAKE_WORD_KEYWORD` env supports a path to a custom
+`.onnx` file. `models/` is in .gitignore. To use: train a model via openWakeWord-notebook,
+place it in `models/`, set `WAKE_WORD_KEYWORD=path/to/model.onnx`.
+
+### Reliability & observability — HTTP /health endpoint
+
+Currently healthcheck in Docker runs `pgrep` on processes — weak. Better to have
+an HTTP `/health` endpoint in the app that checks: MCP connection alive, wake-daemon
+alive, OpenAI API key valid (lazy ping every N minutes).
+
+**Status:** Basic `/health` endpoint implemented in HTTP runner (returns `{ status: 'ok' }`).
+Without full component checks (TODO).
+
+### Reliability — Structured tool-call logging
+
+Currently in REPL and voice-loop logs only the final assistant text is visible.
+Hidden tool calls (what exactly the agent called, with what args, what it got back)
+are not visible. Add structured logging: "agent called X with {...}, got Y". Helps
+a lot with prompt debugging.
+
+**Status:** ✅ Implemented in `src/agent/openaiAgent.ts` (lines 193–198).
+Logs `{ tool: name, args, isError }` with call and result text.
+
+### DevX & extensibility — Richer HA mock environment
+
+For testing group commands ("turn off all lights", "turn on kitchen lights") we need
+more mocks in `docker/homeassistant/configuration.yaml`: multiple `light.*` via
+template entities, `switch.*`, `sensor.*`, areas (Kitchen/Bedroom/Living Room).
+Currently just one `input_boolean.test_lamp`, not enough test scenarios.
+
+**Status:** Enriched to 3 light entities, 1 switch, 1 input_number. Areas not added.
+
+---
+
+## 📋 TODO
+
+## Audio & Voice
+
+### Acoustic Echo Cancellation (AEC)
+
+When the assistant speaks through speakers, its voice leaks back into the mic.
+That's why we disabled follow-up listening by default — the assistant would start
+talking to itself. With AEC we could safely re-enable follow-up and always-listen
+during speaking. Options: WebRTC AEC via `webrtc-audio-processing`, Speex AEC, or
+system PipeWire `module-echo-cancel` on Pi (no code). 4–6 hours.
+
+### Multiple wake-words
+
+Currently one keyword at a time. openWakeWord can load multiple models simultaneously.
+Useful for a home: "Алиса" for me, "Окей дом" for guests, plus separate "Стоп"
+keyword as hardware-level emergency.
+
+### Settle delay after TTS
+
+Right after `speaker.stop()` the tail of speech sometimes lingers in the air and
+VAD catches it as user speech. Add 200–300 ms "mute window" before opening capture
+in follow-up.
 
 ### Streaming LLM responses
 
-`chat.completions.create({stream: true})` — токены идут по мере
-генерации. Можно склеивать со streaming TTS: первое предложение
-озвучиваем пока генерируется второе. Серьёзный win по UX.
+`chat.completions.create({stream: true})` — tokens arrive as they're generated.
+Can combine with streaming TTS: speak the first sentence while the second is being
+generated. Serious UX win.
 
-### OpenAI Realtime API (альтернатива всему стеку)
+### OpenAI Realtime API (alternative to the whole stack)
 
-Один websocket вместо отдельных STT + LLM + TTS. Server-side VAD,
-turn detection, барже-ин из коробки. Latency ~300-500мс end-to-end
-вместо текущих 3-5 сек. Минусы: дороже (~$30/мес активного диалога),
-архитектурная перестройка половины кода. Альтернативный путь, не
-дополнение.
-
----
-
-## Память
-
-### Memory Level 2 — эпизодическая
-
-Прошлые диалоги: «помнишь, мы вчера говорили про…». Реализация:
-суммаризация диалога LLM-ом в конце сессии + эмбеддинг суммари +
-векторный поиск через `sqlite-vss` или `sqlite-vec` (тот же файл
-`assistant.db`, что и для профиля). Нужен модуль `episodic-memory`
-с тем же интерфейсом `MemoryAdapter`. Не делать пока пользователь
-сам не заметит, что ассистент повторно спрашивает то же самое.
-
-### Memory Level 3 — выученные привычки
-
-«Каждый будний день в 7:30 он спрашивает погоду» → ассистент сам
-начинает её называть. Сводится к двум более простым вещам:
-
-- **Голосовое создание автоматизаций**: пользователь говорит «когда я
-  скажу спать, гаси свет и ставь термостат на 19» → агент создаёт
-  HA automation. По сути экспорт в HA.
-- **Suggestions**: cron раз в неделю, LLM смотрит логи диалогов и
-  предлагает «хочешь, я буду это делать автоматически?»
-
-ROI спорный, многие такие сценарии пользователь решает лучше сам.
+Single websocket instead of separate STT + LLM + TTS. Server-side VAD, turn detection,
+barge-in out of the box. Latency ~300–500ms end-to-end instead of current 3–5 seconds.
+Downsides: more expensive (~$30/month of active dialogue), architectural rework of half
+the code. Alternative path, not a complement.
 
 ---
 
-## Надёжность и observability
+## Memory
+
+### Memory Level 2 — episodic
+
+Past conversations: "remember when we talked about…?" Implementation: summarize the
+dialogue with the LLM at session end + embed the summary + vector search via
+`sqlite-vss` or `sqlite-vec` (same `assistant.db` as the profile). Need an
+`episodic-memory` module with the same `MemoryAdapter` interface. Don't build this
+until the user notices the assistant asking the same thing twice.
+
+### Memory Level 3 — learned habits
+
+"Every weekday at 7:30 they ask for the weather" → the assistant starts offering it
+proactively. Boils down to two simpler things:
+
+- **Voice automation creation**: user says "when I say sleep, turn off lights and set
+  thermostat to 19" → agent creates an HA automation. Basically export to HA.
+- **Suggestions**: cron weekly, LLM scans dialogue logs and proposes "want me to do
+  this automatically?"
+
+ROI is questionable; many such scenarios the user solves better themselves.
+
+---
+
+## Reliability & observability
 
 ### Subprocess lifecycle hardening
 
-Если wake-daemon (Python) помрёт сам по себе, Node не узнает —
-`feed()` молча no-op'ит, wake-event'ы перестают приходить. Добавить
-SIGCHLD-наблюдение и auto-restart с backoff. Аналогично для других
-subprocess'ов (mic, speaker, MCP клиент).
-
-### HTTP /health endpoint
-
-Сейчас healthcheck в Docker делает `pgrep` на процессы — слабо. Лучше
-HTTP `/health` в приложении, который проверяет: MCP подключение жив,
-wake-daemon жив, OpenAI API key валиден (lazy ping раз в N минут).
-
-### Structured tool-call logging
-
-Сейчас в логах REPL и voice-loop виден только финальный assistant
-text. Скрытые tool calls (что именно агент позвал, с какими аргами,
-что вернулось) — не видны. Добавить структурированный лог: «agent
-called X with {...}, got Y». Сильно поможет при отладке промпта.
+If wake-daemon (Python) dies on its own, Node won't notice — `feed()` silently no-ops,
+wake-events stop arriving. Add SIGCHLD watching and auto-restart with backoff.
+Similarly for other subprocesses (mic, speaker, MCP client).
 
 ### MCP listTools() caching
 
-Сейчас `mcp.listTools()` вызывается на каждый user turn — round-trip
-к HA. Tools в HA меняются редко. Кеш на 5 минут или с invalidation
-по события HA. Маленькая оптимизация.
+Currently `mcp.listTools()` is called on every user turn — round-trip to HA. Tools
+in HA change rarely. Cache for 5 minutes or invalidate on HA events. Small optimization.
 
 ---
 
-## DevX и расширяемость
+## DevX & extensibility
 
-### System prompt вне кода
+### System prompt outside code
 
-Сейчас системный промпт хардкоден в `chat.ts` и `run.ts` (плюс
-`BASE_SYSTEM_PROMPT` shared). Когда промпт начнёт расти и
-эволюционировать — вынести в `prompts/base.md`, `prompts/voice.md`,
-`prompts/chat.md`. Hot-reload опционально.
+Currently system prompt is hardcoded in `systemPrompt.ts`. As the prompt grows and
+evolves, extract it to `prompts/base.md`, `prompts/voice.md`, `prompts/chat.md`.
+Optional hot-reload.
 
-### Config в YAML/JSON вместо `.env`
+### Config in YAML/JSON instead of .env
 
-`.env` плохо подходит для иерархических настроек (несколько
-keyword'ов, несколько сценариев, несколько голосов). Перейти на
-`config.yaml` с теми же zod-схемами для валидации, оставив `.env`
-только для секретов.
+`.env` doesn't fit hierarchical settings (multiple keywords, multiple scenarios,
+multiple voices). Switch to `config.yaml` with the same zod schemas for validation,
+keep `.env` for secrets only.
 
-### `--once` для voice/chat REPL
+### `--once` mode for voice/chat REPL
 
-Сейчас `printf '...' | npm run chat` срабатывает один раз и зависает,
-ловя EOF. Чистый `--once` режим явный — для тестирования и
-скриптинга.
+Currently `printf '...' | npm run chat` runs once and hangs waiting for EOF.
+Explicit `--once` mode — for testing and scripting.
 
-### Богаче mock-окружение HA
+### Auto-aliases for HA entities
 
-Для теста групповых команд («выключи весь свет», «включи свет в
-кухне») нужно больше моков в `docker/homeassistant/configuration.yaml`:
-несколько `light.*` через template-сущности, `switch.*`, `sensor.*`,
-areas (Кухня/Спальня/Гостиная). Сейчас один `input_boolean.test_lamp`,
-сценариев для отладки не хватает.
-
-### Авто-aliases для HA сущностей
-
-Когда добавляется устройство «Test Lamp», агент должен матчить
-«лампу», «лампочку», «свет». Сейчас приходится вручную через WS
-`config/entity_registry/update`. Сделать helper-script
-`scripts/add-aliases.ts`, который из CSV читает мапу
-entity_id → [aliases] и одной командой обновляет HA.
+When a device "Test Lamp" is added, the agent should match "lamp", "lampbulb", "light".
+Currently have to do it manually via WS `config/entity_registry/update`. Build a helper
+script `scripts/add-aliases.ts` that reads a CSV map of entity_id → [aliases] and
+updates HA in one command.
 
 ---
 
-## Расширенные фичи
+## Advanced features
 
 ### Speaker recognition (voiceprint)
 
-Если ассистент в общей комнате с гостями — он сейчас отвечает
-кому угодно после wake-word. С voiceprint можно слушать только
-хозяина. Picovoice Eagle, Resemblyzer, или openWakeWord имеет свой
-verifier model. Отдельный модуль перед STT, который проверяет «это
-голос Максима?». ~3-4 часа.
+If the assistant is in a shared room with guests, it currently responds to anyone
+after wake-word. With voiceprint we could listen only to the owner. Picovoice Eagle,
+Resemblyzer, or openWakeWord's own verifier model. Separate module before STT that
+checks "is this Maxim's voice?". ~3–4 hours.
 
 ### Hardware button (Pi GPIO)
 
-Альтернатива wake-word (или дополнение к нему): физическая кнопка на
-корпусе Pi, нажал → запись начала, отпустил → стоп. Никаких ML, 100%
-надёжно, 0 false positives. Через `onoff` или `pigpio` в Node. Можно
-сочетать: «обычно wake-word, но при подозрении на echo-loop переходим
-на button-only».
+Alternative to wake-word (or complement): physical button on Pi case, press → start
+recording, release → stop. No ML, 100% reliable, zero false positives. Via `onoff`
+or `pigpio` in Node. Can combine: "normally wake-word, but if echo-loop suspected,
+fall back to button-only".
 
-### Mic mute во время speaking
+### Mic mute during speaking
 
-Альтернатива AEC «бедных»: вообще не пускать mic-frames на VAD/wake
-пока ассистент говорит. Простое решение, но убивает barge-in
-полностью. Опция `BARGE_IN=false` в .env, для пользователей которые
-не используют наушники и устали от self-loops.
+Alternative "poor person's AEC": don't feed mic frames to VAD/wake while the assistant
+speaks. Simple solution, but kills barge-in entirely. Option `BARGE_IN=false` in .env
+for users without headphones who're tired of self-loops.
 
 ---
 
-## Поддержка платформ
+## Platform support
 
 ### macOS deployment artifacts
 
-Сейчас Docker-деплой проверен только под `linux/arm64` (Pi 5).
-Если кто-то захочет крутить ассистент 24/7 на Mac mini — пригодится
-LaunchAgent plist по аналогии с systemd unit.
+Currently Docker deploy is tested only on `linux/arm64` (Pi 5). If someone wants to
+run the assistant 24/7 on Mac mini, they'll want a LaunchAgent plist analogous to
+the systemd unit.
 
-### Графический клиент
+### Graphical client
 
-Web-UI для просмотра истории диалогов, статуса устройств,
-редактирования профиля памяти, отладки. Не нужен для основного UX
-(голос — main interface), но удобен для админки.
+Web-UI to view dialogue history, device status, edit memory profile, debug. Not needed
+for main UX (voice is the primary interface), but handy for administration.
 
 ---
 
-## По мелочам
+## Misc
 
-### Регрессия на «не нашёл устройство» при глагольном падеже
+### Regression: "device not found" with verb case
 
-В одной сессии агент сказал «не удалось найти устройство 'лампа'»,
-хотя 5 минут до этого та же фраза работала. Возможно вмешался memory
-или history trim. Воспроизвести и пофиксить.
+In one session the agent said "couldn't find device 'лампа'" even though the same
+phrase worked 5 minutes before. Possibly memory or history trim interfered.
+Reproduce and fix.
 
-### Тестировать integration на CI
+### Integration tests on CI
 
-Сейчас integration test (`RUN_INTEGRATION=1`) запускается только
-вручную и требует живого HA. На CI можно поднимать HA в Docker
-прямо в pipeline. Добавит уверенности при рефакторинге.
+Currently integration test (`RUN_INTEGRATION=1`) runs manually only and requires a
+live HA instance. On CI we can spin up HA in Docker in the pipeline. Adds confidence
+during refactoring.
