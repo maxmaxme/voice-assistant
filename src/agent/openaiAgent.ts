@@ -9,8 +9,11 @@ import type { MemoryStore } from '../memory/types.ts';
 import { Session } from './session.ts';
 import { mcpToolsToOpenAi } from './toolBridge.ts';
 import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
-import { REMINDER_TOOL_NAMES, buildReminderTools, executeReminderTool } from './reminderTools.ts';
-import { TIMER_TOOL_NAMES, buildTimerTools, executeTimerTool } from './timerTools.ts';
+import {
+  SCHEDULED_ACTION_TOOL_NAMES,
+  buildScheduledActionTools,
+  executeScheduledActionTool,
+} from './scheduledActionTools.ts';
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
 import type { TelegramSender } from '../telegram/types.ts';
@@ -74,8 +77,7 @@ export class OpenAiAgent implements Agent {
     const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
     const localTools = [
       ...buildMemoryTools(),
-      ...buildReminderTools(),
-      ...buildTimerTools(),
+      ...buildScheduledActionTools(),
       ...(this.mode === 'goal' ? [] : [buildAskTool()]),
       buildTelegramTool(),
     ];
@@ -146,17 +148,13 @@ export class OpenAiAgent implements Agent {
               resultText = e instanceof Error ? e.message : String(e);
               isError = true;
             }
-          } else if (REMINDER_TOOL_NAMES.has(tc.name)) {
+          } else if (SCHEDULED_ACTION_TOOL_NAMES.has(tc.name)) {
             try {
-              const r = executeReminderTool(this.opts.memory.reminders, tc.name, args);
-              resultText = JSON.stringify(r);
-            } catch (e) {
-              resultText = e instanceof Error ? e.message : String(e);
-              isError = true;
-            }
-          } else if (TIMER_TOOL_NAMES.has(tc.name)) {
-            try {
-              const r = executeTimerTool(this.opts.memory.timers, tc.name, args);
+              const r = executeScheduledActionTool(
+                this.opts.memory.scheduledActions,
+                tc.name,
+                args,
+              );
               resultText = JSON.stringify(r);
             } catch (e) {
               resultText = e instanceof Error ? e.message : String(e);
