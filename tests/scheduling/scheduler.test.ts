@@ -4,6 +4,7 @@ import type { ScheduledAction, ScheduledActionsAdapter } from '../../src/memory/
 import type { GoalRunner } from '../../src/scheduling/goalRunner.ts';
 import * as cron from '../../src/scheduling/cron.ts';
 import { nextFireAt as computeNextFireAt } from '../../src/scheduling/cron.ts';
+import { captureLogs } from '../helpers/captureLogs.ts';
 
 function makeAdapter(initial: ScheduledAction[]): ScheduledActionsAdapter & {
   rows: ScheduledAction[];
@@ -134,7 +135,7 @@ describe('Scheduler', () => {
   });
 
   it('cron throw leaves status active; nextFireAt advanced; logs to stderr', async () => {
-    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const logs = captureLogs();
     const now = Date.UTC(2026, 3, 26, 6, 0, 0);
     const adapter = makeAdapter([cronRow({ nextFireAt: now - 1000 })]);
     const goalRunner = makeGoalRunner(async () => {
@@ -151,13 +152,13 @@ describe('Scheduler', () => {
     s.stop();
     expect(adapter.rows[0].status).toBe('active');
     expect(adapter.rows[0].nextFireAt).toBeGreaterThan(now);
-    const calls = stderr.mock.calls.map((c) => String(c[0])).join('');
+    const calls = logs.text();
     expect(calls).toMatch(/action 2 fire failed: agent boom/);
-    stderr.mockRestore();
+    logs.restore();
   });
 
   it('once throw flips status to error', async () => {
-    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const logs = captureLogs();
     const adapter = makeAdapter([onceRow({ nextFireAt: 500 })]);
     const goalRunner = makeGoalRunner(async () => {
       throw new Error('nope');
@@ -172,7 +173,7 @@ describe('Scheduler', () => {
     await s.tick();
     s.stop();
     expect(adapter.rows[0].status).toBe('error');
-    stderr.mockRestore();
+    logs.restore();
   });
 
   it('fires multiple due rows in listDue ascending order', async () => {
@@ -194,7 +195,7 @@ describe('Scheduler', () => {
   });
 
   it('listDue throwing bails the tick; no fires; logs to stderr', async () => {
-    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const logs = captureLogs();
     const goalRunner = makeGoalRunner();
     const broken: ScheduledActionsAdapter = {
       add: () => {
@@ -219,13 +220,13 @@ describe('Scheduler', () => {
     await expect(s.tick()).resolves.toBeUndefined();
     s.stop();
     expect(goalRunner.calls).toEqual([]);
-    const calls = stderr.mock.calls.map((c) => String(c[0])).join('');
+    const calls = logs.text();
     expect(calls).toMatch(/listDue failed: db gone/);
-    stderr.mockRestore();
+    logs.restore();
   });
 
   it('logs both advance and markError failures (double-error defensive path)', async () => {
-    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const logs = captureLogs();
     // Force computeNextFireAt to throw on a cron row to trigger the
     // "advance failed" branch in the scheduler.
     const cronSpy = vi.spyOn(cron, 'nextFireAt').mockImplementation(() => {
@@ -246,13 +247,13 @@ describe('Scheduler', () => {
     s.start();
     await s.tick();
     s.stop();
-    const calls = stderr.mock.calls.map((c) => String(c[0])).join('');
+    const calls = logs.text();
     expect(calls).toMatch(/advance failed: cron broke/);
     expect(calls).toMatch(/markError failed: db gone/);
     // No fire happened because advance failed.
     expect(goalRunner.calls).toEqual([]);
     cronSpy.mockRestore();
-    stderr.mockRestore();
+    logs.restore();
   });
 
   it('tick() is a no-op when the scheduler is not running', async () => {

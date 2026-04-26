@@ -87,16 +87,29 @@ All share the same `OpenAiAgent` core. The voice/wake runners add audio adapters
 
 `pino` is used for diagnostic/server-side logging — scheduler, agent tool
 calls, HTTP/Telegram runners, startup/shutdown. Each module gets a child
-logger via `createLogger('scope', { …bindings })`; output is JSON, one line
-per record, written through `process.stderr.write` so existing
-`stderr`-spy-based tests keep working. Level is `info` by default, override
-via `LOG_LEVEL` env (`debug`/`info`/`warn`/`error`/`fatal`/`silent`).
+logger via `createLogger('scope', { …bindings })`; output is written through
+`process.stderr.write` so existing `stderr`-spy-based tests keep working.
+Level is `info` by default, override via `LOG_LEVEL` env (`debug` / `info` /
+`warn` / `error` / `fatal` / `silent`).
+
+When stderr is a TTY (local dev), output is auto-prettified via
+`pino-pretty` — coloured, human-readable. Otherwise (Pi, Docker, CI) it's
+raw JSON one line per record. Tests run under vitest get raw JSON regardless
+of TTY (we detect `VITEST` and skip pretty), so spy-based assertions on
+`process.stderr.write` see the JSON unchanged.
+
+Per-request context is added via child loggers, e.g. the Telegram runner
+does `log.child({ chatId, updateId, kind })` for every inbound update, so
+every line emitted while handling that message is automatically tagged.
+
+In tests, log output is silenced by default (`tests/setup.ts` pins
+`rootLogger.level = 'silent'`). Tests that need to inspect logs use
+`captureLogs()` from `tests/helpers/captureLogs.ts`, which bumps the level
+to `trace` for the duration of the test and spies on `process.stderr.write`.
 
 User-facing terminal UI in `chat.ts`/`voice.ts`/`orchestrator.ts`/
 `mcp-call.ts` (the "User: …", "Assistant: …", REPL prompts) stays on
 `console.log` — it's UX, not logs. Don't migrate that to pino.
-
-For pretty output during local dev: `npm run start | npx pino-pretty`.
 
 ### Agent core (`src/agent/`)
 

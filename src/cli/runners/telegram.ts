@@ -6,6 +6,7 @@ import type { TelegramReceiver, TelegramSender, TelegramMessage } from '../../te
 import { BotTelegramSender } from '../../telegram/telegramSender.ts';
 import type { TelegramVoiceTranscriber } from '../../telegram/voiceTranscriber.ts';
 import { createLogger } from '../../utils/logger.ts';
+import type { Logger } from 'pino';
 
 const log = createLogger('telegram');
 
@@ -38,19 +39,27 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
   const allow = new Set(allowedChatIds);
 
   for await (const msg of receiver.messages()) {
+    // One child logger per inbound update — every line emitted while
+    // handling this message is automatically tagged with chatId+updateId,
+    // which is what you want when grepping logs across overlapping requests.
+    const reqLog = log.child({ chatId: msg.chatId, updateId: msg.updateId, kind: msg.kind });
     const replyer = deps.replyTo ? deps.replyTo(msg.chatId) : deps.sender;
     if (!allow.has(msg.chatId)) {
-      log.warn(
-        { chatId: msg.chatId, updateId: msg.updateId },
-        `dropped message from chat=${msg.chatId} (not allow-listed)`,
-      );
+      reqLog.warn(`dropped message from chat=${msg.chatId} (not allow-listed)`);
       continue;
     }
     try {
-      await handleMessage(msg, { agent, session, memory, sender: replyer, voiceTranscriber });
+      await handleMessage(msg, {
+        agent,
+        session,
+        memory,
+        sender: replyer,
+        voiceTranscriber,
+        log: reqLog,
+      });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
-      log.error({ chatId: msg.chatId, updateId: msg.updateId, err }, `handler error: ${text}`);
+      reqLog.error({ err }, `handler error: ${text}`);
       try {
         await replyer.send(`Internal error: ${text}`);
       } catch {
@@ -68,6 +77,7 @@ async function handleMessage(
     memory: MemoryStore;
     sender: TelegramSender;
     voiceTranscriber?: TelegramVoiceTranscriber;
+    log: Logger;
   },
 ): Promise<void> {
   if (msg.kind === 'voice') {
@@ -80,7 +90,7 @@ async function handleMessage(
       transcript = await ctx.voiceTranscriber.transcribe(msg.fileId);
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
-      log.error({ err }, `voice transcription failed: ${m}`);
+      ctx.log.error({ err }, `voice transcription failed: ${m}`);
       await ctx.sender.send(`Не смог распознать голосовое: ${m}`);
       return;
     }
@@ -94,6 +104,7 @@ async function handleMessage(
       reply = await ctx.agent.respond(transcript);
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
+      ctx.log.error({ err }, `agent error on voice transcript: ${m}`);
       await ctx.sender.send(`Agent error: ${m}`);
       return;
     }
@@ -136,6 +147,7 @@ async function handleMessage(
     reply = await ctx.agent.respond(text);
   } catch (err) {
     const m = err instanceof Error ? err.message : String(err);
+    ctx.log.error({ err }, `agent error: ${m}`);
     await ctx.sender.send(`Agent error: ${m}`);
     return;
   }

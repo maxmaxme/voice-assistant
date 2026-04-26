@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { buildGoalRunner } from '../../src/scheduling/goalRunner.ts';
 import type { Agent, AgentResponse } from '../../src/agent/types.ts';
+import { captureLogs } from '../helpers/captureLogs.ts';
 
 function passingAgent(): Agent & { calls: string[] } {
   const calls: string[] = [];
@@ -35,18 +36,18 @@ describe('buildGoalRunner', () => {
   });
 
   it('writes a one-line success summary to stderr', async () => {
-    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const logs = captureLogs();
     try {
       const agent = passingAgent();
       const runner = buildGoalRunner({ agent });
       await runner.fire('greet the world');
-      const messages = writeSpy.mock.calls.map((c) => String(c[0]));
+      const messages = logs.spy.mock.calls.map((c) => String(c[0]));
       const summary = messages.find((m) => m.includes('"scope":"goalRunner"'));
       expect(summary).toBeDefined();
       expect(summary).toContain('greet the world');
       expect(summary).toContain('done');
     } finally {
-      writeSpy.mockRestore();
+      logs.restore();
     }
   });
 });
