@@ -141,6 +141,28 @@ Force an update right now:
 sudo systemctl start voice-assistant-update.service
 ```
 
+### `/update` Telegram command
+
+The bot's `/update` command triggers an on-demand update by writing to a
+named pipe (FIFO) on the host. A lightweight systemd service reads from it
+and calls `deploy/update.sh`. Install it once after deploying:
+
+```bash
+sudo cp /opt/voice-assistant/deploy/va-update-listener.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now va-update-listener.service
+```
+
+Verify it's running:
+
+```bash
+systemctl status va-update-listener.service
+```
+
+The service creates `/tmp/va-update` (the FIFO) on startup. The FIFO is
+mounted into the container via `docker-compose.yml` — no docker socket or
+sudo inside the container is required.
+
 Manual rollback to the previous image (kept locally as `:rollback`):
 
 ```bash
