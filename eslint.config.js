@@ -25,4 +25,9 @@ export default tseslint.config(
     },
   },
   prettier,
+  {
+    rules: {
+      curly: ['error', 'all'],
+    },
+  },
 );
