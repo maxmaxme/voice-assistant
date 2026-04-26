@@ -56,7 +56,9 @@ export function loadConfig(): Config {
   const allowedChatIds = allowedRaw
     ? allowedRaw.split(',').map((s) => {
         const n = Number(s.trim());
-        if (!Number.isFinite(n)) throw new Error(`TELEGRAM_ALLOWED_CHAT_IDS: not a number: ${s}`);
+        if (!Number.isFinite(n)) {
+          throw new Error(`TELEGRAM_ALLOWED_CHAT_IDS: not a number: ${s}`);
+        }
         return n;
       })
     : undefined;

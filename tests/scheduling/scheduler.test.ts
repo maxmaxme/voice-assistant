@@ -134,7 +134,9 @@ describe('Scheduler', () => {
       sink: {
         fire: async (it) => {
           calls++;
-          if (it.kind === 'reminder' && it.id === 1) throw new Error('fail one');
+          if (it.kind === 'reminder' && it.id === 1) {
+            throw new Error('fail one');
+          }
           fired.push(it);
         },
       },

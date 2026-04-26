@@ -62,7 +62,9 @@ export class Session {
   }
 
   private isStale(): boolean {
-    if (this.lastTouch === 0) return false;
+    if (this.lastTouch === 0) {
+      return false;
+    }
     return this.now() - this.lastTouch >= this.idleTimeoutMs;
   }
 }

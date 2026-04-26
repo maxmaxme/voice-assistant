@@ -14,7 +14,9 @@ function usage(): never {
 
 async function main(): Promise<void> {
   const [, , cmd, ...rest] = process.argv;
-  if (!cmd) usage();
+  if (!cmd) {
+    usage();
+  }
 
   const cfg = loadConfig();
   const client = new HaMcpClient({ url: cfg.ha.url, token: cfg.ha.token });
@@ -27,7 +29,9 @@ async function main(): Promise<void> {
       }
     } else if (cmd === 'call') {
       const [name, jsonArgs = '{}'] = rest;
-      if (!name) usage();
+      if (!name) {
+        usage();
+      }
       let args: Record<string, unknown>;
       try {
         args = JSON.parse(jsonArgs);
@@ -37,7 +41,9 @@ async function main(): Promise<void> {
       }
       const result = await client.callTool(name, args);
       console.log(JSON.stringify(result, null, 2));
-      if (result.isError) process.exit(1);
+      if (result.isError) {
+        process.exit(1);
+      }
     } else {
       usage();
     }

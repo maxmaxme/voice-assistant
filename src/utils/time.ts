@@ -61,6 +61,8 @@ export function parseLocalWallClock(raw: string): number {
     );
   }
   const ms = new Date(s).getTime();
-  if (!Number.isFinite(ms)) throw new Error(`failed to parse wall-clock "${raw}"`);
+  if (!Number.isFinite(ms)) {
+    throw new Error(`failed to parse wall-clock "${raw}"`);
+  }
   return ms;
 }

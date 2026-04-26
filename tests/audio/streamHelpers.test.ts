@@ -7,7 +7,9 @@ describe('bufferToStream', () => {
     const stream = bufferToStream(buf, 24000);
     expect(stream.sampleRate).toBe(24000);
     const chunks: Buffer[] = [];
-    for await (const c of stream.chunks) chunks.push(c);
+    for await (const c of stream.chunks) {
+      chunks.push(c);
+    }
     expect(chunks).toHaveLength(1);
     expect(chunks[0].equals(buf)).toBe(true);
   });

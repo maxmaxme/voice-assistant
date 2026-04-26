@@ -51,13 +51,17 @@ export class OpenWakeWord implements WakeWord {
       '--threshold',
       String(this.opts.threshold ?? 0.5),
     ];
-    if (this.opts.debug) args.push('--debug');
+    if (this.opts.debug) {
+      args.push('--debug');
+    }
     const spawnFn = this.opts.spawnFn ?? spawn;
     this.proc = spawnFn(this.opts.pythonPath, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    if (!this.proc.stdout) throw new Error('wake-word daemon has no stdout');
+    if (!this.proc.stdout) {
+      throw new Error('wake-word daemon has no stdout');
+    }
     // Forward daemon stderr to our stderr so model-load errors and
     // --debug diagnostics are visible.
     this.proc.stderr?.on('data', (chunk: Buffer) => {
@@ -88,8 +92,11 @@ export class OpenWakeWord implements WakeWord {
     });
 
     await new Promise<void>((resolve) => {
-      if (this.ready) resolve();
-      else this.readyResolve = resolve;
+      if (this.ready) {
+        resolve();
+      } else {
+        this.readyResolve = resolve;
+      }
     });
     if (!this.ready) {
       throw new Error('wake-word daemon failed to start (see stderr)');
@@ -97,9 +104,13 @@ export class OpenWakeWord implements WakeWord {
   }
 
   feed(frame: Int16Array): void {
-    if (!this.proc || !this.proc.stdin || frame.length !== FRAME_LENGTH) return;
+    if (!this.proc || !this.proc.stdin || frame.length !== FRAME_LENGTH) {
+      return;
+    }
     const buf = Buffer.alloc(FRAME_LENGTH * 2);
-    for (let i = 0; i < FRAME_LENGTH; i++) buf.writeInt16LE(frame[i], i * 2);
+    for (let i = 0; i < FRAME_LENGTH; i++) {
+      buf.writeInt16LE(frame[i], i * 2);
+    }
     this.proc.stdin.write(buf);
   }
 
@@ -108,7 +119,9 @@ export class OpenWakeWord implements WakeWord {
   }
 
   async stop(): Promise<void> {
-    if (!this.proc) return;
+    if (!this.proc) {
+      return;
+    }
     this.proc.stdin?.end();
     this.proc.kill('SIGTERM');
     this.proc = null;

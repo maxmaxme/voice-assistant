@@ -25,7 +25,9 @@ export class Scheduler {
   }
 
   start(): void {
-    if (this.running) return;
+    if (this.running) {
+      return;
+    }
     this.running = true;
     this.timer = setInterval(() => void this.tick(), this.tickMs);
   }
@@ -39,7 +41,9 @@ export class Scheduler {
   }
 
   async tick(): Promise<void> {
-    if (!this.running) return;
+    if (!this.running) {
+      return;
+    }
     const now = Date.now();
     let dueReminders: ReturnType<RemindersAdapter['listDue']>;
     let dueTimers: ReturnType<TimersAdapter['listDue']>;

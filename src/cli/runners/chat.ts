@@ -28,7 +28,9 @@ export async function runChatMode(deps: ChatRunnerDeps): Promise<void> {
       } catch {
         break;
       }
-      if (!line) continue;
+      if (!line) {
+        continue;
+      }
       if (line === '/reset') {
         session.reset();
         console.log('(context cleared)');

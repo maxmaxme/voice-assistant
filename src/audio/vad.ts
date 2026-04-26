@@ -28,7 +28,9 @@ export class RmsVad {
 
   feed(frame: Int16Array): void {
     let sum = 0;
-    for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];
+    for (let i = 0; i < frame.length; i++) {
+      sum += frame[i] * frame[i];
+    }
     const rms = Math.sqrt(sum / frame.length);
 
     if (rms >= this.opts.threshold) {

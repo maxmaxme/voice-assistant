@@ -17,7 +17,9 @@ export class StreamingMic {
   }
 
   start(): void {
-    if (this.m) return;
+    if (this.m) {
+      return;
+    }
     const m = mic({
       rate: String(this.opts.sampleRate),
       channels: '1',
@@ -54,7 +56,9 @@ export class StreamingMic {
       for (let i = 0; i < this.opts.frameLength; i++) {
         frame[i] = buf.readInt16LE(offset + i * 2);
       }
-      for (const l of this.listeners) l(frame);
+      for (const l of this.listeners) {
+        l(frame);
+      }
       offset += frameBytes;
     }
     this.leftover = buf.subarray(offset);

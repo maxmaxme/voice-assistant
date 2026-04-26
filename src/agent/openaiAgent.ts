@@ -192,7 +192,9 @@ export class OpenAiAgent implements Agent {
       `\n  • Absolute ("завтра в 9 утра", "tomorrow at 9am") → use at_local with the server-timezone wall clock, e.g. "2026-04-27 09:00".` +
       `\n  • fire_at (Unix ms UTC) is a fallback — prefer the two above.` +
       `\nSet the unused fields to null. The server will compute the exact UTC instant.`;
-    if (Object.keys(profile).length === 0) return base + timeBlock;
+    if (Object.keys(profile).length === 0) {
+      return base + timeBlock;
+    }
     return `${base}${timeBlock}\n\nKnown user profile: ${JSON.stringify(profile)}`;
   }
 

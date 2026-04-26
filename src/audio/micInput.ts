@@ -25,12 +25,17 @@ export class NodeMicInput implements MicInput {
         new Promise<Buffer>((resolve, reject) => {
           let settled = false;
           const finish = (err?: Error): void => {
-            if (settled) return;
+            if (settled) {
+              return;
+            }
             settled = true;
             stream.off('data', onData);
             clearTimeout(timer);
-            if (err) reject(err);
-            else resolve(Buffer.concat(chunks));
+            if (err) {
+              reject(err);
+            } else {
+              resolve(Buffer.concat(chunks));
+            }
           };
           stream.once('end', () => finish());
           stream.once('error', (err: Error) => finish(err));

@@ -29,7 +29,9 @@ function resolveFireAt(args: Record<string, unknown>): number {
   if (args.fire_at != null) {
     provided.push('fire_at');
     const f = Number(args.fire_at);
-    if (!Number.isFinite(f)) throw new Error('fire_at must be a number');
+    if (!Number.isFinite(f)) {
+      throw new Error('fire_at must be a number');
+    }
     fireAt = f;
   }
 
@@ -154,9 +156,13 @@ export function executeReminderTool(
   switch (name) {
     case 'add_reminder': {
       const text = String(args.text ?? '').trim();
-      if (!text) throw new Error('add_reminder: text is required');
+      if (!text) {
+        throw new Error('add_reminder: text is required');
+      }
       const fireAt = resolveFireAt(args);
-      if (fireAt <= Date.now()) throw new Error('add_reminder: fire_at is in the past');
+      if (fireAt <= Date.now()) {
+        throw new Error('add_reminder: fire_at is in the past');
+      }
       const r = reminders.add({ text, fireAt });
       return {
         id: r.id,
@@ -174,7 +180,9 @@ export function executeReminderTool(
       }));
     case 'cancel_reminder': {
       const id = Number(args.id);
-      if (!Number.isFinite(id)) throw new Error('cancel_reminder: id must be a number');
+      if (!Number.isFinite(id)) {
+        throw new Error('cancel_reminder: id must be a number');
+      }
       return { ok: reminders.cancel(id) };
     }
     default:

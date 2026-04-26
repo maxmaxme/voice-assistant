@@ -47,7 +47,9 @@ async function streamFrom(
   return {
     sampleRate,
     chunks: (async function* () {
-      for (const c of chunks) yield c;
+      for (const c of chunks) {
+        yield c;
+      }
     })(),
   };
 }

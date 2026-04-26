@@ -32,7 +32,9 @@ export async function executeTelegramTool(
   args: Record<string, unknown>,
 ): Promise<{ ok: true }> {
   const text = typeof args.text === 'string' ? args.text : '';
-  if (!text.trim()) throw new Error('send_to_telegram: `text` is required');
+  if (!text.trim()) {
+    throw new Error('send_to_telegram: `text` is required');
+  }
   await telegram.send(text);
   return { ok: true };
 }
