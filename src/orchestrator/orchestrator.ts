@@ -10,6 +10,7 @@ import {
   generateConfirmOnBlip,
   generateConfirmOffBlip,
   generateListenBlip,
+  generateStopListenBlip,
 } from '../audio/blip.ts';
 import { bufferToStream, isAbortError } from '../audio/streamHelpers.ts';
 import { createLogger } from '../utils/logger.ts';
@@ -21,6 +22,7 @@ const CONFIRM_BLIP = generateConfirmBlip(BLIP_SAMPLE_RATE);
 const CONFIRM_ON_BLIP = generateConfirmOnBlip(BLIP_SAMPLE_RATE);
 const CONFIRM_OFF_BLIP = generateConfirmOffBlip(BLIP_SAMPLE_RATE);
 const LISTEN_BLIP = generateListenBlip(BLIP_SAMPLE_RATE);
+const STOP_LISTEN_BLIP = generateStopListenBlip(BLIP_SAMPLE_RATE);
 
 export interface OrchestratorOptions {
   agent: Agent;
@@ -110,6 +112,9 @@ export class Orchestrator {
     this.clearNoSpeechTimer();
     const audio = Buffer.concat(this.captureBuffer);
     this.captureBuffer = [];
+    this.opts.speaker
+      .playStream(bufferToStream(STOP_LISTEN_BLIP, BLIP_SAMPLE_RATE))
+      .catch(() => {});
     this.dispatch({ type: 'utteranceEnd', audio });
   }
 

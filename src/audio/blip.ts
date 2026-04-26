@@ -49,6 +49,15 @@ export function generateListenBlip(sampleRate = 24000): Buffer {
   ]);
 }
 
+/** "Done listening" — reverse of listen blip: D5→B4→G4. */
+export function generateStopListenBlip(sampleRate = 24000): Buffer {
+  return twoToneBlip(sampleRate, [
+    { freq: 587.33, durMs: 55 }, // D5
+    { freq: 493.88, durMs: 55 }, // B4
+    { freq: 392.0, durMs: 75 }, // G4
+  ]);
+}
+
 /** "Turned ON" — ascending C5→E5. */
 export function generateConfirmOnBlip(sampleRate = 24000): Buffer {
   return twoToneBlip(
