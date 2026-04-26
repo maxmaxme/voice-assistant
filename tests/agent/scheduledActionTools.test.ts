@@ -111,7 +111,7 @@ describe('scheduledActionTools — schedule_action once', () => {
     // 2099-06-15 09:00 Europe/Madrid (CEST = UTC+2 in summer) = 07:00:00Z
     expect(out.next_fire_at).toBe(Date.UTC(2099, 5, 15, 7, 0, 0));
     expect(out.schedule_kind).toBe('once');
-    expect(out.schedule_expr).toBe(String(Date.UTC(2099, 5, 15, 7, 0, 0)));
+    expect(out.schedule_expr).toBe(toLocalIso(Date.UTC(2099, 5, 15, 7, 0, 0)));
     expect(out.goal).toBe('Включи свет на кухне');
     expect(out.id).toBe(1);
     expect(out.next_fire_at_local).toContain('2099-06-15');
@@ -127,6 +127,18 @@ describe('scheduledActionTools — schedule_action once', () => {
         schedule_expr: '2020-01-01 00:00',
       }),
     ).toThrow(/past/i);
+  });
+
+  it('past-rejection error message includes a "now" anchor', () => {
+    process.env.TZ = 'UTC';
+    const a = memScheduled();
+    expect(() =>
+      executeScheduledActionTool(a, 'schedule_action', {
+        goal: 'x',
+        schedule_kind: 'once',
+        schedule_expr: '2020-01-01 00:00',
+      }),
+    ).toThrow(/now: \d{4}-\d{2}-\d{2}/);
   });
 
   it('rejects malformed schedule_expr and includes the bad value', () => {
@@ -187,6 +199,23 @@ describe('scheduledActionTools — schedule_action cron', () => {
       }),
     ).toThrow(/cron|not a cron/i);
   });
+
+  it('cron error message includes a worked example', () => {
+    const a = memScheduled();
+    let err: Error | undefined;
+    try {
+      executeScheduledActionTool(a, 'schedule_action', {
+        goal: 'x',
+        schedule_kind: 'cron',
+        schedule_expr: 'not a cron',
+      });
+    } catch (e) {
+      err = e as Error;
+    }
+    expect(err).toBeDefined();
+    expect(err!.message).toMatch(/cron/);
+    expect(err!.message).toMatch(/0 8 \* \* \*/);
+  });
 });
 
 describe('scheduledActionTools — unknown schedule_kind', () => {
@@ -218,6 +247,19 @@ describe('scheduledActionTools — list_scheduled', () => {
     expect(out[0].next_fire_at_local).toBe(toLocalIso(future));
     expect(out[0].last_fired_at).toBeNull();
     expect(out[0].last_fired_at_local).toBeNull();
+  });
+
+  it('sorts rows by next_fire_at ascending regardless of insertion order', () => {
+    const a = memScheduled();
+    const t1 = Date.now() + 60_000;
+    const t2 = Date.now() + 120_000;
+    // Insert later first, earlier second.
+    a.add({ goal: 'g2', schedule: { kind: 'once', at: t2 }, nextFireAt: t2 });
+    a.add({ goal: 'g1', schedule: { kind: 'once', at: t1 }, nextFireAt: t1 });
+    const out = executeScheduledActionTool(a, 'list_scheduled', {});
+    expect(out).toHaveLength(2);
+    expect(out[0].goal).toBe('g1');
+    expect(out[1].goal).toBe('g2');
   });
 
   it('skips cancelled / done rows', () => {

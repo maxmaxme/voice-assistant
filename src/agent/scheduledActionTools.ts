@@ -121,7 +121,9 @@ function buildSchedule(kind: unknown, expr: unknown): { schedule: Schedule; next
       );
     }
     if (parsed <= Date.now()) {
-      throw new Error(`schedule_action: schedule_expr "${exprStr}" is in the past`);
+      throw new Error(
+        `schedule_action: schedule_expr "${exprStr}" is in the past (now: ${toLocalIso(Date.now())})`,
+      );
     }
     return { schedule: { kind: 'once', at: parsed }, nextFireAt: parsed };
   }
@@ -130,8 +132,9 @@ function buildSchedule(kind: unknown, expr: unknown): { schedule: Schedule; next
     try {
       validateSchedule(schedule);
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       throw new Error(
-        `schedule_action: invalid cron schedule_expr "${exprStr}": ${e instanceof Error ? e.message : String(e)}`,
+        `schedule_action: invalid cron schedule_expr "${exprStr}" (expected POSIX 5-field "minute hour dom month dow", e.g. "0 8 * * *"): ${msg}`,
         { cause: e },
       );
     }
@@ -144,7 +147,7 @@ function buildSchedule(kind: unknown, expr: unknown): { schedule: Schedule; next
 }
 
 function scheduleToExprString(schedule: Schedule): string {
-  return schedule.kind === 'once' ? String(schedule.at) : schedule.expr;
+  return schedule.kind === 'once' ? toLocalIso(schedule.at) : schedule.expr;
 }
 
 export function executeScheduledActionTool(
