@@ -64,11 +64,50 @@ export function buildTimerTools(): OpenAiFunctionTool[] {
   ];
 }
 
+export interface SetTimerResult {
+  id: number;
+  label: string;
+  fire_at: number;
+  fire_at_local: string;
+  duration_ms: number;
+}
+export interface ListTimerItem {
+  id: number;
+  label: string;
+  fire_at: number;
+  fire_at_local: string;
+  duration_ms: number;
+}
+export interface CancelTimerResult {
+  ok: boolean;
+}
+export type TimerToolResult = SetTimerResult | ListTimerItem[] | CancelTimerResult;
+
+export function executeTimerTool(
+  timers: TimersAdapter,
+  name: 'set_timer',
+  args: Record<string, unknown>,
+): SetTimerResult;
+export function executeTimerTool(
+  timers: TimersAdapter,
+  name: 'list_timers',
+  args: Record<string, unknown>,
+): ListTimerItem[];
+export function executeTimerTool(
+  timers: TimersAdapter,
+  name: 'cancel_timer',
+  args: Record<string, unknown>,
+): CancelTimerResult;
 export function executeTimerTool(
   timers: TimersAdapter,
   name: string,
   args: Record<string, unknown>,
-): unknown {
+): TimerToolResult;
+export function executeTimerTool(
+  timers: TimersAdapter,
+  name: string,
+  args: Record<string, unknown>,
+): TimerToolResult {
   switch (name) {
     case 'set_timer': {
       const label = String(args.label ?? '').trim();

@@ -54,10 +54,7 @@ describe('timerTools', () => {
   it('set_timer creates a timer firing at now+seconds*1000', () => {
     const t = memTimers();
     const before = Date.now();
-    const out = executeTimerTool(t, 'set_timer', { label: 'pasta', seconds: 60 }) as {
-      id: number;
-      fire_at: number;
-    };
+    const out = executeTimerTool(t, 'set_timer', { label: 'pasta', seconds: 60 });
     expect(out.id).toBe(1);
     expect(out.fire_at).toBeGreaterThanOrEqual(before + 60_000);
     expect(out.fire_at).toBeLessThanOrEqual(Date.now() + 60_000 + 100);
@@ -73,7 +70,7 @@ describe('timerTools', () => {
   it('list_timers returns active', () => {
     const t = memTimers();
     t.add({ label: 'a', fireAt: 100, durationMs: 100 });
-    const out = executeTimerTool(t, 'list_timers', {}) as unknown[];
+    const out = executeTimerTool(t, 'list_timers', {});
     expect(out.length).toBe(1);
   });
 

@@ -61,7 +61,7 @@ describe('reminderTools', () => {
     const out = executeReminderTool(r, 'add_reminder', {
       text: 'X',
       fire_at: Date.now() + 60_000,
-    }) as { id: number };
+    });
     expect(out.id).toBe(1);
     expect(r.listPending()).toHaveLength(1);
   });
@@ -78,7 +78,7 @@ describe('reminderTools', () => {
     r.add({ text: 'a', fireAt: Date.now() + 100_000 });
     const fired = r.add({ text: 'b', fireAt: 50 });
     r.markFired(fired.id, 50);
-    const out = executeReminderTool(r, 'list_reminders', {}) as Array<{ text: string }>;
+    const out = executeReminderTool(r, 'list_reminders', {});
     expect(out).toHaveLength(1);
     expect(out[0].text).toBe('a');
   });
@@ -119,14 +119,14 @@ describe('reminderTools — timezone handling', () => {
     const out1 = executeReminderTool(r1, 'add_reminder', {
       text: 'meeting',
       fire_at: moscow9amUtcMs,
-    }) as { fire_at: number; fire_at_local: string };
+    });
 
     setTz('America/Los_Angeles');
     const r2 = memReminders();
     const out2 = executeReminderTool(r2, 'add_reminder', {
       text: 'meeting',
       fire_at: moscow9amUtcMs,
-    }) as { fire_at: number; fire_at_local: string };
+    });
 
     expect(out1.fire_at).toBe(moscow9amUtcMs);
     expect(out2.fire_at).toBe(moscow9amUtcMs);
@@ -143,7 +143,7 @@ describe('reminderTools — timezone handling', () => {
     const out = executeReminderTool(r, 'add_reminder', {
       text: 'x',
       fire_at: fireAt,
-    }) as { fire_at_local: string };
+    });
     // Should reflect Moscow local time (15:30), not UTC (12:30)
     expect(out.fire_at_local).toContain('15:30');
     expect(out.fire_at_local).not.toContain('12:30');
@@ -158,15 +158,9 @@ describe('reminderTools — timezone handling', () => {
     const la = Date.UTC(2030, 5, 15, 6, 0, 0);
 
     const r = memReminders();
-    const a = executeReminderTool(r, 'add_reminder', { text: 'a', fire_at: moscow }) as {
-      fire_at: number;
-    };
-    const b = executeReminderTool(r, 'add_reminder', { text: 'b', fire_at: tokyo }) as {
-      fire_at: number;
-    };
-    const c = executeReminderTool(r, 'add_reminder', { text: 'c', fire_at: la }) as {
-      fire_at: number;
-    };
+    const a = executeReminderTool(r, 'add_reminder', { text: 'a', fire_at: moscow });
+    const b = executeReminderTool(r, 'add_reminder', { text: 'b', fire_at: tokyo });
+    const c = executeReminderTool(r, 'add_reminder', { text: 'c', fire_at: la });
     expect(a.fire_at).toBe(b.fire_at);
     expect(b.fire_at).toBe(c.fire_at);
   });
@@ -179,10 +173,7 @@ describe('reminderTools — timezone handling', () => {
     executeReminderTool(r, 'add_reminder', { text: 'a', fire_at: fireAt });
 
     setTz('Pacific/Pago_Pago'); // UTC-11 — extreme negative offset
-    const list = executeReminderTool(r, 'list_reminders', {}) as Array<{
-      fire_at: number;
-      fire_at_local: string;
-    }>;
+    const list = executeReminderTool(r, 'list_reminders', {});
     expect(list).toHaveLength(1);
     // The epoch ms must survive a round-trip regardless of the listing TZ.
     expect(list[0].fire_at).toBe(fireAt);
@@ -225,7 +216,7 @@ describe('reminderTools — timezone handling', () => {
     const out = executeReminderTool(r, 'add_reminder', {
       text: 'dst',
       fire_at: fireAt,
-    }) as { fire_at: number; fire_at_local: string };
+    });
 
     expect(out.fire_at).toBe(fireAt);
     // Local representation should reflect America/New_York post-DST (EDT = UTC-4): 03:30
