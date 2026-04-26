@@ -76,8 +76,12 @@ export async function dispatch(
     );
   };
 
-  if (mode === 'telegram') scheduleTelegram();
-  if (mode === 'both') scheduleTelegram();
+  if (mode === 'telegram') {
+    scheduleTelegram();
+  }
+  if (mode === 'both') {
+    scheduleTelegram();
+  }
 
   if (tasks.length === 0) {
     throw new Error(`No runners scheduled for AGENT_MODE=${mode}`);

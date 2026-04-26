@@ -22,7 +22,9 @@ function fakeProc(scriptedStdout: string[]) {
   proc.kill = () => {};
   // Push scripted lines on next tick so callers have time to attach listeners.
   setImmediate(() => {
-    for (const line of scriptedStdout) stdout.push(line + '\n');
+    for (const line of scriptedStdout) {
+      stdout.push(line + '\n');
+    }
   });
   return proc;
 }

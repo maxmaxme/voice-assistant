@@ -124,7 +124,9 @@ describe('TelegrafReceiver', () => {
     await r.stop();
 
     expect(result.done).toBe(false);
-    if (result.done) return;
+    if (result.done) {
+      return;
+    }
     expect(result.value.kind).toBe('text');
     if (result.value.kind === 'text') {
       expect(result.value.text).toBe('hello');
@@ -240,7 +242,9 @@ describe('TelegrafReceiver', () => {
 
     // The first yielded value should be the real message, not the channel post.
     expect(result.value?.kind).toBe('text');
-    if (result.value?.kind === 'text') expect(result.value.text).toBe('real');
+    if (result.value?.kind === 'text') {
+      expect(result.value.text).toBe('real');
+    }
   });
 
   it('message fired before messages() starts is queued and delivered', async () => {
@@ -255,6 +259,8 @@ describe('TelegrafReceiver', () => {
     await r.stop();
 
     expect(result.value?.kind).toBe('text');
-    if (result.value?.kind === 'text') expect(result.value.text).toBe('queued');
+    if (result.value?.kind === 'text') {
+      expect(result.value.text).toBe('queued');
+    }
   });
 });

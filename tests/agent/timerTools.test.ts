@@ -30,7 +30,9 @@ function memTimers(): TimersAdapter {
     },
     cancel: (id) => {
       const t = items.find((x) => x.id === id && x.status === 'active');
-      if (!t) return false;
+      if (!t) {
+        return false;
+      }
       t.status = 'cancelled';
       return true;
     },

@@ -76,12 +76,16 @@ export class Orchestrator {
       this.dispatch({ type: 'wake' });
     });
     this.vad.onSpeech(() => {
-      if (!this.capturing) return;
+      if (!this.capturing) {
+        return;
+      }
       this.speechSeen = true;
       this.clearNoSpeechTimer();
     });
     this.vad.onSilence(() => {
-      if (!this.capturing) return;
+      if (!this.capturing) {
+        return;
+      }
       this.endCapture();
     });
 
@@ -118,7 +122,9 @@ export class Orchestrator {
       followUp: this.opts.followUp ?? false,
     });
     this.state = state;
-    for (const eff of effects) await this.runEffect(eff);
+    for (const eff of effects) {
+      await this.runEffect(eff);
+    }
   }
 
   private async runEffect(eff: Effect): Promise<void> {
@@ -134,7 +140,9 @@ export class Orchestrator {
         this.speechSeen = false;
         this.clearNoSpeechTimer();
         this.noSpeechTimer = setTimeout(() => {
-          if (!this.capturing || this.speechSeen) return;
+          if (!this.capturing || this.speechSeen) {
+            return;
+          }
           console.log('[no command heard within 5s — returning to idle]');
           this.endCapture();
         }, NO_SPEECH_TIMEOUT_MS);
@@ -195,7 +203,9 @@ export class Orchestrator {
             });
           }
         } catch (e) {
-          if (!isAbortError(e)) console.error('TTS error', e);
+          if (!isAbortError(e)) {
+            console.error('TTS error', e);
+          }
         } finally {
           this.currentSpeechAbort = null;
           if (eff.expectsFollowUp) {
@@ -206,8 +216,11 @@ export class Orchestrator {
         }
         return;
       case 'log':
-        if (eff.level === 'error') console.error(eff.message);
-        else console.log(eff.message);
+        if (eff.level === 'error') {
+          console.error(eff.message);
+        } else {
+          console.log(eff.message);
+        }
         return;
     }
   }

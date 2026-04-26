@@ -27,8 +27,11 @@ function twoToneBlip(
     for (let j = 0; j < segSamples; j++) {
       const t = j / sampleRate;
       let envelope = 1;
-      if (j < attackSamples) envelope = j / attackSamples;
-      else if (segSamples - j < releaseSamples) envelope = (segSamples - j) / releaseSamples;
+      if (j < attackSamples) {
+        envelope = j / attackSamples;
+      } else if (segSamples - j < releaseSamples) {
+        envelope = (segSamples - j) / releaseSamples;
+      }
       const sample = Math.sin(2 * Math.PI * seg.freq * t) * envelope * amplitude * MAX_SAMPLE;
       buf.writeInt16LE(clampInt16(sample), pos * 2);
       pos++;

@@ -46,14 +46,20 @@ export class OpenAiTts implements Tts {
     );
 
     const body = (res as unknown as { body: ReadableStream<Uint8Array> | null }).body;
-    if (!body) return;
+    if (!body) {
+      return;
+    }
 
     const reader = body.getReader();
     try {
       while (true) {
         const { done, value } = await reader.read();
-        if (done) return;
-        if (value && value.byteLength > 0) yield Buffer.from(value);
+        if (done) {
+          return;
+        }
+        if (value && value.byteLength > 0) {
+          yield Buffer.from(value);
+        }
       }
     } finally {
       try {

@@ -60,9 +60,15 @@ export class NodeSpeakerOutput implements SpeakerOutput {
 
     try {
       for await (const chunk of stream.chunks) {
-        if (opts?.signal?.aborted) break;
-        if (!proc.stdin || proc.stdin.destroyed) break;
-        if (procExited) break;
+        if (opts?.signal?.aborted) {
+          break;
+        }
+        if (!proc.stdin || proc.stdin.destroyed) {
+          break;
+        }
+        if (procExited) {
+          break;
+        }
         const ok = proc.stdin.write(chunk);
         if (!ok) {
           await new Promise<void>((resolve) => {
@@ -81,10 +87,14 @@ export class NodeSpeakerOutput implements SpeakerOutput {
       proc.stdin?.end();
       await exited;
     } catch (err) {
-      if (!isAbortError(err)) throw err;
+      if (!isAbortError(err)) {
+        throw err;
+      }
     } finally {
       opts?.signal?.removeEventListener('abort', onAbort);
-      if (this.currentProc === proc) this.currentProc = null;
+      if (this.currentProc === proc) {
+        this.currentProc = null;
+      }
     }
   }
 

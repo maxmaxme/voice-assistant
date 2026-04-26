@@ -59,8 +59,12 @@ export function buildSystemPromptFor(channel: PromptChannel): string {
 }
 
 export function parseAgentMode(raw: string | undefined): AgentMode {
-  if (!raw) return 'both';
-  if ((AGENT_MODES as readonly string[]).includes(raw)) return raw as AgentMode;
+  if (!raw) {
+    return 'both';
+  }
+  if ((AGENT_MODES as readonly string[]).includes(raw)) {
+    return raw as AgentMode;
+  }
   throw new Error(`AGENT_MODE=${raw}: expected one of ${AGENT_MODES.join(', ')}`);
 }
 
@@ -123,9 +127,13 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
 
   let disposed = false;
   const dispose = async (): Promise<void> => {
-    if (disposed) return;
+    if (disposed) {
+      return;
+    }
     disposed = true;
-    if (activeReceiver) await activeReceiver.stop().catch(() => {});
+    if (activeReceiver) {
+      await activeReceiver.stop().catch(() => {});
+    }
     await mcp.disconnect();
     memory.close();
   };

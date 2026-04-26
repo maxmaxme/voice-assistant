@@ -33,7 +33,9 @@ function memReminders(): RemindersAdapter {
     },
     cancel: (id) => {
       const r = items.find((x) => x.id === id && x.status === 'pending');
-      if (!r) return false;
+      if (!r) {
+        return false;
+      }
       r.status = 'cancelled';
       return true;
     },
@@ -117,8 +119,11 @@ describe('reminderTools', () => {
       // 2099-06-15 09:00 in Europe/Madrid (CEST = UTC+2 in summer) = 07:00:00Z
       expect(out.fire_at).toBe(Date.UTC(2099, 5, 15, 7, 0, 0));
     } finally {
-      if (originalTz === undefined) delete process.env.TZ;
-      else process.env.TZ = originalTz;
+      if (originalTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = originalTz;
+      }
     }
   });
 
@@ -194,8 +199,11 @@ describe('reminderTools', () => {
 describe('reminderTools — timezone handling', () => {
   const originalTz = process.env.TZ;
   afterEach(() => {
-    if (originalTz === undefined) delete process.env.TZ;
-    else process.env.TZ = originalTz;
+    if (originalTz === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = originalTz;
+    }
   });
 
   // Helper: re-initialize Date's TZ cache by constructing a date after env mutation.

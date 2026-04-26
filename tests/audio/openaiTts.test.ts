@@ -5,8 +5,11 @@ function makeReadableStream(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
   let i = 0;
   return new ReadableStream({
     pull(controller) {
-      if (i < chunks.length) controller.enqueue(chunks[i++]);
-      else controller.close();
+      if (i < chunks.length) {
+        controller.enqueue(chunks[i++]);
+      } else {
+        controller.close();
+      }
     },
   });
 }
@@ -23,7 +26,9 @@ describe('OpenAiTts', () => {
     expect(stream.sampleRate).toBe(24000);
 
     const got: Buffer[] = [];
-    for await (const chunk of stream.chunks) got.push(chunk);
+    for await (const chunk of stream.chunks) {
+      got.push(chunk);
+    }
 
     expect(got).toHaveLength(2);
     expect(got[0].equals(Buffer.from(c1))).toBe(true);
@@ -43,7 +48,9 @@ describe('OpenAiTts', () => {
 
     const stream = tts.stream('hi', { signal: ctrl.signal });
     // drain so the SDK call actually fires
-    for await (const _ of stream.chunks) void _;
+    for await (const _ of stream.chunks) {
+      void _;
+    }
 
     const requestOpts = create.mock.calls[0][1];
     expect(requestOpts.signal).toBe(ctrl.signal);

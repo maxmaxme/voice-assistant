@@ -96,7 +96,9 @@ export function executeTimerTool(
     case 'set_timer': {
       const label = String(args.label ?? '').trim();
       const seconds = Number(args.seconds);
-      if (!label) throw new Error('set_timer: label is required');
+      if (!label) {
+        throw new Error('set_timer: label is required');
+      }
       if (!Number.isFinite(seconds) || seconds <= 0) {
         throw new Error('set_timer: seconds must be a positive number');
       }
@@ -121,7 +123,9 @@ export function executeTimerTool(
       }));
     case 'cancel_timer': {
       const id = Number(args.id);
-      if (!Number.isFinite(id)) throw new Error('cancel_timer: id must be a number');
+      if (!Number.isFinite(id)) {
+        throw new Error('cancel_timer: id must be a number');
+      }
       return { ok: timers.cancel(id) };
     }
     default:

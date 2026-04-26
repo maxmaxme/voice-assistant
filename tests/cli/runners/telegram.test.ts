@@ -47,7 +47,9 @@ function fakeMemory(recallFn?: () => Record<string, unknown>): MemoryStore {
 function recvFromMessages(items: TelegramMessage[]): TelegramReceiver {
   return {
     async *messages() {
-      for (const m of items) yield m;
+      for (const m of items) {
+        yield m;
+      }
     },
     async stop() {},
   };

@@ -4,8 +4,11 @@ import { getServerTimezone, toLocalIso, parseLocalWallClock } from '../../src/ut
 describe('time utils', () => {
   const originalTz = process.env.TZ;
   afterEach(() => {
-    if (originalTz === undefined) delete process.env.TZ;
-    else process.env.TZ = originalTz;
+    if (originalTz === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = originalTz;
+    }
   });
 
   describe('getServerTimezone', () => {

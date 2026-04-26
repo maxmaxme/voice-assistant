@@ -20,11 +20,15 @@ describe('RmsVad', () => {
     vad.onSilence(() => events.push('silence'));
 
     // Loud frames trigger speech once
-    for (let i = 0; i < 5; i++) vad.feed(frame(5000));
+    for (let i = 0; i < 5; i++) {
+      vad.feed(frame(5000));
+    }
     expect(events).toContain('speech');
 
     // Then silent frames; need 500ms = ~16 frames at 32ms/frame.
-    for (let i = 0; i < 20; i++) vad.feed(frame(0));
+    for (let i = 0; i < 20; i++) {
+      vad.feed(frame(0));
+    }
     expect(events).toContain('silence');
   });
 
@@ -37,7 +41,9 @@ describe('RmsVad', () => {
     });
     const events: string[] = [];
     vad.onSilence(() => events.push('silence'));
-    for (let i = 0; i < 50; i++) vad.feed(frame(0));
+    for (let i = 0; i < 50; i++) {
+      vad.feed(frame(0));
+    }
     expect(events).toHaveLength(0);
   });
 });
