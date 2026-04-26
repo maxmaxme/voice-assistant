@@ -40,4 +40,8 @@ describe('buildSystemPromptFor', () => {
   it('telegram is identical to chat (no TTS, free-form text)', () => {
     expect(buildSystemPromptFor('telegram')).toBe(buildSystemPromptFor('chat'));
   });
+
+  it('http is identical to chat (JSON response carries free-form text)', () => {
+    expect(buildSystemPromptFor('http')).toBe(buildSystemPromptFor('chat'));
+  });
 });
