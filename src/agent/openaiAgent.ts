@@ -23,23 +23,10 @@ import type { TelegramSender } from '../telegram/types.ts';
 import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from './agentOutput.ts';
 import { getServerTimezone, toLocalIso } from '../utils/time.ts';
 import { createLogger } from '../utils/logger.ts';
+import { isValidContent } from '../utils/mcpContent.ts';
+import { isPreviousResponseGoneError } from '../utils/openaiErrors.ts';
 
 const log = createLogger('agent');
-
-/** True when OpenAI returned 404 because `previous_response_id` no longer
- * exists (typically: chain older than the 30-day Responses retention
- * window, or the response was explicitly deleted). The error surfaces
- * either as an APIError with status 404 + "Previous response with id …
- * not found", or as a generic Error whose message contains the same. */
-function isPreviousResponseGoneError(err: unknown): boolean {
-  const e = err as { status?: number; message?: string } | null;
-  if (!e || typeof e.message !== 'string') {
-    return false;
-  }
-  const msg = e.message;
-  const looksLikeIt = /previous response/i.test(msg) && /not found/i.test(msg);
-  return looksLikeIt && (e.status === undefined || e.status === 404);
-}
 
 export interface OpenAiAgentOptions {
   mcp: McpClient;
@@ -74,6 +61,10 @@ export class OpenAiAgent implements Agent {
     this.mode = opts.mode ?? 'chat';
   }
 
+  get session(): Session {
+    return this.opts.session;
+  }
+
   async respond(userText: string, opts: AgentRespondOptions = {}): Promise<AgentResponse> {
     const { mcp, model, llmClient } = this.opts;
     const session = opts.session ?? this.opts.session;
@@ -102,19 +93,19 @@ export class OpenAiAgent implements Agent {
       ...(this.mode === 'goal' ? [] : [buildAskTool()]),
       buildTelegramTool(),
     ];
-    const functionTools = [...mcpTools, ...localTools].map((t) => ({
+    // Our function-tool shape (`OpenAiFunctionTool`-derived) matches the
+    // SDK's `FunctionTool` member of the `Tool` union structurally, but our
+    // locally-built objects don't carry the SDK's exact nominal type — type
+    // the result as Tool[] directly so the spread below yields the union.
+    const functionTools: Tool[] = [...mcpTools, ...localTools].map((t) => ({
       ...t,
       strict: t.strict ?? null,
     }));
     // Hosted tools (e.g. OpenAI's web_search) have a different shape than
     // function tools — no name/parameters, just `{ type: 'web_search' }`.
-    // Mix both into a single array of unknowns; the SDK's Tool union covers
-    // both. Re-read the env var on every turn so toggling it on a running
-    // process takes effect immediately, no restart required.
-    // Cast: our function-tool shape (`OpenAiFunctionTool`-derived) matches
-    // the SDK's `FunctionTool` member of the `Tool` union structurally, but
-    // our locally-built objects don't carry the SDK's exact nominal type.
-    const tools: Tool[] = [...functionTools] as Tool[];
+    // Re-read the env var on every turn so toggling it on a running process
+    // takes effect immediately, no restart required.
+    const tools: Tool[] = [...functionTools];
     if (process.env.OPENAI_WEB_SEARCH === '1') {
       tools.push({ type: 'web_search' });
     }
@@ -172,7 +163,7 @@ export class OpenAiAgent implements Agent {
           // plenty of headroom for tools and the current turn.
           context_management: [{ type: 'compaction', compact_threshold: 30_000 }],
           text: {
-            format: (this.opts.textFormat ?? VOICE_TEXT_FORMAT) as typeof VOICE_TEXT_FORMAT,
+            format: this.opts.textFormat ?? VOICE_TEXT_FORMAT,
           },
         });
       } catch (err) {
@@ -198,9 +189,10 @@ export class OpenAiAgent implements Agent {
 
       if (response.output_parsed != null) {
         session.commit(response.id);
+        const parsed = response.output_parsed;
         return {
-          text: stripApiArtifacts(response.output_parsed.speak ?? ''),
-          direction: response.output_parsed.direction ?? null,
+          text: stripApiArtifacts(parsed.speak ?? ''),
+          direction: 'direction' in parsed ? (parsed.direction ?? null) : null,
         };
       }
 
@@ -261,10 +253,13 @@ export class OpenAiAgent implements Agent {
             } else {
               try {
                 const result = await mcp.callTool(tc.name, args);
+                if (!isValidContent(result.content)) {
+                  throw new Error('Invalid content');
+                }
                 resultText = result.content
                   .map((c) => (c.type === 'text' ? c.text : ''))
                   .join('\n');
-                isError = result.isError;
+                isError = result.isError ?? false;
               } catch (e) {
                 resultText = e instanceof Error ? e.message : String(e);
                 isError = true;

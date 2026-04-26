@@ -60,7 +60,7 @@ export async function dispatch(
     tasks.push(
       runners.chat({
         agent,
-        session: (agent as unknown as { opts?: { session: Session } }).opts?.session as Session,
+        session: agent.session,
         memory: deps.memory,
       }),
     );

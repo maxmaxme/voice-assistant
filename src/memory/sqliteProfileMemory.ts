@@ -34,18 +34,17 @@ export class SqliteProfileMemory implements MemoryAdapter {
 
   recall(key?: string): ProfileFacts {
     if (key !== undefined) {
-      const row = this.db.prepare('SELECT value FROM profile WHERE key = ?').get(key) as
-        | { value: string }
-        | undefined;
+      const row = this.db
+        .prepare<string, { value: string }>('SELECT value FROM profile WHERE key = ?')
+        .get(key);
       if (!row) {
         return {};
       }
       return { [key]: JSON.parse(row.value) };
     }
-    const rows = this.db.prepare('SELECT key, value FROM profile').all() as Array<{
-      key: string;
-      value: string;
-    }>;
+    const rows = this.db
+      .prepare<[], { key: string; value: string }>('SELECT key, value FROM profile')
+      .all();
     const out: ProfileFacts = {};
     for (const r of rows) {
       out[r.key] = JSON.parse(r.value);

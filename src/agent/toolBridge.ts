@@ -19,7 +19,7 @@ export function mcpToolsToOpenAi(tools: McpTool[]): OpenAiFunctionTool[] {
   return tools.map((t) => ({
     type: 'function',
     name: t.name,
-    description: t.description,
+    description: t.description ?? '',
     parameters: t.inputSchema,
     strict: false,
   }));

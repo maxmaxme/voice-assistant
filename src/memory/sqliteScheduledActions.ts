@@ -49,19 +49,22 @@ export class SqliteScheduledActions implements ScheduledActionsAdapter {
 
   listActive(): ScheduledAction[] {
     const rows = this.db
-      .prepare(`SELECT * FROM scheduled_actions WHERE status = 'active' ORDER BY next_fire_at ASC`)
-      .all() as Row[];
+      .prepare<
+        [],
+        Row
+      >(`SELECT * FROM scheduled_actions WHERE status = 'active' ORDER BY next_fire_at ASC`)
+      .all();
     return rows.map(toScheduledAction);
   }
 
   listDue(now: number): ScheduledAction[] {
     const rows = this.db
-      .prepare(
+      .prepare<number, Row>(
         `SELECT * FROM scheduled_actions
          WHERE status = 'active' AND next_fire_at <= ?
          ORDER BY next_fire_at ASC`,
       )
-      .all(now) as Row[];
+      .all(now);
     return rows.map(toScheduledAction);
   }
 
@@ -103,9 +106,9 @@ export class SqliteScheduledActions implements ScheduledActionsAdapter {
   }
 
   get(id: number): ScheduledAction | null {
-    const row = this.db.prepare(`SELECT * FROM scheduled_actions WHERE id = ?`).get(id) as
-      | Row
-      | undefined;
+    const row = this.db
+      .prepare<number, Row>(`SELECT * FROM scheduled_actions WHERE id = ?`)
+      .get(id);
     return row ? toScheduledAction(row) : null;
   }
 }

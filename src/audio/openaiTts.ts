@@ -41,11 +41,11 @@ export class OpenAiTts implements Tts {
         input: text,
         response_format: 'pcm',
         instructions: opts?.instructions,
-      } as never,
+      },
       { signal: opts?.signal },
     );
 
-    const body = (res as unknown as { body: ReadableStream<Uint8Array> | null }).body;
+    const body = res.body;
     if (!body) {
       return;
     }

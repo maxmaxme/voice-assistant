@@ -59,12 +59,17 @@ export function buildSystemPromptFor(channel: PromptChannel): string {
   }
 }
 
+function isAgentMode(value: string): value is AgentMode {
+  const set: ReadonlySet<string> = new Set<string>(AGENT_MODES);
+  return set.has(value);
+}
+
 export function parseAgentMode(raw: string | undefined): AgentMode {
   if (!raw) {
     return 'both';
   }
-  if ((AGENT_MODES as readonly string[]).includes(raw)) {
-    return raw as AgentMode;
+  if (isAgentMode(raw)) {
+    return raw;
   }
   throw new Error(`AGENT_MODE=${raw}: expected one of ${AGENT_MODES.join(', ')}`);
 }

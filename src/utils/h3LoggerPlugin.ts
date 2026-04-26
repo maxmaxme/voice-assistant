@@ -7,10 +7,6 @@ interface Options {
   log: Logger;
 }
 
-interface RequestContext {
-  startedAt?: number;
-}
-
 /** Logs every HTTP request as one record per request:
  *    on request start  → context.startedAt = now
  *    on response       → info  level: method url status duration
@@ -20,14 +16,15 @@ interface RequestContext {
 export const loggerPlugin = definePlugin<Options>((h3, { log }) => {
   h3.use(
     onRequest((event) => {
-      const ctx = event.context as unknown as RequestContext;
+      const ctx = event.context;
       ctx.startedAt = Date.now();
     }),
   );
 
   h3.use(
     onResponse((response, event) => {
-      const ctx = event.context as unknown as RequestContext;
+      const ctx = event.context;
+      // @ts-expect-error custom property
       const durationMs = ctx.startedAt ? Date.now() - ctx.startedAt : undefined;
       const method = event.req.method;
       const url = event.url.pathname;

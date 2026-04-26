@@ -1,12 +1,12 @@
 export interface McpTool {
   name: string;
-  description: string;
+  description?: string;
   inputSchema: Record<string, unknown>;
 }
 
 export interface McpToolResult {
-  isError: boolean;
-  content: Array<{ type: string; text?: string }>;
+  isError?: boolean;
+  [x: string]: unknown;
 }
 
 export interface McpClient {

@@ -10,10 +10,5 @@ export function bufferToStream(buf: Buffer, sampleRate: number): TtsStream {
 }
 
 export function isAbortError(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'name' in err &&
-    (err as { name: unknown }).name === 'AbortError'
-  );
+  return typeof err === 'object' && err !== null && 'name' in err && err.name === 'AbortError';
 }

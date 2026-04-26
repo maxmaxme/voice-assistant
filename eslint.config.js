@@ -28,6 +28,13 @@ export default tseslint.config(
   {
     rules: {
       curly: ['error', 'all'],
+      '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
+    },
+  },
+  {
+    files: ['tests/**/*.ts'],
+    rules: {
+      '@typescript-eslint/consistent-type-assertions': ['warn', { assertionStyle: 'never' }],
     },
   },
 );

@@ -16,11 +16,11 @@ export class SqliteTelegramSessions implements TelegramSessionsAdapter {
 
   get(chatId: number): TelegramSessionRecord | null {
     const row = this.db
-      .prepare(
+      .prepare<number, Row>(
         `SELECT chat_id, last_response_id, pending_ask_call_id
          FROM telegram_sessions WHERE chat_id = ?`,
       )
-      .get(chatId) as Row | undefined;
+      .get(chatId);
     if (!row) {
       return null;
     }

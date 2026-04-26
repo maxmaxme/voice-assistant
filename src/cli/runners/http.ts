@@ -1,5 +1,6 @@
 import { H3, serve, assertBodySize } from 'h3';
 import type { H3Event } from 'h3';
+import { z } from 'zod';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { AudioFileStt } from '../../audio/types.ts';
 import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
@@ -18,6 +19,8 @@ export interface HttpRunnerDeps {
 
 /** OpenAI Whisper / gpt-4o-transcribe rejects files larger than 25 MB. */
 const MAX_BODY_BYTES = 25 * 1024 * 1024;
+
+const TextBodySchema = z.object({ text: z.string() });
 
 export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
   const { agent, stt, port, apiKeys } = deps;
@@ -93,12 +96,13 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       const contentType = parseContentType(event.req.headers.get('content-type'));
       let text: string;
       if (contentType.startsWith('application/json')) {
-        const parsed = (await event.req.json().catch(() => null)) as { text?: unknown } | null;
-        if (!parsed || typeof parsed.text !== 'string') {
+        const raw: unknown = await event.req.json().catch(() => null);
+        const parsed = TextBodySchema.safeParse(raw);
+        if (!parsed.success) {
           event.res.status = 400;
           return { error: 'Expected JSON body with string "text" field' };
         }
-        text = parsed.text;
+        text = parsed.data.text;
       } else {
         text = await event.req.text();
       }

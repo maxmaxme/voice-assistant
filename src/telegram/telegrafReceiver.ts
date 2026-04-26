@@ -94,7 +94,7 @@ export class TelegrafReceiver implements TelegramReceiver {
       updateId: update.update_id,
       chatId: m.chat.id,
       fromUserId: m.from.id,
-      receivedAt: ('date' in m ? (m.date as number) : 0) * 1000,
+      receivedAt: ('date' in m && typeof m.date === 'number' ? m.date : 0) * 1000,
     };
 
     if ('text' in m && typeof m.text === 'string') {

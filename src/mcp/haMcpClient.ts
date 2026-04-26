@@ -23,11 +23,15 @@ function defaultSdkClientFactory({ url, token }: { url: string; token: string })
     },
   });
   const client = new Client({ name: 'voice-assistant', version: '0.1.0' }, { capabilities: {} });
+  // The SDK types `listTools`/`callTool` results against its own zod schemas;
+  // the shapes are structurally compatible with our McpTool / McpToolResult.
+  // We use targeted assertions here at the SDK boundary — this is the one
+  // place in the codebase allowed to bridge SDK schema types into ours.
   return {
     connect: () => client.connect(transport),
     close: () => client.close(),
-    listTools: () => client.listTools() as Promise<{ tools: McpTool[] }>,
-    callTool: (req) => client.callTool(req) as Promise<McpToolResult>,
+    listTools: () => client.listTools(),
+    callTool: (req) => client.callTool(req),
   };
 }
 
