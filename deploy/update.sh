@@ -8,8 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-$SCRIPT_DIR/docker-compose.yml}"
 ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/../.env}"
 IMAGE="${VOICE_ASSISTANT_IMAGE:-ghcr.io/maxmaxme/voice-assistant:latest}"
-ROLLBACK_TAG="${IMAGE%@*}:rollback"
-ROLLBACK_TAG="${ROLLBACK_TAG%:*}:rollback"
+_image_no_digest="${IMAGE%@*}"
+_image_no_tag="${_image_no_digest%:*}"
+ROLLBACK_TAG="${_image_no_tag}:rollback"
 HEALTHCHECK_TIMEOUT_SECONDS="${HEALTHCHECK_TIMEOUT_SECONDS:-90}"
 
 # Load .env so TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID are available.
@@ -100,7 +101,7 @@ services:
     image: $ROLLBACK_TAG
 EOF
 
-if ! docker compose -f "$COMPOSE_FILE" -f "$ROLLBACK_OVERRIDE" up -d voice-assistant; then
+if ! docker compose -f "$COMPOSE_FILE" -f "$ROLLBACK_OVERRIDE" up -d --pull never voice-assistant; then
   notify "✗ voice-assistant rollback FAILED — manual intervention required"
   exit 2
 fi
