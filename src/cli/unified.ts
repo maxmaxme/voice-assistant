@@ -12,6 +12,7 @@ import type { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { OpenAiTts } from '../audio/openaiTts.ts';
 import { Scheduler } from '../scheduling/scheduler.ts';
+import { getServerTimezone } from '../utils/time.ts';
 
 export interface RunnerSet {
   chat: (deps: ChatRunnerDeps) => Promise<void>;
@@ -98,8 +99,7 @@ export async function dispatch(
 
 export async function main(): Promise<void> {
   const mode = parseAgentMode(process.env.AGENT_MODE);
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  console.log(`[unified] AGENT_MODE=${mode} TZ=${tz}`);
+  console.log(`[unified] AGENT_MODE=${mode} TZ=${getServerTimezone()}`);
 
   const deps = await initializeCommonDependencies();
 
