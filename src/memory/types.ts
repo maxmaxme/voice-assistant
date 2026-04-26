@@ -1,3 +1,5 @@
+import type { Schedule } from '../scheduling/types.ts';
+
 export type ProfileFacts = Record<string, unknown>;
 
 export interface MemoryAdapter {
@@ -55,9 +57,39 @@ export interface TimersAdapter {
   get(id: number): Timer | null;
 }
 
+export interface ScheduledAction {
+  id: number;
+  goal: string;
+  schedule: Schedule;
+  status: 'active' | 'done' | 'cancelled' | 'error';
+  nextFireAt: number;
+  lastFiredAt: number | null;
+  createdAt: number;
+}
+
+export interface NewScheduledAction {
+  goal: string;
+  schedule: Schedule;
+  nextFireAt: number;
+}
+
+export interface ScheduledActionsAdapter {
+  add(input: NewScheduledAction): ScheduledAction;
+  listActive(): ScheduledAction[];
+  listDue(now: number): ScheduledAction[];
+  /** When `nextFireAt` is null, mark `status='done'` (one-shot complete).
+   *  When non-null, update `next_fire_at` (cron rescheduling) and set `last_fired_at = at`. */
+  markFired(id: number, at: number, nextFireAt: number | null): void;
+  /** Mark as `status='error'` (terminal). Used for one-shot actions whose goal threw. */
+  markError(id: number): void;
+  cancel(id: number): boolean;
+  get(id: number): ScheduledAction | null;
+}
+
 export interface MemoryStore {
   profile: MemoryAdapter;
   reminders: RemindersAdapter;
   timers: TimersAdapter;
+  scheduledActions: ScheduledActionsAdapter;
   close(): void;
 }

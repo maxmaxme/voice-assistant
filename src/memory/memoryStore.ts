@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { runMigrations } from './migrate.ts';
 import { SqliteProfileMemory } from './sqliteProfileMemory.ts';
 import { SqliteReminders } from './sqliteReminders.ts';
+import { SqliteScheduledActions } from './sqliteScheduledActions.ts';
 import { SqliteTimers } from './sqliteTimers.ts';
 import type { MemoryStore } from './types.ts';
 
@@ -12,10 +13,12 @@ export function openMemoryStore(dbPath: string): MemoryStore {
   const profile = new SqliteProfileMemory({ db });
   const reminders = new SqliteReminders(db);
   const timers = new SqliteTimers(db);
+  const scheduledActions = new SqliteScheduledActions(db);
   return {
     profile,
     reminders,
     timers,
+    scheduledActions,
     close() {
       db.close();
     },

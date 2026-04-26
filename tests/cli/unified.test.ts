@@ -4,7 +4,12 @@ import { Scheduler } from '../../src/scheduling/scheduler.ts';
 import type { CommonDeps, AgentMode } from '../../src/cli/shared.ts';
 import type OpenAI from 'openai';
 import type { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
-import type { MemoryStore, RemindersAdapter, TimersAdapter } from '../../src/memory/types.ts';
+import type {
+  MemoryStore,
+  RemindersAdapter,
+  ScheduledActionsAdapter,
+  TimersAdapter,
+} from '../../src/memory/types.ts';
 import type { TelegramSender, TelegramReceiver } from '../../src/telegram/types.ts';
 import type { FireSink } from '../../src/scheduling/types.ts';
 
@@ -29,10 +34,22 @@ function makeMemoryStore(): MemoryStore {
     cancel: () => false,
     get: () => null,
   };
+  const noopScheduledActions: ScheduledActionsAdapter = {
+    add: () => {
+      throw new Error('not used');
+    },
+    listActive: () => [],
+    listDue: () => [],
+    markFired: () => {},
+    markError: () => {},
+    cancel: () => false,
+    get: () => null,
+  };
   return {
     profile: { remember: () => {}, recall: () => ({}), forget: () => {}, close: () => {} },
     reminders: noopReminders,
     timers: noopTimers,
+    scheduledActions: noopScheduledActions,
     close: () => {},
   };
 }
