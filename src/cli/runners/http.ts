@@ -1,9 +1,9 @@
-import { timingSafeEqual } from 'node:crypto';
 import { H3, serve, assertBodySize, getRequestHeader, readRawBody, setResponseStatus } from 'h3';
 import type { H3Event } from 'h3';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { AudioFileStt } from '../../audio/types.ts';
 import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
+import { verifyBearerToken } from '../../utils/apiKeyAuth.ts';
 
 export interface HttpRunnerDeps {
   agent: OpenAiAgent;
@@ -15,34 +15,6 @@ export interface HttpRunnerDeps {
 /** OpenAI Whisper / gpt-4o-transcribe rejects files larger than 25 MB. */
 const MAX_BODY_BYTES = 25 * 1024 * 1024;
 
-function constantTimeEquals(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) {
-    // Still consume a compare to keep timing closer to the equal-length path.
-    timingSafeEqual(ab, ab);
-    return false;
-  }
-  return timingSafeEqual(ab, bb);
-}
-
-function verifyApiKey(event: H3Event, apiKeys: string[]): boolean {
-  const authHeader = getRequestHeader(event, 'authorization') ?? '';
-  const headerKey = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : '';
-  if (!headerKey) {
-    return false;
-  }
-  // Constant-time compare against every allowed key. Short-circuiting would
-  // leak which prefix matched.
-  let matched = false;
-  for (const k of apiKeys) {
-    if (constantTimeEquals(headerKey, k)) {
-      matched = true;
-    }
-  }
-  return matched;
-}
-
 export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
   const { agent, stt, port, apiKeys } = deps;
 
@@ -52,7 +24,7 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
 
   const app = new H3()
     .post('/audio', async (event: H3Event) => {
-      if (!verifyApiKey(event, apiKeys)) {
+      if (!verifyBearerToken(getRequestHeader(event, 'authorization'), apiKeys)) {
         setResponseStatus(event, 401);
         return { error: 'Unauthorized' };
       }
