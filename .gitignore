@@ -29,3 +29,4 @@ models/*.tflite
 
 # Bundled HA config on Pi (deploy/docker-compose.yml mounts ../ha-data)
 ha-data/
+.worktrees/
