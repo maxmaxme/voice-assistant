@@ -1,14 +1,15 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { H3, serve } from 'h3';
 import type { H3Event } from 'h3';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { Session } from '../../agent/session.ts';
 import type { MemoryStore } from '../../memory/types.ts';
 import type { Config } from '../../config.ts';
+import type { AudioFileStt } from '../../audio/types.ts';
+import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
 
 export interface HttpRunnerDeps {
   agent: OpenAiAgent;
+  stt: AudioFileStt;
   session: Session;
   memory: MemoryStore;
   port: number;
@@ -22,7 +23,7 @@ function verifyApiKey(event: H3Event, apiKeys: string[]): boolean {
 }
 
 export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
-  const { port, config } = deps;
+  const { agent, stt, port, config } = deps;
 
   const app = new H3()
     .post('/audio', async (event: H3Event) => {
@@ -36,18 +37,32 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         return { error: 'No audio data' };
       }
       const body = Buffer.from(buffer);
+      const receivedContentType = parseContentType(event.node!.req.headers['content-type']);
+      const audioFile = normalizeAudioFile(receivedContentType);
 
-      console.log(`[http] Received audio POST`);
-      console.log(`[http] Content-Type: ${event.node!.req.headers['content-type']}`);
-      console.log(`[http] Content-Length: ${body.length} bytes`);
-      console.log(`[http] User-Agent: ${event.node!.req.headers['user-agent']}`);
+      console.log(`[http] POST /audio ${receivedContentType} ${body.length} bytes`);
 
-      // Save to temp file for debugging
-      const tempFile = path.join('/tmp', `audio-${Date.now()}.wav`);
-      fs.writeFileSync(tempFile, body);
-      console.log(`[http] Saved to ${tempFile}`);
+      try {
+        const transcript = (
+          await stt.transcribeFile(body, {
+            filename: `audio.${audioFile.extension}`,
+            contentType: audioFile.contentType,
+          })
+        ).trim();
+        if (!transcript) {
+          event.node!.res!.statusCode = 400;
+          return { error: 'No speech detected' };
+        }
 
-      return { status: 'received', size: body.length };
+        const reply = await agent.respond(transcript);
+
+        return { response: reply.text, transcript };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[http] Audio handling failed: ${message}`);
+        event.node!.res!.statusCode = 500;
+        return { error: message };
+      }
     })
     .get('/health', () => {
       return { status: 'ok' };

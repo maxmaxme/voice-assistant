@@ -1,13 +1,13 @@
 import type OpenAI from 'openai';
 import { toFile } from 'openai';
-import type { Stt } from './types.ts';
+import type { AudioFileStt, Stt } from './types.ts';
 
 export interface OpenAiSttOptions {
   client: OpenAI;
   model?: string;
 }
 
-export class OpenAiStt implements Stt {
+export class OpenAiStt implements Stt, AudioFileStt {
   private readonly model: string;
   private readonly opts: OpenAiSttOptions;
   constructor(opts: OpenAiSttOptions) {
@@ -15,18 +15,22 @@ export class OpenAiStt implements Stt {
     this.model = opts.model ?? 'gpt-4o-transcribe';
   }
 
-  async transcribe(
-    audio: Buffer,
-    opts: { sampleRate: number; language?: string },
-  ): Promise<string> {
+  async transcribe(audio: Buffer, opts: { sampleRate: number }): Promise<string> {
     const wav = pcmToWav(audio, opts.sampleRate);
-    const file = await toFile(wav, 'audio.wav', { type: 'audio/wav' });
-    // Only forward `language` when defined — older SDK versions can serialize
-    // `undefined` as the literal string "undefined", which the API rejects.
+    return this.transcribeFile(wav, {
+      filename: 'audio.wav',
+      contentType: 'audio/wav',
+    });
+  }
+
+  async transcribeFile(
+    audio: Buffer,
+    opts: { filename: string; contentType: string },
+  ): Promise<string> {
+    const file = await toFile(audio, opts.filename, { type: opts.contentType });
     const res = await this.opts.client.audio.transcriptions.create({
       file,
       model: this.model,
-      ...(opts.language ? { language: opts.language } : {}),
     });
     return res.text;
   }

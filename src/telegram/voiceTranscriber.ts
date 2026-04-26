@@ -1,17 +1,15 @@
-import type OpenAI from 'openai';
-import { toFile } from 'openai';
 import { Telegram } from 'telegraf';
+import type { AudioFileStt } from '../audio/types.ts';
 
 export interface TelegramVoiceTranscriber {
   /** Resolves a Telegram voice file_id into transcribed text. */
-  transcribe(fileId: string, opts?: { language?: string }): Promise<string>;
+  transcribe(fileId: string): Promise<string>;
 }
 
 export interface BotVoiceTranscriberOptions {
   botToken: string;
-  client: OpenAI;
-  model?: string;
   fetchImpl?: typeof fetch;
+  stt: AudioFileStt;
   /** Override the telegraf API client. Tests inject this so they don't need a
    *  real bot token / network. Production uses the bundled telegraf instance. */
   telegram?: Pick<Telegram, 'getFileLink'>;
@@ -20,19 +18,17 @@ export interface BotVoiceTranscriberOptions {
 /** Downloads a Telegram voice message via Bot API and transcribes via OpenAI.
  *  Telegram sends voice as OGG/OPUS, which gpt-4o-transcribe accepts directly. */
 export class BotVoiceTranscriber implements TelegramVoiceTranscriber {
-  private readonly client: OpenAI;
-  private readonly model: string;
+  private readonly stt: AudioFileStt;
   private readonly fetchImpl: typeof fetch;
   private readonly telegram: Pick<Telegram, 'getFileLink'>;
 
   constructor(opts: BotVoiceTranscriberOptions) {
-    this.client = opts.client;
-    this.model = opts.model ?? 'gpt-4o-transcribe';
+    this.stt = opts.stt;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.telegram = opts.telegram ?? new Telegram(opts.botToken);
   }
 
-  async transcribe(fileId: string, opts?: { language?: string }): Promise<string> {
+  async transcribe(fileId: string): Promise<string> {
     const url = await this.telegram.getFileLink(fileId);
     const res = await this.fetchImpl(url);
     if (!res.ok) {
@@ -42,12 +38,9 @@ export class BotVoiceTranscriber implements TelegramVoiceTranscriber {
     // Telegram serves voice as `.oga`, which OpenAI's transcribe endpoint
     // rejects ("Unsupported file format oga") even though it is OGG/OPUS.
     // Force the `.ogg` extension so the API picks the right decoder.
-    const file = await toFile(audio, 'voice.ogg', { type: 'audio/ogg' });
-    const transcription = await this.client.audio.transcriptions.create({
-      file,
-      model: this.model,
-      ...(opts?.language ? { language: opts.language } : {}),
+    return this.stt.transcribeFile(audio, {
+      filename: 'voice.ogg',
+      contentType: 'audio/ogg',
     });
-    return transcription.text;
   }
 }
