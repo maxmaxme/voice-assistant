@@ -31,6 +31,7 @@ function makeDeps(): CommonDeps {
   return {
     config: {
       telegram: { botToken: 'X', allowedChatIds: [42] },
+      http: { apiKeys: ['test-key'] },
     } as unknown as CommonDeps['config'],
     llm: {} as unknown as OpenAI,
     mcp: {} as unknown as HaMcpClient,

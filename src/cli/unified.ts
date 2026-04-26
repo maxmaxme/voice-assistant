@@ -91,10 +91,8 @@ export async function dispatch(
       runners.http({
         agent,
         stt: new OpenAiStt({ client: deps.llm }),
-        session: (agent as unknown as { opts?: { session: Session } }).opts?.session as Session,
-        memory: deps.memory,
         port,
-        config: deps.config,
+        apiKeys: deps.config.http.apiKeys,
       }),
     );
   }
