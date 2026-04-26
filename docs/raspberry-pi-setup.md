@@ -49,73 +49,35 @@ groups pi | grep -q audio || sudo usermod -aG audio pi
 
 ## 3. Deploy
 
-> **Note:** The instructions below use `pi` as the username and
-> `raspberrypi.local` as the hostname — the defaults from Pi Imager. If you
-> chose a different username during OS setup, substitute it everywhere
-> (`sudo -u pi`, `pi@raspberrypi.local`, `chown pi:pi`, `usermod -aG docker pi`).
+> **Note:** Instructions below assume the default `pi` username from Pi Imager.
+> If you chose a different username, substitute it everywhere.
 
-Get the project sources to `/opt/voice-assistant`. Two options:
-
-**Option A — rsync from your dev machine:**
-
-On the Pi, create the target directory first:
-
-```bash
-sudo mkdir -p /opt/voice-assistant && sudo chown pi:pi /opt/voice-assistant
-```
-
-Then from the dev machine:
-
-```bash
-rsync -av --exclude node_modules --exclude .venv --exclude data --exclude .git \
-  ./ pi@raspberrypi.local:/opt/voice-assistant/
-```
-
-Then on the Pi:
-
-```bash
-sudo /opt/voice-assistant/deploy/install.sh
-```
-
-`install.sh` detects that sources are already present (no `.git` required for
-this path) and skips the git step.
-
-**Option B — clone directly on the Pi:**
-
-On a fresh Pi, `install.sh` doesn't exist yet. Clone the repo first, then run it:
+Clone the repo and run the install script:
 
 ```bash
 sudo git clone https://github.com/<you>/voice-assistant.git /opt/voice-assistant
 sudo /opt/voice-assistant/deploy/install.sh
 ```
 
-The script:
+The script installs Docker, adds `pi` to the `docker` group, creates `.env`
+from the example, pulls the prebuilt image from GHCR, starts the container,
+and arms the `voice-assistant-update.timer` for daily 04:00 updates.
 
-- installs Docker if missing
-- adds `pi` to the `docker` group
-- copies `.env.example` → `.env` and resolves the host's `audio` group gid
-- creates `models/` and `data/` directories
-- pulls the prebuilt image from GHCR and starts the container
-- installs and enables the `voice-assistant-update.timer` systemd timer
-
-After it finishes, edit `/opt/voice-assistant/.env` to fill in real values and restart:
+Then fill in secrets:
 
 ```bash
 nano /opt/voice-assistant/.env
 ```
 
-Key values to set:
-
 | Variable                                  | Value                                                                   |
 | ----------------------------------------- | ----------------------------------------------------------------------- |
-| `HA_URL`                                  | `http://home-assistant:8123` ← Docker service name, **not** `localhost` |
+| `HA_URL`                                  | `http://home-assistant:8123` — Docker service name, **not** `localhost` |
 | `HA_TOKEN`                                | Long-lived access token from Home Assistant                             |
 | `OPENAI_API_KEY`                          | Your OpenAI key                                                         |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | From @BotFather / @userinfobot                                          |
 
 ```bash
-cd /opt/voice-assistant/deploy
-sudo -u pi docker compose up -d --force-recreate
+cd /opt/voice-assistant/deploy && sudo -u pi docker compose up -d --force-recreate
 ```
 
 ## 4. Custom wake-word model (optional)
