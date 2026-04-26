@@ -1,27 +1,29 @@
-import type { RemindersAdapter, TimersAdapter } from '../memory/types.ts';
-import type { DueItem, FireSink } from './types.ts';
+import type { ScheduledActionsAdapter, ScheduledAction } from '../memory/types.ts';
+import type { GoalRunner } from './goalRunner.ts';
+import { nextFireAt as computeNextFireAt } from './cron.ts';
 
 export interface SchedulerOptions {
-  reminders: RemindersAdapter;
-  timers: TimersAdapter;
-  sink: FireSink;
+  scheduledActions: ScheduledActionsAdapter;
+  goalRunner: GoalRunner;
   /** Tick interval in ms. Default 15000. */
   tickMs?: number;
+  /** Override Date.now (for tests). */
+  now?: () => number;
 }
 
 export class Scheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
-  private readonly reminders: RemindersAdapter;
-  private readonly timers: TimersAdapter;
-  private readonly sink: FireSink;
+  private readonly scheduledActions: ScheduledActionsAdapter;
+  private readonly goalRunner: GoalRunner;
   private readonly tickMs: number;
+  private readonly now: () => number;
 
   constructor(opts: SchedulerOptions) {
-    this.reminders = opts.reminders;
-    this.timers = opts.timers;
-    this.sink = opts.sink;
+    this.scheduledActions = opts.scheduledActions;
+    this.goalRunner = opts.goalRunner;
     this.tickMs = opts.tickMs ?? 15_000;
+    this.now = opts.now ?? Date.now;
   }
 
   start(): void {
@@ -44,41 +46,66 @@ export class Scheduler {
     if (!this.running) {
       return;
     }
-    const now = Date.now();
-    let dueReminders: ReturnType<RemindersAdapter['listDue']>;
-    let dueTimers: ReturnType<TimersAdapter['listDue']>;
+    const now = this.now();
+    let due: ScheduledAction[];
     try {
-      dueReminders = this.reminders.listDue(now);
-      dueTimers = this.timers.listDue(now);
+      due = this.scheduledActions.listDue(now);
     } catch (err) {
       process.stderr.write(`[scheduler] listDue failed: ${(err as Error).message}\n`);
       return;
     }
 
-    for (const r of dueReminders) {
-      const item: DueItem = { kind: 'reminder', id: r.id, text: r.text, fireAt: r.fireAt };
+    for (const row of due) {
+      // Advance the schedule BEFORE firing so a crash mid-fire (process kill,
+      // uncaught throw, infinite loop) doesn't tight-loop on the same goal.
+      // Trade-off: a once-row may show as "done" before the goal actually finished;
+      // if the goal then throws we override to "error". Acceptable.
+      let advanced = false;
       try {
-        await this.sink.fire(item);
-        this.reminders.markFired(r.id, Date.now());
+        if (row.schedule.kind === 'once') {
+          this.scheduledActions.markFired(row.id, now, null);
+        } else {
+          const next = computeNextFireAt(row.schedule, now);
+          this.scheduledActions.markFired(row.id, now, next);
+        }
+        advanced = true;
+      } catch (err) {
+        // Defense in depth: validateSchedule (Task 3) should have caught any
+        // bad cron expression before storage, but if computeNextFireAt throws
+        // here we can't safely re-fire the row — terminate it.
+        process.stderr.write(
+          `[scheduler] action ${row.id} advance failed: ${(err as Error).message}\n`,
+        );
+        try {
+          this.scheduledActions.markError(row.id);
+        } catch (markErr) {
+          process.stderr.write(
+            `[scheduler] action ${row.id} markError failed: ${(markErr as Error).message}\n`,
+          );
+        }
+      }
+
+      if (!advanced) {
+        continue;
+      }
+
+      try {
+        await this.goalRunner.fire(row.goal);
       } catch (err) {
         process.stderr.write(
-          `[scheduler] reminder ${r.id} fire failed: ${(err as Error).message}\n`,
+          `[scheduler] action ${row.id} fire failed: ${(err as Error).message}\n`,
         );
-      }
-    }
-    for (const t of dueTimers) {
-      const item: DueItem = {
-        kind: 'timer',
-        id: t.id,
-        label: t.label,
-        fireAt: t.fireAt,
-        durationMs: t.durationMs,
-      };
-      try {
-        await this.sink.fire(item);
-        this.timers.markFired(t.id, Date.now());
-      } catch (err) {
-        process.stderr.write(`[scheduler] timer ${t.id} fire failed: ${(err as Error).message}\n`);
+        if (row.schedule.kind === 'once') {
+          // Override the `done` we set in step 1: the action visibly failed.
+          try {
+            this.scheduledActions.markError(row.id);
+          } catch (markErr) {
+            process.stderr.write(
+              `[scheduler] action ${row.id} markError failed: ${(markErr as Error).message}\n`,
+            );
+          }
+        }
+        // For cron: status stays `active`, nextFireAt already advanced — retry next firing.
       }
     }
   }

@@ -11,7 +11,7 @@ import type {
   TimersAdapter,
 } from '../../src/memory/types.ts';
 import type { TelegramSender, TelegramReceiver } from '../../src/telegram/types.ts';
-import type { FireSink } from '../../src/scheduling/types.ts';
+import type { GoalRunner } from '../../src/scheduling/goalRunner.ts';
 
 function makeMemoryStore(): MemoryStore {
   const noopReminders: RemindersAdapter = {
@@ -63,7 +63,7 @@ function makeDeps(): CommonDeps {
     mcp: {} as unknown as HaMcpClient,
     memory: makeMemoryStore(),
     telegram: {} as unknown as TelegramSender,
-    fireSink: { fire: vi.fn(async () => {}) } satisfies FireSink,
+    goalRunner: { fire: vi.fn(async () => {}) } satisfies GoalRunner,
     buildAgent: vi.fn(
       () =>
         ({ opts: { session: { reset: vi.fn() } } }) as unknown as ReturnType<
