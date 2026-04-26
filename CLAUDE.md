@@ -194,7 +194,7 @@ agent as the `send_to_telegram` tool.
 
 **Inbound:** `TelegramReceiver` interface, `PollingTelegramReceiver` long-polls
 `getUpdates` (timeout 30s) and emits typed `TelegramMessage` events
-(`text` / `voice` / `unsupported`). The persisted `update_id` lives in
+(`text` / `voice` / `photo` / `photo-album-rejected` / `unsupported`). The persisted `update_id` lives in
 `data/telegram-offset.json` so restarts don't replay history. The runner
 `src/cli/runners/telegram.ts` wires the receiver to a per-channel
 `OpenAiAgent`, applies the `TELEGRAM_ALLOWED_CHAT_IDS` allow-list, handles
@@ -208,6 +208,15 @@ replies with the transcript plus the agent's text answer. The
 `BotVoiceTranscriber` adapter lives in `src/telegram/voiceTranscriber.ts`
 and is wired in `src/cli/unified.ts`; the runner falls back to a
 "not supported" message when no transcriber is injected (used by tests).
+
+Photo messages (`kind: 'photo'`) carry the largest size's `file_id` plus
+optional `caption`. The `BotPhotoLoader` adapter (`src/telegram/photoLoader.ts`)
+downloads the bytes; the runner forwards them to
+`OpenAiAgent.respond(text, { images })`, which embeds them as `input_image`
+data URLs in the user message (multimodal). Albums are NOT supported: the
+receiver detects `media_group_id`, emits `kind: 'photo-album-rejected'` for
+the first update in the group and silently drops the rest. The runner
+replies asking the user to resend photos one-by-one.
 
 Required env vars: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Optional:
 `TELEGRAM_ALLOWED_CHAT_IDS` (comma list of integer chat ids; defaults to

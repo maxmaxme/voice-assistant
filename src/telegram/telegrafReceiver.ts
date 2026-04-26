@@ -13,6 +13,9 @@ export class TelegrafReceiver implements TelegramReceiver {
   private readonly pending: TelegramMessage[] = [];
   private readonly resolvers: Array<(value: TelegramMessage | null) => void> = [];
   private stopped = false;
+  /** Track media_group_ids we've already replied to with a "rejected" message,
+   * so subsequent updates from the same album are silently dropped. */
+  private readonly seenAlbumGroups = new Set<string>();
 
   constructor(opts: TelegrafReceiverOptions) {
     this.bot = new Telegraf(opts.botToken);
@@ -104,6 +107,21 @@ export class TelegrafReceiver implements TelegramReceiver {
         fileId: m.voice.file_id,
         durationSec: m.voice.duration,
       };
+    }
+    if ('photo' in m && Array.isArray(m.photo) && m.photo.length > 0) {
+      const groupId =
+        'media_group_id' in m && typeof m.media_group_id === 'string' ? m.media_group_id : null;
+      if (groupId) {
+        if (this.seenAlbumGroups.has(groupId)) {
+          return null;
+        }
+        this.seenAlbumGroups.add(groupId);
+        return { ...base, kind: 'photo-album-rejected' };
+      }
+      // Largest size is last in Telegram's photo array.
+      const largest = m.photo[m.photo.length - 1] satisfies { file_id: string };
+      const caption = 'caption' in m && typeof m.caption === 'string' ? m.caption : undefined;
+      return { ...base, kind: 'photo', fileId: largest.file_id, caption };
     }
     return { ...base, kind: 'unsupported', reason: 'unhandled message type' };
   }

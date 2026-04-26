@@ -5,6 +5,7 @@ import type { MemoryStore } from '../../memory/types.ts';
 import type { TelegramReceiver, TelegramSender, TelegramMessage } from '../../telegram/types.ts';
 import { BotTelegramSender } from '../../telegram/telegramSender.ts';
 import type { TelegramVoiceTranscriber } from '../../telegram/voiceTranscriber.ts';
+import type { TelegramPhotoLoader } from '../../telegram/photoLoader.ts';
 import { createLogger } from '../../utils/logger.ts';
 import type { Logger } from 'pino';
 
@@ -25,6 +26,9 @@ export interface TelegramRunnerDeps {
   /** Transcribes voice messages by Telegram file_id. When omitted, voice
    *  messages get a "not supported" reply (back-compat for tests). */
   voiceTranscriber?: TelegramVoiceTranscriber;
+  /** Downloads photos by Telegram file_id. When omitted, photo messages get a
+   *  "not supported" reply. */
+  photoLoader?: TelegramPhotoLoader;
 }
 
 const HELP_TEXT = `Personal-agent bot ready. Just type — I forward to the agent.
@@ -35,7 +39,7 @@ Commands:
   /help — show this`;
 
 export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
-  const { receiver, agent, session, memory, allowedChatIds, voiceTranscriber } = deps;
+  const { receiver, agent, session, memory, allowedChatIds, voiceTranscriber, photoLoader } = deps;
   const allow = new Set(allowedChatIds);
 
   for await (const msg of receiver.messages()) {
@@ -55,6 +59,7 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
         memory,
         sender: replyer,
         voiceTranscriber,
+        photoLoader,
         log: reqLog,
       });
     } catch (err) {
@@ -77,6 +82,7 @@ async function handleMessage(
     memory: MemoryStore;
     sender: TelegramSender;
     voiceTranscriber?: TelegramVoiceTranscriber;
+    photoLoader?: TelegramPhotoLoader;
     log: Logger;
   },
 ): Promise<void> {
@@ -105,6 +111,36 @@ async function handleMessage(
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       ctx.log.error({ err }, `agent error on voice transcript: ${m}`);
+      await ctx.sender.send(`Agent error: ${m}`);
+      return;
+    }
+    await ctx.sender.send(reply.text);
+    return;
+  }
+  if (msg.kind === 'photo-album-rejected') {
+    await ctx.sender.send('I can only handle one photo at a time — please send them one by one.');
+    return;
+  }
+  if (msg.kind === 'photo') {
+    if (!ctx.photoLoader) {
+      await ctx.sender.send('Photos are not supported yet — please send text.');
+      return;
+    }
+    let image;
+    try {
+      image = await ctx.photoLoader.load(msg.fileId);
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      ctx.log.error({ err }, `photo download failed: ${m}`);
+      await ctx.sender.send(`Could not download photo: ${m}`);
+      return;
+    }
+    let reply;
+    try {
+      reply = await ctx.agent.respond(msg.caption ?? '', { images: [image] });
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      ctx.log.error({ err }, `agent error on photo: ${m}`);
       await ctx.sender.send(`Agent error: ${m}`);
       return;
     }

@@ -22,6 +22,18 @@ export interface AgentResponse {
   expectsFollowUp?: boolean;
 }
 
+export interface AgentImage {
+  /** Raw image bytes. */
+  data: Buffer;
+  /** MIME type, e.g. "image/jpeg" or "image/png". */
+  mimeType: string;
+}
+
+export interface AgentRespondOptions {
+  /** Optional images to attach to the user message (multimodal input). */
+  images?: AgentImage[];
+}
+
 export interface Agent {
-  respond(userText: string): Promise<AgentResponse>;
+  respond(userText: string, opts?: AgentRespondOptions): Promise<AgentResponse>;
 }

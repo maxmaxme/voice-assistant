@@ -1,10 +1,12 @@
 import type OpenAI from 'openai';
 import type {
   ResponseInputItem,
+  ResponseInputImage,
+  ResponseInputText,
   ParsedResponseFunctionToolCall,
   Tool,
 } from 'openai/resources/responses/responses';
-import type { Agent, AgentResponse } from './types.ts';
+import type { Agent, AgentImage, AgentResponse, AgentRespondOptions } from './types.ts';
 import type { McpClient } from '../mcp/types.ts';
 import type { MemoryStore } from '../memory/types.ts';
 import { Session } from './session.ts';
@@ -57,8 +59,9 @@ export class OpenAiAgent implements Agent {
     this.mode = opts.mode ?? 'chat';
   }
 
-  async respond(userText: string): Promise<AgentResponse> {
+  async respond(userText: string, opts: AgentRespondOptions = {}): Promise<AgentResponse> {
     const { mcp, session, model, llmClient } = this.opts;
+    const images = opts.images ?? [];
 
     // In goal mode, every fire is a fresh chain — the directive (system
     // prompt) must apply on every call, and there's no continuing user
@@ -109,7 +112,31 @@ export class OpenAiAgent implements Agent {
     const pendingAskCallId = session.pendingAskCallId;
     if (pendingAskCallId) {
       session.pendingAskCallId = undefined;
-      nextInput = [{ type: 'function_call_output', call_id: pendingAskCallId, output: userText }];
+      if (images.length > 0) {
+        // function_call_output.output accepts an array of input parts — text
+        // plus images is fine. Use that to answer an `ask` with a picture.
+        const textPart: ResponseInputText = {
+          type: 'input_text',
+          text: userText && userText.length > 0 ? userText : '(image)',
+        };
+        const imageParts: ResponseInputImage[] = images.map(toInputImage);
+        nextInput = [
+          {
+            type: 'function_call_output',
+            call_id: pendingAskCallId,
+            output: [textPart, ...imageParts],
+          },
+        ];
+      } else {
+        nextInput = [{ type: 'function_call_output', call_id: pendingAskCallId, output: userText }];
+      }
+    } else if (images.length > 0) {
+      const textPart: ResponseInputText = {
+        type: 'input_text',
+        text: userText && userText.length > 0 ? userText : '(image)',
+      };
+      const imageParts: ResponseInputImage[] = images.map(toInputImage);
+      nextInput = [{ role: 'user', content: [textPart, ...imageParts] }];
     } else {
       nextInput = [{ role: 'user', content: userText }];
     }
@@ -259,6 +286,11 @@ export class OpenAiAgent implements Agent {
       return {};
     }
   }
+}
+
+function toInputImage(img: AgentImage): ResponseInputImage {
+  const dataUrl = `data:${img.mimeType};base64,${img.data.toString('base64')}`;
+  return { type: 'input_image', image_url: dataUrl, detail: 'auto' };
 }
 
 // OpenAI Responses API with store:true sometimes leaks conversation-title

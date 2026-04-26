@@ -88,7 +88,35 @@ function voiceCtx(
   };
 }
 
-function photoCtx(updateId: number, chatId: number, userId: number) {
+function photoCtx(
+  updateId: number,
+  chatId: number,
+  userId: number,
+  opts: { caption?: string; mediaGroupId?: string; fileId?: string } = {},
+) {
+  const photo = [
+    { file_id: 'P_small', width: 100, height: 100 },
+    { file_id: opts.fileId ?? 'P_large', width: 1280, height: 1280 },
+  ];
+  const message: Record<string, unknown> = {
+    message_id: updateId,
+    from: { id: userId, is_bot: false },
+    chat: { id: chatId, type: 'private' },
+    date: 1700000002,
+    photo,
+  };
+  if (opts.caption !== undefined) {
+    message.caption = opts.caption;
+  }
+  if (opts.mediaGroupId !== undefined) {
+    message.media_group_id = opts.mediaGroupId;
+  }
+  return {
+    update: { update_id: updateId, message },
+  };
+}
+
+function unsupportedCtx(updateId: number, chatId: number, userId: number) {
   return {
     update: {
       update_id: updateId,
@@ -96,8 +124,8 @@ function photoCtx(updateId: number, chatId: number, userId: number) {
         message_id: updateId,
         from: { id: userId, is_bot: false },
         chat: { id: chatId, type: 'private' },
-        date: 1700000002,
-        photo: [{ file_id: 'P', width: 100, height: 100 }],
+        date: 1700000003,
+        sticker: { file_id: 'S' },
       },
     },
   };
@@ -158,12 +186,65 @@ describe('TelegrafReceiver', () => {
     const bot = latestBot!;
 
     const iter = r.messages()[Symbol.asyncIterator]();
-    bot._fire(photoCtx(300, 42, 7));
+    bot._fire(unsupportedCtx(300, 42, 7));
 
     const result = await iter.next();
     await r.stop();
 
     expect(result.value?.kind).toBe('unsupported');
+  });
+
+  it('emits a single photo message with the largest size and optional caption', async () => {
+    const r = new TelegrafReceiver({ botToken: 'X' });
+    const bot = latestBot!;
+
+    const iter = r.messages()[Symbol.asyncIterator]();
+    bot._fire(photoCtx(310, 42, 7, { caption: 'what is this?', fileId: 'BIG' }));
+
+    const result = await iter.next();
+    await r.stop();
+
+    expect(result.value?.kind).toBe('photo');
+    if (result.value?.kind === 'photo') {
+      expect(result.value.fileId).toBe('BIG');
+      expect(result.value.caption).toBe('what is this?');
+    }
+  });
+
+  it('emits photo without caption when none provided', async () => {
+    const r = new TelegrafReceiver({ botToken: 'X' });
+    const bot = latestBot!;
+
+    const iter = r.messages()[Symbol.asyncIterator]();
+    bot._fire(photoCtx(311, 42, 7));
+
+    const result = await iter.next();
+    await r.stop();
+
+    expect(result.value?.kind).toBe('photo');
+    if (result.value?.kind === 'photo') {
+      expect(result.value.caption).toBeUndefined();
+    }
+  });
+
+  it('rejects albums: first update emits photo-album-rejected, rest are dropped', async () => {
+    const r = new TelegrafReceiver({ botToken: 'X' });
+    const bot = latestBot!;
+
+    const iter = r.messages()[Symbol.asyncIterator]();
+    bot._fire(photoCtx(320, 42, 7, { mediaGroupId: 'G1', fileId: 'A' }));
+    bot._fire(photoCtx(321, 42, 7, { mediaGroupId: 'G1', fileId: 'B' }));
+    bot._fire(photoCtx(322, 42, 7, { mediaGroupId: 'G1', fileId: 'C' }));
+    // After the album, a normal text message should still come through.
+    bot._fire(textCtx(323, 42, 7, 'after'));
+
+    const first = await iter.next();
+    expect(first.value?.kind).toBe('photo-album-rejected');
+
+    const second = await iter.next();
+    expect(second.value?.kind).toBe('text');
+
+    await r.stop();
   });
 
   it('stop() makes the iterator terminate', async () => {

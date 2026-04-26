@@ -278,6 +278,122 @@ describe('runTelegramMode', () => {
     }
   });
 
+  it('forwards photo + caption to the agent with image bytes', async () => {
+    const respond = vi.fn(async (text: string, opts?: { images?: unknown[] }) => ({
+      text: `saw ${opts?.images?.length ?? 0} image(s) for "${text}"`,
+    }));
+    const load = vi.fn(async () => ({ data: Buffer.from('PNG'), mimeType: 'image/png' }));
+    const cap = captureSender();
+    await runTelegramMode({
+      receiver: recvFromMessages([
+        {
+          updateId: 1,
+          chatId: 42,
+          fromUserId: 7,
+          kind: 'photo',
+          fileId: 'PHOTO1',
+          caption: 'what is this?',
+          receivedAt: 0,
+        },
+      ]),
+      sender: cap.sender,
+      agent: { respond } as unknown as OpenAiAgent,
+      session: { reset: vi.fn() } as unknown as Session,
+      memory: fakeMemory(),
+      allowedChatIds: [42],
+      photoLoader: { load },
+    });
+    expect(load).toHaveBeenCalledWith('PHOTO1');
+    expect(respond).toHaveBeenCalledTimes(1);
+    const [text, opts] = respond.mock.calls[0];
+    expect(text).toBe('what is this?');
+    expect(opts?.images).toHaveLength(1);
+    expect(cap.sent).toEqual(['saw 1 image(s) for "what is this?"']);
+  });
+
+  it('forwards photo without caption (empty text)', async () => {
+    const respond = vi.fn(async (text: string) => ({ text: `t=${JSON.stringify(text)}` }));
+    const load = vi.fn(async () => ({ data: Buffer.from('JPG'), mimeType: 'image/jpeg' }));
+    const cap = captureSender();
+    await runTelegramMode({
+      receiver: recvFromMessages([
+        { updateId: 1, chatId: 42, fromUserId: 7, kind: 'photo', fileId: 'P', receivedAt: 0 },
+      ]),
+      sender: cap.sender,
+      agent: { respond } as unknown as OpenAiAgent,
+      session: { reset: vi.fn() } as unknown as Session,
+      memory: fakeMemory(),
+      allowedChatIds: [42],
+      photoLoader: { load },
+    });
+    expect(respond).toHaveBeenCalledWith('', { images: expect.any(Array) });
+    expect(cap.sent[0]).toBe('t=""');
+  });
+
+  it('rejects album photos with a clear message', async () => {
+    const respond = vi.fn();
+    const load = vi.fn();
+    const cap = captureSender();
+    await runTelegramMode({
+      receiver: recvFromMessages([
+        {
+          updateId: 1,
+          chatId: 42,
+          fromUserId: 7,
+          kind: 'photo-album-rejected',
+          receivedAt: 0,
+        },
+      ]),
+      sender: cap.sender,
+      agent: { respond } as unknown as OpenAiAgent,
+      session: { reset: vi.fn() } as unknown as Session,
+      memory: fakeMemory(),
+      allowedChatIds: [42],
+      photoLoader: { load },
+    });
+    expect(respond).not.toHaveBeenCalled();
+    expect(load).not.toHaveBeenCalled();
+    expect(cap.sent[0]).toMatch(/one photo|one by one/i);
+  });
+
+  it('replies to photo messages with a "not supported" notice when no loader wired', async () => {
+    const respond = vi.fn();
+    const cap = captureSender();
+    await runTelegramMode({
+      receiver: recvFromMessages([
+        { updateId: 1, chatId: 42, fromUserId: 7, kind: 'photo', fileId: 'P', receivedAt: 0 },
+      ]),
+      sender: cap.sender,
+      agent: { respond } as unknown as OpenAiAgent,
+      session: { reset: vi.fn() } as unknown as Session,
+      memory: fakeMemory(),
+      allowedChatIds: [42],
+    });
+    expect(respond).not.toHaveBeenCalled();
+    expect(cap.sent[0]).toMatch(/photo|not supported/i);
+  });
+
+  it('reports photo download errors back to the user', async () => {
+    const respond = vi.fn();
+    const load = vi.fn(async () => {
+      throw new Error('telegram down');
+    });
+    const cap = captureSender();
+    await runTelegramMode({
+      receiver: recvFromMessages([
+        { updateId: 1, chatId: 42, fromUserId: 7, kind: 'photo', fileId: 'P', receivedAt: 0 },
+      ]),
+      sender: cap.sender,
+      agent: { respond } as unknown as OpenAiAgent,
+      session: { reset: vi.fn() } as unknown as Session,
+      memory: fakeMemory(),
+      allowedChatIds: [42],
+      photoLoader: { load },
+    });
+    expect(respond).not.toHaveBeenCalled();
+    expect(cap.sent[0]).toMatch(/telegram down|download/i);
+  });
+
   it('rejects /update on non-Linux platforms', async () => {
     const respond = vi.fn();
     const cap = captureSender();

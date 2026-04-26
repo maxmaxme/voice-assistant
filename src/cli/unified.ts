@@ -15,6 +15,7 @@ import { OpenAiTts } from '../audio/openaiTts.ts';
 import { ElevenLabsTts } from '../audio/elevenlabsTts.ts';
 import type { Tts } from '../audio/types.ts';
 import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
+import { BotPhotoLoader } from '../telegram/photoLoader.ts';
 import { Scheduler } from '../scheduling/scheduler.ts';
 import { getServerTimezone } from '../utils/time.ts';
 import { createLogger } from '../utils/logger.ts';
@@ -100,6 +101,9 @@ export async function dispatch(
         voiceTranscriber: new BotVoiceTranscriber({
           botToken: deps.config.telegram.botToken,
           stt: new OpenAiStt({ client: deps.llm }),
+        }),
+        photoLoader: new BotPhotoLoader({
+          botToken: deps.config.telegram.botToken,
         }),
       }),
     );
