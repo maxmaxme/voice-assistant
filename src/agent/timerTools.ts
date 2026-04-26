@@ -63,13 +63,20 @@ export function executeTimerTool(
       const durationMs = Math.round(seconds * 1000);
       const fireAt = Date.now() + durationMs;
       const t = timers.add({ label, fireAt, durationMs });
-      return { id: t.id, label: t.label, fire_at: t.fireAt, duration_ms: t.durationMs };
+      return {
+        id: t.id,
+        label: t.label,
+        fire_at: t.fireAt,
+        fire_at_iso: new Date(t.fireAt).toISOString(),
+        duration_ms: t.durationMs,
+      };
     }
     case 'list_timers':
       return timers.listActive().map((t) => ({
         id: t.id,
         label: t.label,
         fire_at: t.fireAt,
+        fire_at_iso: new Date(t.fireAt).toISOString(),
         duration_ms: t.durationMs,
       }));
     case 'cancel_timer': {

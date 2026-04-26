@@ -64,10 +64,20 @@ export function executeReminderTool(
       if (!Number.isFinite(fireAt)) throw new Error('add_reminder: fire_at must be a number');
       if (fireAt <= Date.now()) throw new Error('add_reminder: fire_at is in the past');
       const r = reminders.add({ text, fireAt });
-      return { id: r.id, fire_at: r.fireAt, text: r.text };
+      return {
+        id: r.id,
+        fire_at: r.fireAt,
+        fire_at_iso: new Date(r.fireAt).toISOString(),
+        text: r.text,
+      };
     }
     case 'list_reminders':
-      return reminders.listPending().map((r) => ({ id: r.id, text: r.text, fire_at: r.fireAt }));
+      return reminders.listPending().map((r) => ({
+        id: r.id,
+        text: r.text,
+        fire_at: r.fireAt,
+        fire_at_iso: new Date(r.fireAt).toISOString(),
+      }));
     case 'cancel_reminder': {
       const id = Number(args.id);
       if (!Number.isFinite(id)) throw new Error('cancel_reminder: id must be a number');
