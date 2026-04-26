@@ -137,6 +137,12 @@ Originally Picovoice Porcupine; switched to **openWakeWord** because Picovoice n
 
 Long-term user profile. SQLite via `better-sqlite3`. `MemoryAdapter` interface; `SqliteProfileMemory` implementation; migrations live as **TS string constants** in `migrations.ts` (not `.sql` files — there's no build step to copy them into a container).
 
+### Reminders & timers — server timezone
+
+`add_reminder` accepts three mutually-exclusive time inputs: `in_seconds` (relative), `at_local` (wall-clock string in the server's TZ, e.g. `"2026-04-27 09:00"`), and `fire_at` (Unix ms UTC, fallback). The first two avoid timezone arithmetic by the LLM, which previously caused systematic CEST↔UTC sign errors. The system prompt steers the LLM toward `in_seconds`/`at_local`.
+
+Server timezone comes from `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). Set it in `.env` — inside docker the system TZ is UTC, so `at_local` would otherwise interpret "9:00" as 9:00 UTC. The `[unified] AGENT_MODE=… TZ=…` startup line confirms which TZ is active.
+
 The current profile is injected into the system prompt on every turn via `OpenAiAgent.buildSystemMessage()`.
 
 Out of scope (see `docs/superpowers/roadmap.md`): episodic memory (vector search), procedural memory (learned habits).

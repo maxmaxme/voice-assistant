@@ -98,7 +98,8 @@ export async function dispatch(
 
 export async function main(): Promise<void> {
   const mode = parseAgentMode(process.env.AGENT_MODE);
-  console.log(`[unified] AGENT_MODE=${mode}`);
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  console.log(`[unified] AGENT_MODE=${mode} TZ=${tz}`);
 
   const deps = await initializeCommonDependencies();
 
