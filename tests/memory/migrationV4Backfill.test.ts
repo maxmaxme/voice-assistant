@@ -38,19 +38,20 @@ describe('migration v4 back-fill', () => {
     // Now run v4 (and everything else).
     runMigrations(db);
 
-    const rows = db
-      .prepare(
-        `SELECT goal, schedule_kind, schedule_expr, status, next_fire_at, last_fired_at
-         FROM scheduled_actions ORDER BY id ASC`,
-      )
-      .all() as Array<{
+    interface ActionRow {
       goal: string;
       schedule_kind: string;
       schedule_expr: string;
       status: string;
       next_fire_at: number;
       last_fired_at: number | null;
-    }>;
+    }
+    const rows = db
+      .prepare<[], ActionRow>(
+        `SELECT goal, schedule_kind, schedule_expr, status, next_fire_at, last_fired_at
+         FROM scheduled_actions ORDER BY id ASC`,
+      )
+      .all();
 
     expect(rows).toHaveLength(3);
 
@@ -90,25 +91,21 @@ describe('migration v4 back-fill', () => {
     runMigrations(db);
     runMigrations(db);
 
-    const { c } = db.prepare(`SELECT COUNT(*) AS c FROM scheduled_actions`).get() as {
-      c: number;
-    };
-    expect(c).toBe(1);
+    const row = db.prepare<[], { c: number }>(`SELECT COUNT(*) AS c FROM scheduled_actions`).get();
+    expect(row?.c).toBe(1);
   });
 
   it('records version 4', () => {
     runMigrations(db);
-    const max = db.prepare('SELECT MAX(version) AS v FROM schema_version').get() as {
-      v: number;
-    };
-    expect(max.v).toBeGreaterThanOrEqual(4);
+    const max = db.prepare<[], { v: number }>('SELECT MAX(version) AS v FROM schema_version').get();
+    expect(max?.v).toBeGreaterThanOrEqual(4);
   });
 
   it('does NOT drop reminders or timers tables', () => {
     runMigrations(db);
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{
-      name: string;
-    }>;
+    const tables = db
+      .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type='table'")
+      .all();
     const names = tables.map((t) => t.name);
     expect(names).toContain('reminders');
     expect(names).toContain('timers');
