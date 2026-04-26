@@ -26,6 +26,9 @@ Working features:
 - Auto-update on the Pi via GitHub Actions + GHCR: `main` builds an
   arm64 image, a daily systemd timer pulls and restarts with
   healthcheck-gated rollback and Telegram notification
+- Single-process, multi-channel entry point: `node src/cli/unified.ts`
+  routes by `AGENT_MODE`. Old `chat.ts`/`voice.ts`/`run.ts` are now thin
+  shims over it.
 
 ## Requirements
 
@@ -62,9 +65,14 @@ cp .env.example .env
 npm run mcp:call -- list
 
 # 7. Try the channels
-npm run chat        # text REPL
-npm run voice       # push-to-talk (Enter to start/stop)
-npm run start       # always-listening daemon (wake-word + VAD)
+npm run chat              # text REPL (AGENT_MODE=chat)
+npm run voice             # push-to-talk (AGENT_MODE=voice)
+npm run start             # default — all enabled channels at once (AGENT_MODE=both)
+npm run start:wake        # always-listening daemon only (AGENT_MODE=wake)
+
+# AGENT_MODE picks the runner(s). Valid: chat | voice | wake | telegram | both.
+# Default for `npm run start` is `both`, currently equivalent to `wake`
+# (Telegram inbound is added in a follow-up plan).
 ```
 
 `WAKE_WORD_DEBUG=1` in `.env` makes the wake-word daemon print per-frame
