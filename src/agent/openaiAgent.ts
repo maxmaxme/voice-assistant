@@ -178,57 +178,82 @@ export class OpenAiAgent implements Agent {
           return { text, direction: null, expectsFollowUp: true };
         }
 
-        const toolOutputs: ResponseInputItem[] = [];
-        for (const tc of fnCalls) {
-          const args = this.parseArgs(tc.arguments);
-          let resultText: string;
-          let isError = false;
-          if (MEMORY_TOOL_NAMES.has(tc.name)) {
-            try {
-              const r = executeMemoryTool(this.opts.memory.profile, tc.name, args);
-              resultText = JSON.stringify(r);
-            } catch (e) {
-              resultText = e instanceof Error ? e.message : String(e);
-              isError = true;
+        // Execute all tool calls in parallel. Each handler catches its own
+        // errors; we use allSettled as defense-in-depth so an unexpected
+        // throw in one call can't drop the others' outputs.
+        const settled = await Promise.allSettled(
+          fnCalls.map(async (tc) => {
+            const args = this.parseArgs(tc.arguments);
+            let resultText: string;
+            let isError = false;
+            if (MEMORY_TOOL_NAMES.has(tc.name)) {
+              try {
+                const r = executeMemoryTool(this.opts.memory.profile, tc.name, args);
+                resultText = JSON.stringify(r);
+              } catch (e) {
+                resultText = e instanceof Error ? e.message : String(e);
+                isError = true;
+              }
+            } else if (SCHEDULED_ACTION_TOOL_NAMES.has(tc.name)) {
+              try {
+                const r = executeScheduledActionTool(
+                  this.opts.memory.scheduledActions,
+                  tc.name,
+                  args,
+                );
+                resultText = JSON.stringify(r);
+              } catch (e) {
+                resultText = e instanceof Error ? e.message : String(e);
+                isError = true;
+              }
+            } else if (tc.name === TELEGRAM_TOOL_NAME) {
+              try {
+                const r = await executeTelegramTool(this.opts.telegram, args);
+                resultText = JSON.stringify(r);
+              } catch (e) {
+                resultText = e instanceof Error ? e.message : String(e);
+                isError = true;
+              }
+            } else {
+              try {
+                const result = await mcp.callTool(tc.name, args);
+                resultText = result.content
+                  .map((c) => (c.type === 'text' ? c.text : ''))
+                  .join('\n');
+                isError = result.isError;
+              } catch (e) {
+                resultText = e instanceof Error ? e.message : String(e);
+                isError = true;
+              }
             }
-          } else if (SCHEDULED_ACTION_TOOL_NAMES.has(tc.name)) {
-            try {
-              const r = executeScheduledActionTool(
-                this.opts.memory.scheduledActions,
-                tc.name,
-                args,
-              );
-              resultText = JSON.stringify(r);
-            } catch (e) {
-              resultText = e instanceof Error ? e.message : String(e);
-              isError = true;
+            const argsStr = JSON.stringify(args);
+            const fields = { tool: tc.name, args, isError };
+            if (isError) {
+              log.warn(fields, `${tc.name}(${argsStr}) → ${resultText}`);
+            } else {
+              log.debug(fields, `${tc.name}(${argsStr}) → ${resultText}`);
             }
-          } else if (tc.name === TELEGRAM_TOOL_NAME) {
-            try {
-              const r = await executeTelegramTool(this.opts.telegram, args);
-              resultText = JSON.stringify(r);
-            } catch (e) {
-              resultText = e instanceof Error ? e.message : String(e);
-              isError = true;
-            }
-          } else {
-            const result = await mcp.callTool(tc.name, args);
-            resultText = result.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n');
-            isError = result.isError;
+            return {
+              type: 'function_call_output' as const,
+              call_id: tc.call_id,
+              output: isError ? `ERROR: ${resultText}` : resultText,
+            };
+          }),
+        );
+
+        const toolOutputs: ResponseInputItem[] = settled.map((res, idx) => {
+          if (res.status === 'fulfilled') {
+            return res.value;
           }
-          const argsStr = JSON.stringify(args);
-          const fields = { tool: tc.name, args, isError };
-          if (isError) {
-            log.warn(fields, `${tc.name}(${argsStr}) → ${resultText}`);
-          } else {
-            log.debug(fields, `${tc.name}(${argsStr}) → ${resultText}`);
-          }
-          toolOutputs.push({
+          const tc = fnCalls[idx]!;
+          const reason = res.reason instanceof Error ? res.reason.message : String(res.reason);
+          log.error({ tool: tc.name }, `${tc.name} unexpected throw: ${reason}`);
+          return {
             type: 'function_call_output',
             call_id: tc.call_id,
-            output: isError ? `ERROR: ${resultText}` : resultText,
-          });
-        }
+            output: `ERROR: ${reason}`,
+          };
+        });
         previousResponseId = response.id;
         nextInput = toolOutputs;
         continue;
