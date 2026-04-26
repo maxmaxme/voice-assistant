@@ -1,19 +1,45 @@
 import { describe, it, expect, vi } from 'vitest';
+import type OpenAI from 'openai';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
 import { Session } from '../../src/agent/session.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
-import type { MemoryAdapter } from '../../src/memory/types.ts';
+import type { MemoryStore } from '../../src/memory/types.ts';
 import type { TelegramSender } from '../../src/telegram/types.ts';
 
 const noopTelegram: TelegramSender = { send: async () => {} };
 
-/** A no-op MemoryAdapter for tests that don't care about memory state. */
-function emptyMemory(): MemoryAdapter {
+/** A no-op MemoryStore for tests that don't care about memory state. */
+function emptyMemory(): MemoryStore {
+  const noopReminders = {
+    add: () => {
+      throw new Error('not used');
+    },
+    listPending: () => [],
+    listDue: () => [],
+    markFired: () => {},
+    cancel: () => false,
+    get: () => null,
+  };
+  const noopTimers = {
+    add: () => {
+      throw new Error('not used');
+    },
+    listActive: () => [],
+    listDue: () => [],
+    markFired: () => {},
+    cancel: () => false,
+    get: () => null,
+  };
   return {
-    remember: () => {},
-    recall: () => ({}),
-    forget: () => {},
+    profile: {
+      remember: () => {},
+      recall: () => ({}),
+      forget: () => {},
+      close: () => {},
+    },
+    reminders: noopReminders,
+    timers: noopTimers,
     close: () => {},
   };
 }
@@ -196,7 +222,12 @@ describe('OpenAiAgent', () => {
 
   it('routes memory-tool calls to MemoryAdapter, not MCP', async () => {
     const mcp = fakeMcp();
-    const memory = new SqliteProfileMemory({ dbPath: ':memory:' });
+    const profile = new SqliteProfileMemory({ dbPath: ':memory:' });
+    const memory: MemoryStore = {
+      ...emptyMemory(),
+      profile,
+      close: () => profile.close(),
+    };
     const llm = fakeLlm([
       fnCallResponse('remember', '{"key":"name","value":"Maxim"}', 'mem_1', 'resp_1'),
       textResponse('Got it.', 'resp_2'),
@@ -213,7 +244,7 @@ describe('OpenAiAgent', () => {
     const res = await agent.respond('меня зовут Максим');
     expect(res.text).toBe('Got it.');
     expect(res.direction).toBeNull();
-    expect(memory.recall()).toEqual({ name: 'Maxim' });
+    expect(profile.recall()).toEqual({ name: 'Maxim' });
     expect(mcp.callTool).not.toHaveBeenCalled();
     memory.close();
   });
@@ -274,5 +305,36 @@ describe('OpenAiAgent', () => {
       telegram: noopTelegram,
     });
     await expect(agent.respond('x')).rejects.toThrow(/max tool iterations/i);
+  });
+
+  it('routes add_reminder to the reminders adapter', async () => {
+    const added: Array<{ text: string; fireAt: number }> = [];
+    const memory = emptyMemory();
+    memory.reminders = {
+      ...memory.reminders,
+      add: ({ text, fireAt }) => {
+        added.push({ text, fireAt });
+        return { id: 1, text, fireAt, status: 'pending', createdAt: Date.now(), firedAt: null };
+      },
+    };
+
+    const fireAt = Date.now() + 3_600_000; // 1 hour from now
+    const llm = fakeLlm([
+      fnCallResponse('add_reminder', JSON.stringify({ text: 'call mom', fire_at: fireAt })),
+      textResponse('Reminder set.'),
+    ]);
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory,
+      session: new Session(),
+      systemPrompt: 'test',
+      model: 'gpt-4o',
+      llmClient: llm as unknown as OpenAI,
+      telegram: noopTelegram,
+    });
+    const result = await agent.respond('remind me to call mom in 1 hour');
+    expect(result.text).toBe('Reminder set.');
+    expect(added).toHaveLength(1);
+    expect(added[0].text).toBe('call mom');
   });
 });

@@ -5,10 +5,12 @@ import type {
 } from 'openai/resources/responses/responses';
 import type { Agent, AgentResponse } from './types.ts';
 import type { McpClient } from '../mcp/types.ts';
-import type { MemoryAdapter } from '../memory/types.ts';
+import type { MemoryStore } from '../memory/types.ts';
 import { Session } from './session.ts';
 import { mcpToolsToOpenAi } from './toolBridge.ts';
 import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
+import { REMINDER_TOOL_NAMES, buildReminderTools, executeReminderTool } from './reminderTools.ts';
+import { TIMER_TOOL_NAMES, buildTimerTools, executeTimerTool } from './timerTools.ts';
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
 import type { TelegramSender } from '../telegram/types.ts';
@@ -16,7 +18,7 @@ import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from './agentOutput.ts';
 
 export interface OpenAiAgentOptions {
   mcp: McpClient;
-  memory: MemoryAdapter;
+  memory: MemoryStore;
   session: Session;
   systemPrompt: string;
   model: string;
@@ -49,9 +51,14 @@ export class OpenAiAgent implements Agent {
     const instructions = isFreshChain ? this.buildSystemMessage() : undefined;
 
     const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
-    const tools = [...mcpTools, ...buildMemoryTools(), buildAskTool(), buildTelegramTool()].map(
-      (t) => ({ ...t, strict: t.strict ?? null }),
-    );
+    const tools = [
+      ...mcpTools,
+      ...buildMemoryTools(),
+      ...buildReminderTools(),
+      ...buildTimerTools(),
+      buildAskTool(),
+      buildTelegramTool(),
+    ].map((t) => ({ ...t, strict: t.strict ?? null }));
 
     // If the previous turn ended with an `ask` tool call, the API still has
     // an open function_call that needs a function_call_output. Submit the
@@ -109,7 +116,23 @@ export class OpenAiAgent implements Agent {
           let isError = false;
           if (MEMORY_TOOL_NAMES.has(tc.name)) {
             try {
-              const r = executeMemoryTool(this.opts.memory, tc.name, args);
+              const r = executeMemoryTool(this.opts.memory.profile, tc.name, args);
+              resultText = JSON.stringify(r);
+            } catch (e) {
+              resultText = e instanceof Error ? e.message : String(e);
+              isError = true;
+            }
+          } else if (REMINDER_TOOL_NAMES.has(tc.name)) {
+            try {
+              const r = executeReminderTool(this.opts.memory.reminders, tc.name, args);
+              resultText = JSON.stringify(r);
+            } catch (e) {
+              resultText = e instanceof Error ? e.message : String(e);
+              isError = true;
+            }
+          } else if (TIMER_TOOL_NAMES.has(tc.name)) {
+            try {
+              const r = executeTimerTool(this.opts.memory.timers, tc.name, args);
               resultText = JSON.stringify(r);
             } catch (e) {
               resultText = e instanceof Error ? e.message : String(e);
@@ -152,9 +175,12 @@ export class OpenAiAgent implements Agent {
 
   private buildSystemMessage(): string {
     const base = this.opts.systemPrompt;
-    const profile = this.opts.memory.recall();
-    if (Object.keys(profile).length === 0) return base;
-    return `${base}\n\nKnown user profile: ${JSON.stringify(profile)}`;
+    const profile = this.opts.memory.profile.recall();
+    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+    const timeBlock = `\n\nCurrent time: ${nowIso} (Unix ms: ${nowMs}).`;
+    if (Object.keys(profile).length === 0) return base + timeBlock;
+    return `${base}${timeBlock}\n\nKnown user profile: ${JSON.stringify(profile)}`;
   }
 
   private parseArgs(raw: string | undefined): Record<string, unknown> {

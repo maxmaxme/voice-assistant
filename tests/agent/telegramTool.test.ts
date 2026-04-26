@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
 import { Session } from '../../src/agent/session.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
-import type { MemoryAdapter } from '../../src/memory/types.ts';
+import type { MemoryStore } from '../../src/memory/types.ts';
 import type { TelegramSender } from '../../src/telegram/types.ts';
 import {
   buildTelegramTool,
@@ -11,8 +11,31 @@ import {
 } from '../../src/agent/telegramTool.ts';
 import { BotTelegramSender } from '../../src/telegram/telegramSender.ts';
 
-function emptyMemory(): MemoryAdapter {
-  return { remember: () => {}, recall: () => ({}), forget: () => {}, close: () => {} };
+function emptyMemory(): MemoryStore {
+  return {
+    profile: { remember: () => {}, recall: () => ({}), forget: () => {}, close: () => {} },
+    reminders: {
+      add: () => {
+        throw new Error('not used');
+      },
+      listPending: () => [],
+      listDue: () => [],
+      markFired: () => {},
+      cancel: () => false,
+      get: () => null,
+    },
+    timers: {
+      add: () => {
+        throw new Error('not used');
+      },
+      listActive: () => [],
+      listDue: () => [],
+      markFired: () => {},
+      cancel: () => false,
+      get: () => null,
+    },
+    close: () => {},
+  };
 }
 
 function fakeMcp(): McpClient {

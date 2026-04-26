@@ -3,7 +3,7 @@ import { dispatch } from '../../src/cli/unified.ts';
 import type { CommonDeps, AgentMode } from '../../src/cli/shared.ts';
 import type OpenAI from 'openai';
 import type { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
-import type { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
+import type { MemoryStore } from '../../src/memory/types.ts';
 import type { TelegramSender, TelegramReceiver } from '../../src/telegram/types.ts';
 
 function makeDeps(): CommonDeps {
@@ -13,7 +13,7 @@ function makeDeps(): CommonDeps {
     } as unknown as CommonDeps['config'],
     llm: {} as unknown as OpenAI,
     mcp: {} as unknown as HaMcpClient,
-    memory: {} as unknown as SqliteProfileMemory,
+    memory: {} as unknown as MemoryStore,
     telegram: {} as unknown as TelegramSender,
     buildAgent: vi.fn(
       () =>

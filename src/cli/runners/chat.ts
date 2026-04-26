@@ -2,12 +2,12 @@ import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { Session } from '../../agent/session.ts';
-import type { MemoryAdapter } from '../../memory/types.ts';
+import type { MemoryStore } from '../../memory/types.ts';
 
 export interface ChatRunnerDeps {
   agent: OpenAiAgent;
   session: Session;
-  memory: MemoryAdapter;
+  memory: MemoryStore;
 }
 
 export async function runChatMode(deps: ChatRunnerDeps): Promise<void> {
@@ -35,7 +35,7 @@ export async function runChatMode(deps: ChatRunnerDeps): Promise<void> {
         continue;
       }
       if (line === '/profile') {
-        console.log(JSON.stringify(memory.recall(), null, 2));
+        console.log(JSON.stringify(memory.profile.recall(), null, 2));
         continue;
       }
       try {

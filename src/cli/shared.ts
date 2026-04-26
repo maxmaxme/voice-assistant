@@ -5,7 +5,8 @@ import { loadConfig, type Config } from '../config.ts';
 import { HaMcpClient } from '../mcp/haMcpClient.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
-import { SqliteProfileMemory } from '../memory/sqliteProfileMemory.ts';
+import { openMemoryStore } from '../memory/memoryStore.ts';
+import type { MemoryStore } from '../memory/types.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
 import { telegramFromConfig, receiverFromConfig } from '../telegram/fromConfig.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
@@ -66,7 +67,7 @@ export interface CommonDeps {
   config: Config;
   llm: OpenAI;
   mcp: HaMcpClient;
-  memory: SqliteProfileMemory;
+  memory: MemoryStore;
   telegram: TelegramSender;
   /** Build a fresh agent for a given channel. Each channel gets its own
    * Session so they don't trample each other's `previous_response_id` chain. */
@@ -84,7 +85,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
 
   const llm = new OpenAI({ apiKey: config.openai.apiKey });
   const mcp = new HaMcpClient({ url: config.ha.url, token: config.ha.token });
-  const memory = new SqliteProfileMemory({ dbPath: config.memory.dbPath });
+  const memory = openMemoryStore(config.memory.dbPath);
   const telegram = telegramFromConfig(config);
 
   await mcp.connect();
