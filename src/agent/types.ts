@@ -32,6 +32,9 @@ export interface AgentImage {
 export interface AgentRespondOptions {
   /** Optional images to attach to the user message (multimodal input). */
   images?: AgentImage[];
+  /** Per-call session override. Lets callers swap in a per-conversation
+   * Session (e.g. one per Telegram chat) without rebuilding the agent. */
+  session?: import('./session.ts').Session;
 }
 
 export interface Agent {

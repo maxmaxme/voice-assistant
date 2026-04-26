@@ -1,6 +1,6 @@
 import { exec } from 'child_process';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
-import type { Session } from '../../agent/session.ts';
+import { Session } from '../../agent/session.ts';
 import type { MemoryStore } from '../../memory/types.ts';
 import type { TelegramReceiver, TelegramSender, TelegramMessage } from '../../telegram/types.ts';
 import { BotTelegramSender } from '../../telegram/telegramSender.ts';
@@ -17,8 +17,11 @@ export interface TelegramRunnerDeps {
    * the configured chat_id; the runner overrides it per-message via `replyTo`. */
   sender: TelegramSender;
   agent: OpenAiAgent;
-  session: Session;
   memory: MemoryStore;
+  /** Resolves the (self-persisting) Session for a chat. The default impl in
+   * unified.ts builds Sessions backed by `memory.telegramSessions`; tests can
+   * pass an in-memory factory. */
+  sessionFor: (chatId: number) => Session;
   allowedChatIds: number[];
   /** Build a new sender targeting a specific chat. Defaults to the global one
    * (single-user setup). Tests inject this. */
@@ -39,7 +42,8 @@ Commands:
   /help — show this`;
 
 export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
-  const { receiver, agent, session, memory, allowedChatIds, voiceTranscriber, photoLoader } = deps;
+  const { receiver, agent, sessionFor, memory, allowedChatIds, voiceTranscriber, photoLoader } =
+    deps;
   const allow = new Set(allowedChatIds);
 
   for await (const msg of receiver.messages()) {
@@ -55,7 +59,7 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
     try {
       await handleMessage(msg, {
         agent,
-        session,
+        session: sessionFor(msg.chatId),
         memory,
         sender: replyer,
         voiceTranscriber,
@@ -86,6 +90,7 @@ async function handleMessage(
     log: Logger;
   },
 ): Promise<void> {
+  const session = ctx.session;
   if (msg.kind === 'voice') {
     if (!ctx.voiceTranscriber) {
       await ctx.sender.send('Voice messages are not supported yet — please send text.');
@@ -107,7 +112,7 @@ async function handleMessage(
     }
     let reply;
     try {
-      reply = await ctx.agent.respond(transcript);
+      reply = await ctx.agent.respond(transcript, { session });
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       ctx.log.error({ err }, `agent error on voice transcript: ${m}`);
@@ -137,7 +142,7 @@ async function handleMessage(
     }
     let reply;
     try {
-      reply = await ctx.agent.respond(msg.caption ?? '', { images: [image] });
+      reply = await ctx.agent.respond(msg.caption ?? '', { images: [image], session });
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       ctx.log.error({ err }, `agent error on photo: ${m}`);
@@ -180,7 +185,7 @@ async function handleMessage(
 
   let reply;
   try {
-    reply = await ctx.agent.respond(text);
+    reply = await ctx.agent.respond(text, { session });
   } catch (err) {
     const m = err instanceof Error ? err.message : String(err);
     ctx.log.error({ err }, `agent error: ${m}`);

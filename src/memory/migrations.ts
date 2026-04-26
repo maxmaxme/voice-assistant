@@ -105,4 +105,16 @@ export const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO schema_version (version) VALUES (4);
     `,
   },
+  {
+    version: 5,
+    sql: `
+      CREATE TABLE IF NOT EXISTS telegram_sessions (
+        chat_id              INTEGER PRIMARY KEY,
+        last_response_id     TEXT,
+        pending_ask_call_id  TEXT,
+        updated_at           INTEGER NOT NULL
+      );
+      INSERT OR IGNORE INTO schema_version (version) VALUES (5);
+    `,
+  },
 ];

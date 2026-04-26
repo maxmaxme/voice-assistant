@@ -45,4 +45,41 @@ describe('Session', () => {
     s.reset();
     expect(s.begin()).toBeUndefined();
   });
+
+  describe('persistence', () => {
+    it('loads from adapter on construction', () => {
+      const s = new Session({
+        idleTimeoutMs: Number.POSITIVE_INFINITY,
+        persistence: {
+          chatId: 42,
+          adapter: {
+            get: () => ({ lastResponseId: 'resp_persisted' }),
+            save: () => {},
+            delete: () => {},
+          },
+        },
+      });
+      expect(s.begin()).toBe('resp_persisted');
+    });
+
+    it('writes on commit and deletes on reset', () => {
+      const saved: Array<[number, unknown]> = [];
+      const deleted: number[] = [];
+      const s = new Session({
+        idleTimeoutMs: Number.POSITIVE_INFINITY,
+        persistence: {
+          chatId: 7,
+          adapter: {
+            get: () => null,
+            save: (chatId, record) => saved.push([chatId, record]),
+            delete: (chatId) => deleted.push(chatId),
+          },
+        },
+      });
+      s.commit('resp_new');
+      expect(saved).toEqual([[7, { lastResponseId: 'resp_new', pendingAskCallId: undefined }]]);
+      s.reset();
+      expect(deleted).toEqual([7]);
+    });
+  });
 });

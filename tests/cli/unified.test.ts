@@ -23,6 +23,11 @@ function makeMemoryStore(): MemoryStore {
   return {
     profile: { remember: () => {}, recall: () => ({}), forget: () => {}, close: () => {} },
     scheduledActions: noopScheduledActions,
+    telegramSessions: {
+      get: () => null,
+      save: () => {},
+      delete: () => {},
+    },
     close: () => {},
   };
 }

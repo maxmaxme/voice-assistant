@@ -25,6 +25,11 @@ function emptyMemory(): MemoryStore {
       cancel: () => false,
       get: () => null,
     },
+    telegramSessions: {
+      get: () => null,
+      save: () => {},
+      delete: () => {},
+    },
     close: () => {},
   };
 }

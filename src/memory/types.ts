@@ -42,8 +42,20 @@ export interface ScheduledActionsAdapter {
   get(id: number): ScheduledAction | null;
 }
 
+export interface TelegramSessionRecord {
+  lastResponseId?: string;
+  pendingAskCallId?: string;
+}
+
+export interface TelegramSessionsAdapter {
+  get(chatId: number): TelegramSessionRecord | null;
+  save(chatId: number, record: TelegramSessionRecord): void;
+  delete(chatId: number): void;
+}
+
 export interface MemoryStore {
   profile: MemoryAdapter;
   scheduledActions: ScheduledActionsAdapter;
+  telegramSessions: TelegramSessionsAdapter;
   close(): void;
 }

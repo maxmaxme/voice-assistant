@@ -26,6 +26,21 @@ import { createLogger } from '../utils/logger.ts';
 
 const log = createLogger('agent');
 
+/** True when OpenAI returned 404 because `previous_response_id` no longer
+ * exists (typically: chain older than the 30-day Responses retention
+ * window, or the response was explicitly deleted). The error surfaces
+ * either as an APIError with status 404 + "Previous response with id …
+ * not found", or as a generic Error whose message contains the same. */
+function isPreviousResponseGoneError(err: unknown): boolean {
+  const e = err as { status?: number; message?: string } | null;
+  if (!e || typeof e.message !== 'string') {
+    return false;
+  }
+  const msg = e.message;
+  const looksLikeIt = /previous response/i.test(msg) && /not found/i.test(msg);
+  return looksLikeIt && (e.status === undefined || e.status === 404);
+}
+
 export interface OpenAiAgentOptions {
   mcp: McpClient;
   memory: MemoryStore;
@@ -60,7 +75,8 @@ export class OpenAiAgent implements Agent {
   }
 
   async respond(userText: string, opts: AgentRespondOptions = {}): Promise<AgentResponse> {
-    const { mcp, session, model, llmClient } = this.opts;
+    const { mcp, model, llmClient } = this.opts;
+    const session = opts.session ?? this.opts.session;
     const images = opts.images ?? [];
 
     // In goal mode, every fire is a fresh chain — the directive (system
@@ -74,12 +90,10 @@ export class OpenAiAgent implements Agent {
     // Send `instructions` (system prompt + profile) only when starting a
     // fresh chain. Within a chain OpenAI keeps the original instructions
     // alongside the rest of the conversation state.
-    const isFreshChain = previousResponseId === undefined;
-    const instructions = isFreshChain
-      ? this.mode === 'goal'
-        ? this.buildGoalSystemMessage(userText)
-        : this.buildSystemMessage()
-      : undefined;
+    const buildInstructions = (): string =>
+      this.mode === 'goal' ? this.buildGoalSystemMessage(userText) : this.buildSystemMessage();
+    let instructions: string | undefined =
+      previousResponseId === undefined ? buildInstructions() : undefined;
 
     const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
     const localTools = [
@@ -142,15 +156,45 @@ export class OpenAiAgent implements Agent {
     }
 
     for (let i = 0; i < this.maxIters; i++) {
-      const response = await llmClient.responses.parse({
-        model,
-        ...(instructions !== undefined && i === 0 ? { instructions } : {}),
-        input: nextInput,
-        tools: tools.length > 0 ? tools : undefined,
-        store: true,
-        previous_response_id: previousResponseId,
-        text: { format: (this.opts.textFormat ?? VOICE_TEXT_FORMAT) as typeof VOICE_TEXT_FORMAT },
-      });
+      let response;
+      try {
+        response = await llmClient.responses.parse({
+          model,
+          ...(instructions !== undefined && i === 0 ? { instructions } : {}),
+          input: nextInput,
+          tools: tools.length > 0 ? tools : undefined,
+          store: true,
+          previous_response_id: previousResponseId,
+          // Server-side compaction: when the rendered chain crosses the
+          // threshold, OpenAI replaces older turns with an opaque compaction
+          // item. Keeps cost and context-window growth bounded on long chains.
+          // 30k tokens is well below gpt-4o's 128k window — gives the model
+          // plenty of headroom for tools and the current turn.
+          context_management: [{ type: 'compaction', compact_threshold: 30_000 }],
+          text: {
+            format: (this.opts.textFormat ?? VOICE_TEXT_FORMAT) as typeof VOICE_TEXT_FORMAT,
+          },
+        });
+      } catch (err) {
+        // OpenAI evicts `previous_response_id` after ~30 days (the Responses
+        // API retention window). When that happens we get back a 404 saying
+        // the previous response wasn't found. Recover by dropping the chain
+        // and retrying this turn fresh — but only on the first iteration,
+        // when previousResponseId is the stale one from disk. Later
+        // iterations chain off the response we just got, which is fresh.
+        if (i === 0 && previousResponseId !== undefined && isPreviousResponseGoneError(err)) {
+          log.warn(
+            { err },
+            'previous_response_id missing on OpenAI side — resetting chain and retrying',
+          );
+          session.reset();
+          previousResponseId = undefined;
+          instructions = buildInstructions();
+          i--; // retry this iteration with no chain
+          continue;
+        }
+        throw err;
+      }
 
       if (response.output_parsed != null) {
         session.commit(response.id);

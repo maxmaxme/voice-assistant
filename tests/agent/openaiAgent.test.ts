@@ -30,6 +30,11 @@ function emptyMemory(): MemoryStore {
       close: () => {},
     },
     scheduledActions: noopScheduledActions,
+    telegramSessions: {
+      get: () => null,
+      save: () => {},
+      delete: () => {},
+    },
     close: () => {},
   };
 }
@@ -161,6 +166,46 @@ describe('OpenAiAgent', () => {
     expect(second.previous_response_id).toBe('resp_1');
     // Within an established chain we don't resend instructions.
     expect(second.instructions).toBeUndefined();
+  });
+
+  it('recovers from a stale previous_response_id by resetting the chain and retrying', async () => {
+    // Custom fakeLlm that throws a 404 on the first call (with previous_response_id),
+    // then succeeds on the retry (without previous_response_id).
+    const calls: CreateArgs[] = [];
+    let i = 0;
+    const create = vi.fn(async (args: CreateArgs) => {
+      calls.push(args);
+      if (i++ === 0) {
+        const err = new Error("Previous response with id 'resp_old' not found.") as Error & {
+          status?: number;
+        };
+        err.status = 404;
+        throw err;
+      }
+      return textResponse('Hi after reset', 'resp_fresh');
+    });
+    const llm = { calls, responses: { create, parse: create } };
+    const session = new Session({ idleTimeoutMs: 60_000 });
+    // Simulate a session that has a stored, now-stale chain id.
+    session.commit('resp_old');
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session,
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+    });
+    const res = await agent.respond('hello');
+    expect(res.text).toBe('Hi after reset');
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.previous_response_id).toBe('resp_old');
+    expect(calls[1]!.previous_response_id).toBeUndefined();
+    // The retry must resend instructions (fresh chain).
+    expect(calls[1]!.instructions).toContain('sys');
+    // Session is committed to the new id.
+    expect(session.isFresh()).toBe(false);
   });
 
   it('runs tool-call loop and returns final text', async () => {
@@ -436,7 +481,7 @@ describe('OpenAiAgent', () => {
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
       memory,
-      session: new Session(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
       systemPrompt: 'test',
       model: 'gpt-4o',
       llmClient: llm as unknown as OpenAI,

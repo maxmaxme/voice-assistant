@@ -11,7 +11,7 @@ import { runVoiceMode, type VoiceRunnerDeps } from './runners/voice.ts';
 import { runWakeMode, type WakeRunnerDeps } from './runners/wake.ts';
 import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runners/telegram.ts';
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
-import type { Session } from '../agent/session.ts';
+import { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { OpenAiTts } from '../audio/openaiTts.ts';
 import { ElevenLabsTts } from '../audio/elevenlabsTts.ts';
@@ -86,16 +86,28 @@ export async function dispatch(
 
   if (mode === 'telegram' || mode === 'both') {
     const agent = deps.buildAgent('telegram');
-    const session = (agent as unknown as { opts?: { session: Session } }).opts?.session;
-    if (!session) {
-      throw new Error('buildAgent did not produce an agent with a Session');
-    }
+    // Per-chat self-persisting Sessions. No client-side TTL — when OpenAI
+    // eventually evicts a stale `previous_response_id` (currently after
+    // ~30 days), `OpenAiAgent.respond` catches the 404, resets the chain,
+    // and retries the turn fresh.
+    const sessionCache = new Map<number, Session>();
+    const sessionFor = (chatId: number): Session => {
+      let s = sessionCache.get(chatId);
+      if (!s) {
+        s = new Session({
+          idleTimeoutMs: Number.POSITIVE_INFINITY,
+          persistence: { adapter: deps.memory.telegramSessions, chatId },
+        });
+        sessionCache.set(chatId, s);
+      }
+      return s;
+    };
     tasks.push(
       runners.telegram({
         receiver: deps.telegramReceiver(),
         sender: deps.telegram,
         agent,
-        session,
+        sessionFor,
         memory: deps.memory,
         allowedChatIds: deps.config.telegram.allowedChatIds,
         replyTo: perChatSender(deps.config.telegram.botToken),

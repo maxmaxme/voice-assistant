@@ -9,7 +9,7 @@ import type {
   TelegramSender,
 } from '../../../src/telegram/types.ts';
 import type { OpenAiAgent } from '../../../src/agent/openaiAgent.ts';
-import type { Session } from '../../../src/agent/session.ts';
+import { Session } from '../../../src/agent/session.ts';
 import type { MemoryStore } from '../../../src/memory/types.ts';
 
 function fakeMemory(recallFn?: () => Record<string, unknown>): MemoryStore {
@@ -31,7 +31,31 @@ function fakeMemory(recallFn?: () => Record<string, unknown>): MemoryStore {
       cancel: () => false,
       get: () => null,
     },
+    telegramSessions: {
+      get: () => null,
+      save: () => {},
+      delete: () => {},
+    },
     close: () => {},
+  };
+}
+
+/** Per-chat Session factory for tests. Uses an in-memory cache; no DB. */
+function sessionFactory(): {
+  sessionFor: (chatId: number) => Session;
+  byChat: Map<number, Session>;
+} {
+  const byChat = new Map<number, Session>();
+  return {
+    byChat,
+    sessionFor(chatId: number): Session {
+      let s = byChat.get(chatId);
+      if (!s) {
+        s = new Session();
+        byChat.set(chatId, s);
+      }
+      return s;
+    },
   };
 }
 
@@ -62,7 +86,7 @@ describe('runTelegramMode', () => {
   beforeEach(() => vi.clearAllMocks());
   it('forwards a text message to the agent and replies', async () => {
     const respond = vi.fn(async (text: string) => ({ text: `echo:${text}` }));
-    const session = { reset: vi.fn() } as unknown as Session;
+    const factory = sessionFactory();
     const memory = fakeMemory();
     const cap = captureSender();
 
@@ -72,13 +96,18 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session,
+      sessionFor: factory.sessionFor,
       memory,
       allowedChatIds: [42],
     });
 
-    expect(respond).toHaveBeenCalledWith('hi');
+    expect(respond).toHaveBeenCalledWith(
+      'hi',
+      expect.objectContaining({ session: expect.any(Session) }),
+    );
     expect(cap.sent).toEqual(['echo:hi']);
+    // The session for chat 42 was created by the runner.
+    expect(factory.byChat.has(42)).toBe(true);
   });
 
   it('rejects messages from non-allowlisted chats with no agent call', async () => {
@@ -90,7 +119,7 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
     });
@@ -100,7 +129,10 @@ describe('runTelegramMode', () => {
 
   it('handles /reset locally', async () => {
     const respond = vi.fn();
-    const session = { reset: vi.fn() } as unknown as Session;
+    const factory = sessionFactory();
+    // Pre-seed the session so we can observe reset().
+    const session = factory.sessionFor(42);
+    const resetSpy = vi.spyOn(session, 'reset');
     const cap = captureSender();
     await runTelegramMode({
       receiver: recvFromMessages([
@@ -108,11 +140,11 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session,
+      sessionFor: factory.sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
     });
-    expect(session.reset).toHaveBeenCalledTimes(1);
+    expect(resetSpy).toHaveBeenCalledTimes(1);
     expect(respond).not.toHaveBeenCalled();
     expect(cap.sent[0]).toMatch(/context cleared/i);
   });
@@ -127,7 +159,7 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(recall),
       allowedChatIds: [42],
     });
@@ -145,7 +177,7 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
     });
@@ -171,13 +203,16 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
       voiceTranscriber: { transcribe },
     });
     expect(transcribe).toHaveBeenCalledWith('F');
-    expect(respond).toHaveBeenCalledWith('turn on the kitchen light');
+    expect(respond).toHaveBeenCalledWith(
+      'turn on the kitchen light',
+      expect.objectContaining({ session: expect.any(Session) }),
+    );
     expect(cap.sent).toHaveLength(1);
     expect(cap.sent[0]).toContain('turn on the kitchen light');
     expect(cap.sent[0]).toContain('ok:turn on the kitchen light');
@@ -203,7 +238,7 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
       voiceTranscriber: { transcribe },
@@ -229,7 +264,7 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
     });
@@ -248,7 +283,7 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
     });
@@ -266,7 +301,7 @@ describe('runTelegramMode', () => {
         ]),
         sender: cap.sender,
         agent: { respond } as unknown as OpenAiAgent,
-        session: { reset: vi.fn() } as unknown as Session,
+        sessionFor: sessionFactory().sessionFor,
         memory: fakeMemory(),
         allowedChatIds: [42],
       });
@@ -298,7 +333,7 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
       photoLoader: { load },
@@ -321,12 +356,15 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
       photoLoader: { load },
     });
-    expect(respond).toHaveBeenCalledWith('', { images: expect.any(Array) });
+    expect(respond).toHaveBeenCalledWith(
+      '',
+      expect.objectContaining({ images: expect.any(Array), session: expect.any(Session) }),
+    );
     expect(cap.sent[0]).toBe('t=""');
   });
 
@@ -346,7 +384,7 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
       photoLoader: { load },
@@ -365,7 +403,7 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
     });
@@ -385,7 +423,7 @@ describe('runTelegramMode', () => {
       ]),
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
-      session: { reset: vi.fn() } as unknown as Session,
+      sessionFor: sessionFactory().sessionFor,
       memory: fakeMemory(),
       allowedChatIds: [42],
       photoLoader: { load },
@@ -405,7 +443,7 @@ describe('runTelegramMode', () => {
         ]),
         sender: cap.sender,
         agent: { respond } as unknown as OpenAiAgent,
-        session: { reset: vi.fn() } as unknown as Session,
+        sessionFor: sessionFactory().sessionFor,
         memory: fakeMemory(),
         allowedChatIds: [42],
       });
