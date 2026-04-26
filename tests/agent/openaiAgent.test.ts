@@ -319,6 +319,73 @@ describe('OpenAiAgent', () => {
     await expect(agent.respond('x')).rejects.toThrow(/max tool iterations/i);
   });
 
+  describe('goal mode', () => {
+    it('runs a goal end-to-end and returns the final text', async () => {
+      const llm = fakeLlm([textResponse('I turned the kitchen lights on', 'resp_1')]);
+      const agent = new OpenAiAgent({
+        mcp: fakeMcp(),
+        memory: emptyMemory(),
+        session: new Session({ idleTimeoutMs: 60_000 }),
+        systemPrompt: 'You are helpful.',
+        model: 'gpt-4o',
+        llmClient: llm as never,
+        telegram: noopTelegram,
+        mode: 'goal',
+      });
+      const res = await agent.respond('включи свет на кухне');
+      expect(res.text).toBe('I turned the kitchen lights on');
+      const args = llm.calls[0]!;
+      expect(typeof args.instructions).toBe('string');
+      expect(args.instructions).toContain('включи свет на кухне');
+      expect(args.instructions).toMatch(/scheduled goal|NO USER PRESENT/);
+      // Must not contain chat-mode-only profile directive when chat would
+      // (in chat mode the system message ends after the time block when no
+      // profile is set; goal mode appends additional directive text).
+      expect(args.instructions).toContain('previously-scheduled goal');
+    });
+
+    it('omits the ask tool from the tools array in goal mode', async () => {
+      const llm = fakeLlm([textResponse('ok', 'resp_1')]);
+      const agent = new OpenAiAgent({
+        mcp: fakeMcp(),
+        memory: emptyMemory(),
+        session: new Session({ idleTimeoutMs: 60_000 }),
+        systemPrompt: 'sys',
+        model: 'gpt-4o',
+        llmClient: llm as never,
+        telegram: noopTelegram,
+        mode: 'goal',
+      });
+      await agent.respond('do it');
+      const callArgs = llm.calls[0]! as unknown as {
+        tools?: Array<{ name: string }>;
+      };
+      const tools = callArgs.tools ?? [];
+      expect(tools.find((t) => t.name === 'ask')).toBeUndefined();
+    });
+
+    it('does not chain across calls in goal mode (every call sends instructions, no previous_response_id)', async () => {
+      const llm = fakeLlm([textResponse('one', 'resp_1'), textResponse('two', 'resp_2')]);
+      const agent = new OpenAiAgent({
+        mcp: fakeMcp(),
+        memory: emptyMemory(),
+        session: new Session({ idleTimeoutMs: 60_000 }),
+        systemPrompt: 'sys',
+        model: 'gpt-4o',
+        llmClient: llm as never,
+        telegram: noopTelegram,
+        mode: 'goal',
+      });
+      await agent.respond('goal one');
+      await agent.respond('goal two');
+      expect(llm.calls[0]!.previous_response_id).toBeUndefined();
+      expect(llm.calls[0]!.instructions).toBeDefined();
+      expect(llm.calls[1]!.previous_response_id).toBeUndefined();
+      expect(llm.calls[1]!.instructions).toBeDefined();
+      expect(llm.calls[1]!.instructions).toContain('goal two');
+    });
+  });
+
   it('routes add_reminder to the reminders adapter', async () => {
     const added: Array<{ text: string; fireAt: number }> = [];
     const memory = emptyMemory();
