@@ -54,3 +54,10 @@ export interface TimersAdapter {
   cancel(id: number): boolean;
   get(id: number): Timer | null;
 }
+
+export interface MemoryStore {
+  profile: MemoryAdapter;
+  reminders: RemindersAdapter;
+  timers: TimersAdapter;
+  close(): void;
+}
