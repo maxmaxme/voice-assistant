@@ -1,0 +1,6 @@
+#!/bin/sh
+
+if grep -Eq '^Co-Authored-By: Claude .* <noreply@anthropic\.com>$' "$1"; then
+  echo "Commit message must not include Claude Co-Authored-By trailers."
+  exit 1
+fi
