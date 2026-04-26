@@ -12,6 +12,9 @@ import {
   generateListenBlip,
 } from '../audio/blip.ts';
 import { bufferToStream, isAbortError } from '../audio/streamHelpers.ts';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('orchestrator');
 
 const BLIP_SAMPLE_RATE = 24000;
 const CONFIRM_BLIP = generateConfirmBlip(BLIP_SAMPLE_RATE);
@@ -72,7 +75,7 @@ export class Orchestrator {
       //   listening → wake → ignored (already capturing)
       //   thinking  → wake → ignored (LLM in flight)
       const tag = this.state === 'speaking' ? 'barge-in' : 'wake';
-      console.log(`[${tag}] ${kw} score=${score.toFixed(2)}`);
+      log.info({ event: tag, keyword: kw, score }, `${tag}: ${kw} score=${score.toFixed(2)}`);
       this.dispatch({ type: 'wake' });
     });
     this.vad.onSpeech(() => {
@@ -98,7 +101,7 @@ export class Orchestrator {
     });
 
     this.mic.start();
-    console.log('Voice assistant running. Say the wake word to talk.');
+    log.info('voice assistant running. Say the wake word to talk.');
     await new Promise(() => {}); // run forever
   }
 
@@ -203,7 +206,7 @@ export class Orchestrator {
           }
         } catch (e) {
           if (!isAbortError(e)) {
-            console.error('TTS error', e);
+            log.error({ err: e }, `TTS error: ${e instanceof Error ? e.message : String(e)}`);
           }
         } finally {
           this.currentSpeechAbort = null;
@@ -216,9 +219,9 @@ export class Orchestrator {
         return;
       case 'log':
         if (eff.level === 'error') {
-          console.error(eff.message);
+          log.error(eff.message);
         } else {
-          console.log(eff.message);
+          log.info(eff.message);
         }
         return;
     }

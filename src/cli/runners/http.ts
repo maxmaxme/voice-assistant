@@ -5,6 +5,7 @@ import type { AudioFileStt } from '../../audio/types.ts';
 import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
 import { verifyBearerToken } from '../../utils/apiKeyAuth.ts';
 import { createLogger } from '../../utils/logger.ts';
+import { loggerPlugin } from '../../utils/h3LoggerPlugin.ts';
 
 const log = createLogger('http');
 
@@ -26,6 +27,7 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
   }
 
   const app = new H3()
+    .register(loggerPlugin({ log }))
     .post('/audio', async (event: H3Event) => {
       if (!verifyBearerToken(event.req.headers.get('authorization'), apiKeys)) {
         event.res.status = 401;
@@ -46,9 +48,12 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       const receivedContentType = parseContentType(event.req.headers.get('content-type'));
       const audioFile = normalizeAudioFile(receivedContentType);
 
-      log.info(
+      // Per-request access log (method/url/status/duration) is emitted by the
+      // h3 logger plugin onResponse hook. This debug line just adds payload
+      // metadata when chasing down a specific request.
+      log.debug(
         { contentType: receivedContentType, bytes: body.length },
-        `POST /audio ${receivedContentType} ${body.length} bytes`,
+        `audio payload ${receivedContentType} ${body.length} bytes`,
       );
 
       try {
@@ -80,7 +85,11 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
   log.info({ port }, `listening on http://localhost:${port}`);
   log.info('POST /audio to send audio, GET /health for healthcheck');
 
-  serve(app, { port });
+  // silent: skip srvx's "➜ Listening on …" / "Server closed successfully."
+  // chatter; we already log startup ourselves.
+  // gracefulShutdown: false so srvx doesn't install its own SIGINT/SIGTERM
+  // handler — unified.ts owns shutdown via deps.dispose().
+  serve(app, { port, silent: true, gracefulShutdown: false });
 
   // The listener runs until the process exits. Shutdown is driven by
   // unified.ts via SIGINT/SIGTERM → dispose() → process.exit(0); we don't

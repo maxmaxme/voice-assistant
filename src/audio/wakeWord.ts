@@ -1,5 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import * as readline from 'node:readline';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('wake');
 
 export interface WakeWord {
   /** Frame length in samples that should be fed via feed(). */
@@ -62,10 +65,29 @@ export class OpenWakeWord implements WakeWord {
     if (!this.proc.stdout) {
       throw new Error('wake-word daemon has no stdout');
     }
-    // Forward daemon stderr to our stderr so model-load errors and
-    // --debug diagnostics are visible.
+    // Forward daemon stderr through pino, line by line, so model-load
+    // errors and --debug diagnostics are visible alongside the rest of our
+    // structured logs. We split chunks so pretty-output doesn't get one big
+    // multi-line record and JSON-output stays one record per line. Buffer
+    // partial lines across chunks (Python prints with newlines but TCP /
+    // pipes can split mid-line).
+    let pending = '';
     this.proc.stderr?.on('data', (chunk: Buffer) => {
-      process.stderr.write(chunk);
+      pending += chunk.toString('utf8');
+      const lines = pending.split('\n');
+      pending = lines.pop() ?? '';
+      for (const line of lines) {
+        if (line.length === 0) {
+          continue;
+        }
+        log.info(line);
+      }
+    });
+    this.proc.stderr?.on('end', () => {
+      if (pending.length > 0) {
+        log.info(pending);
+        pending = '';
+      }
     });
     const rl = readline.createInterface({ input: this.proc.stdout });
     rl.on('line', (line) => {
