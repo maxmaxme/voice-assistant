@@ -4,36 +4,11 @@ import { Scheduler } from '../../src/scheduling/scheduler.ts';
 import type { CommonDeps, AgentMode } from '../../src/cli/shared.ts';
 import type OpenAI from 'openai';
 import type { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
-import type {
-  MemoryStore,
-  RemindersAdapter,
-  ScheduledActionsAdapter,
-  TimersAdapter,
-} from '../../src/memory/types.ts';
+import type { MemoryStore, ScheduledActionsAdapter } from '../../src/memory/types.ts';
 import type { TelegramSender, TelegramReceiver } from '../../src/telegram/types.ts';
 import type { GoalRunner } from '../../src/scheduling/goalRunner.ts';
 
 function makeMemoryStore(): MemoryStore {
-  const noopReminders: RemindersAdapter = {
-    add: () => {
-      throw new Error('not used');
-    },
-    listPending: () => [],
-    listDue: () => [],
-    markFired: () => {},
-    cancel: () => false,
-    get: () => null,
-  };
-  const noopTimers: TimersAdapter = {
-    add: () => {
-      throw new Error('not used');
-    },
-    listActive: () => [],
-    listDue: () => [],
-    markFired: () => {},
-    cancel: () => false,
-    get: () => null,
-  };
   const noopScheduledActions: ScheduledActionsAdapter = {
     add: () => {
       throw new Error('not used');
@@ -47,8 +22,6 @@ function makeMemoryStore(): MemoryStore {
   };
   return {
     profile: { remember: () => {}, recall: () => ({}), forget: () => {}, close: () => {} },
-    reminders: noopReminders,
-    timers: noopTimers,
     scheduledActions: noopScheduledActions,
     close: () => {},
   };

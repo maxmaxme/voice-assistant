@@ -11,26 +11,6 @@ const noopTelegram: TelegramSender = { send: async () => {} };
 
 /** A no-op MemoryStore for tests that don't care about memory state. */
 function emptyMemory(): MemoryStore {
-  const noopReminders = {
-    add: () => {
-      throw new Error('not used');
-    },
-    listPending: () => [],
-    listDue: () => [],
-    markFired: () => {},
-    cancel: () => false,
-    get: () => null,
-  };
-  const noopTimers = {
-    add: () => {
-      throw new Error('not used');
-    },
-    listActive: () => [],
-    listDue: () => [],
-    markFired: () => {},
-    cancel: () => false,
-    get: () => null,
-  };
   const noopScheduledActions = {
     add: () => {
       throw new Error('not used');
@@ -49,8 +29,6 @@ function emptyMemory(): MemoryStore {
       forget: () => {},
       close: () => {},
     },
-    reminders: noopReminders,
-    timers: noopTimers,
     scheduledActions: noopScheduledActions,
     close: () => {},
   };
