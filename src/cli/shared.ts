@@ -11,7 +11,7 @@ import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
 import { telegramFromConfig, receiverFromConfig } from '../telegram/fromConfig.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
 import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from '../agent/agentOutput.ts';
-import type { FireSink } from '../scheduling/types.ts';
+import type { GoalRunner } from '../scheduling/goalRunner.ts';
 
 export const AGENT_MODES = ['chat', 'voice', 'wake', 'telegram', 'both'] as const;
 export type AgentMode = (typeof AGENT_MODES)[number];
@@ -81,7 +81,7 @@ export interface CommonDeps {
   /** Create a TelegramReceiver backed by the configured bot. Tracks the active
    * receiver so dispose() can stop it on shutdown. */
   telegramReceiver(): TelegramReceiver;
-  fireSink: FireSink;
+  goalRunner: GoalRunner;
 }
 
 /** Initialise everything shared across runners. Call once per process. */
@@ -96,13 +96,13 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
 
   await mcp.connect();
 
-  const fireSink: FireSink = {
-    async fire(item) {
-      if (item.kind === 'reminder') {
-        await telegram.send(`⏰ ${item.text}`);
-      } else {
-        await telegram.send(`⏱ Timer "${item.label}" finished.`);
-      }
+  // Task 5 stub: scheduled-actions tick wants a GoalRunner, but the real one
+  // (an Agent in goal-mode) is wired in Task 6. Keep build green by handing
+  // out a runner that throws if anyone actually fires through it. Listing
+  // due rows still works; firing one will surface a clear error in stderr.
+  const goalRunner: GoalRunner = {
+    async fire() {
+      throw new Error('goalRunner not wired yet — see Task 6');
     },
   };
 
@@ -138,5 +138,5 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     memory.close();
   };
 
-  return { config, llm, mcp, memory, telegram, buildAgent, dispose, telegramReceiver, fireSink };
+  return { config, llm, mcp, memory, telegram, buildAgent, dispose, telegramReceiver, goalRunner };
 }

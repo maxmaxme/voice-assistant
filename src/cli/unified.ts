@@ -88,9 +88,8 @@ export async function dispatch(
   }
 
   const scheduler = new Scheduler({
-    reminders: deps.memory.reminders,
-    timers: deps.memory.timers,
-    sink: deps.fireSink,
+    scheduledActions: deps.memory.scheduledActions,
+    goalRunner: deps.goalRunner,
   });
   scheduler.start();
   try {
