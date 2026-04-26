@@ -1,4 +1,7 @@
 import type { Agent } from '../agent/types.ts';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('goalRunner');
 
 export interface GoalRunner {
   /** Fire a previously-scheduled goal once. Should not throw under
@@ -28,12 +31,13 @@ export function buildGoalRunner(opts: GoalRunnerOptions): GoalRunner {
     async fire(goal: string): Promise<void> {
       try {
         const res = await agent.respond(goal);
-        process.stderr.write(
-          `[goalRunner] goal "${truncate(goal)}" → ${truncate(res.text ?? '')}\n`,
+        log.info(
+          { goal, reply: res.text ?? '' },
+          `goal "${truncate(goal)}" → ${truncate(res.text ?? '')}`,
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[goalRunner] goal "${truncate(goal)}" failed: ${msg}\n`);
+        log.error({ goal, err }, `goal "${truncate(goal)}" failed: ${msg}`);
         throw err;
       }
     },

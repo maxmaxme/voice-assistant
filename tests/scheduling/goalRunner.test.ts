@@ -41,7 +41,7 @@ describe('buildGoalRunner', () => {
       const runner = buildGoalRunner({ agent });
       await runner.fire('greet the world');
       const messages = writeSpy.mock.calls.map((c) => String(c[0]));
-      const summary = messages.find((m) => m.startsWith('[goalRunner]'));
+      const summary = messages.find((m) => m.includes('"scope":"goalRunner"'));
       expect(summary).toBeDefined();
       expect(summary).toContain('greet the world');
       expect(summary).toContain('done');

@@ -15,6 +15,9 @@ import { OpenAiTts } from '../audio/openaiTts.ts';
 import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
 import { Scheduler } from '../scheduling/scheduler.ts';
 import { getServerTimezone } from '../utils/time.ts';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('unified');
 import { loadEnvFile } from '../config.ts';
 
 export interface RunnerSet {
@@ -118,12 +121,15 @@ export async function main(): Promise<void> {
   loadEnvFile();
   const mode = parseAgentMode(process.env.AGENT_MODE);
   const webSearch = process.env.OPENAI_WEB_SEARCH === '1' ? ' WEB_SEARCH=on' : '';
-  console.log(`[unified] AGENT_MODE=${mode} TZ=${getServerTimezone()}${webSearch}`);
+  log.info(
+    { mode, tz: getServerTimezone(), webSearch: process.env.OPENAI_WEB_SEARCH === '1' },
+    `AGENT_MODE=${mode} TZ=${getServerTimezone()}${webSearch}`,
+  );
 
   const deps = await initializeCommonDependencies();
 
   const onShutdown = async (signal: string): Promise<void> => {
-    console.log(`[unified] received ${signal}, shutting down`);
+    log.info({ signal }, `received ${signal}, shutting down`);
     await deps.dispose();
     process.exit(0);
   };
@@ -147,7 +153,7 @@ export async function main(): Promise<void> {
 // `dispatch` directly without triggering main().
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((err) => {
-    console.error(err);
+    log.fatal({ err }, 'fatal error in main');
     process.exit(1);
   });
 }

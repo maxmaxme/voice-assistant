@@ -1,6 +1,9 @@
 import type { ScheduledActionsAdapter, ScheduledAction } from '../memory/types.ts';
 import type { GoalRunner } from './goalRunner.ts';
 import { nextFireAt as computeNextFireAt } from './cron.ts';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('scheduler');
 
 export interface SchedulerOptions {
   scheduledActions: ScheduledActionsAdapter;
@@ -61,7 +64,7 @@ export class Scheduler {
     try {
       due = this.scheduledActions.listDue(now);
     } catch (err) {
-      process.stderr.write(`[scheduler] listDue failed: ${(err as Error).message}\n`);
+      log.error({ err }, `listDue failed: ${(err as Error).message}`);
       return;
     }
 
@@ -83,14 +86,16 @@ export class Scheduler {
         // Defense in depth: validateSchedule (Task 3) should have caught any
         // bad cron expression before storage, but if computeNextFireAt throws
         // here we can't safely re-fire the row — terminate it.
-        process.stderr.write(
-          `[scheduler] action ${row.id} advance failed: ${(err as Error).message}\n`,
+        log.error(
+          { actionId: row.id, err },
+          `action ${row.id} advance failed: ${(err as Error).message}`,
         );
         try {
           this.scheduledActions.markError(row.id);
         } catch (markErr) {
-          process.stderr.write(
-            `[scheduler] action ${row.id} markError failed: ${(markErr as Error).message}\n`,
+          log.error(
+            { actionId: row.id, err: markErr },
+            `action ${row.id} markError failed: ${(markErr as Error).message}`,
           );
         }
       }
@@ -102,16 +107,18 @@ export class Scheduler {
       try {
         await this.goalRunner.fire(row.goal);
       } catch (err) {
-        process.stderr.write(
-          `[scheduler] action ${row.id} fire failed: ${(err as Error).message}\n`,
+        log.error(
+          { actionId: row.id, err },
+          `action ${row.id} fire failed: ${(err as Error).message}`,
         );
         if (row.schedule.kind === 'once') {
           // Override the `done` we set in step 1: the action visibly failed.
           try {
             this.scheduledActions.markError(row.id);
           } catch (markErr) {
-            process.stderr.write(
-              `[scheduler] action ${row.id} markError failed: ${(markErr as Error).message}\n`,
+            log.error(
+              { actionId: row.id, err: markErr },
+              `action ${row.id} markError failed: ${(markErr as Error).message}`,
             );
           }
         }

@@ -5,6 +5,9 @@ import type { MemoryStore } from '../../memory/types.ts';
 import type { TelegramReceiver, TelegramSender, TelegramMessage } from '../../telegram/types.ts';
 import { BotTelegramSender } from '../../telegram/telegramSender.ts';
 import type { TelegramVoiceTranscriber } from '../../telegram/voiceTranscriber.ts';
+import { createLogger } from '../../utils/logger.ts';
+
+const log = createLogger('telegram');
 
 export interface TelegramRunnerDeps {
   receiver: TelegramReceiver;
@@ -37,8 +40,9 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
   for await (const msg of receiver.messages()) {
     const replyer = deps.replyTo ? deps.replyTo(msg.chatId) : deps.sender;
     if (!allow.has(msg.chatId)) {
-      process.stderr.write(
-        `[telegram] dropped message from chat=${msg.chatId} (not allow-listed)\n`,
+      log.warn(
+        { chatId: msg.chatId, updateId: msg.updateId },
+        `dropped message from chat=${msg.chatId} (not allow-listed)`,
       );
       continue;
     }
@@ -46,7 +50,7 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
       await handleMessage(msg, { agent, session, memory, sender: replyer, voiceTranscriber });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[telegram] handler error: ${text}\n`);
+      log.error({ chatId: msg.chatId, updateId: msg.updateId, err }, `handler error: ${text}`);
       try {
         await replyer.send(`Internal error: ${text}`);
       } catch {
@@ -76,7 +80,7 @@ async function handleMessage(
       transcript = await ctx.voiceTranscriber.transcribe(msg.fileId);
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`[telegram] voice transcription failed: ${m}\n`);
+      log.error({ err }, `voice transcription failed: ${m}`);
       await ctx.sender.send(`Не смог распознать голосовое: ${m}`);
       return;
     }

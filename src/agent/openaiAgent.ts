@@ -20,6 +20,9 @@ import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './te
 import type { TelegramSender } from '../telegram/types.ts';
 import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from './agentOutput.ts';
 import { getServerTimezone, toLocalIso } from '../utils/time.ts';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('agent');
 
 export interface OpenAiAgentOptions {
   mcp: McpClient;
@@ -142,7 +145,7 @@ export class OpenAiAgent implements Agent {
         if (askCall) {
           const args = this.parseArgs(askCall.arguments);
           const text = typeof args.text === 'string' ? args.text : '';
-          process.stderr.write(`[tool] ask(${JSON.stringify(args)}) → reopen capture\n`);
+          log.debug({ tool: 'ask', args }, `ask(${JSON.stringify(args)}) → reopen capture`);
           session.pendingAskCallId = askCall.call_id;
           session.commit(response.id);
           return { text, direction: null, expectsFollowUp: true };
@@ -187,8 +190,12 @@ export class OpenAiAgent implements Agent {
             isError = result.isError;
           }
           const argsStr = JSON.stringify(args);
-          const tag = isError ? 'tool✗' : 'tool';
-          process.stderr.write(`[${tag}] ${tc.name}(${argsStr}) → ${resultText}\n`);
+          const fields = { tool: tc.name, args, isError };
+          if (isError) {
+            log.warn(fields, `${tc.name}(${argsStr}) → ${resultText}`);
+          } else {
+            log.debug(fields, `${tc.name}(${argsStr}) → ${resultText}`);
+          }
           toolOutputs.push({
             type: 'function_call_output',
             call_id: tc.call_id,

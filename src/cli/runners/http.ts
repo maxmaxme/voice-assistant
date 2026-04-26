@@ -4,6 +4,9 @@ import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { AudioFileStt } from '../../audio/types.ts';
 import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
 import { verifyBearerToken } from '../../utils/apiKeyAuth.ts';
+import { createLogger } from '../../utils/logger.ts';
+
+const log = createLogger('http');
 
 export interface HttpRunnerDeps {
   agent: OpenAiAgent;
@@ -43,7 +46,10 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       const receivedContentType = parseContentType(event.req.headers.get('content-type'));
       const audioFile = normalizeAudioFile(receivedContentType);
 
-      process.stderr.write(`[http] POST /audio ${receivedContentType} ${body.length} bytes\n`);
+      log.info(
+        { contentType: receivedContentType, bytes: body.length },
+        `POST /audio ${receivedContentType} ${body.length} bytes`,
+      );
 
       try {
         const transcript = (
@@ -62,7 +68,7 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         return { response: reply.text, transcript };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[http] audio handling failed: ${message}\n`);
+        log.error({ err }, `audio handling failed: ${message}`);
         event.res.status = 500;
         return { error: message };
       }
@@ -71,8 +77,8 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       return { status: 'ok' };
     });
 
-  process.stderr.write(`[http] listening on http://localhost:${port}\n`);
-  process.stderr.write(`[http] POST /audio to send audio, GET /health for healthcheck\n`);
+  log.info({ port }, `listening on http://localhost:${port}`);
+  log.info('POST /audio to send audio, GET /health for healthcheck');
 
   serve(app, { port });
 

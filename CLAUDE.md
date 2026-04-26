@@ -83,6 +83,21 @@ Three layers, four entry points.
 
 All share the same `OpenAiAgent` core. The voice/wake runners add audio adapters and the orchestrator FSM.
 
+### Logging (`src/utils/logger.ts`)
+
+`pino` is used for diagnostic/server-side logging — scheduler, agent tool
+calls, HTTP/Telegram runners, startup/shutdown. Each module gets a child
+logger via `createLogger('scope', { …bindings })`; output is JSON, one line
+per record, written through `process.stderr.write` so existing
+`stderr`-spy-based tests keep working. Level is `info` by default, override
+via `LOG_LEVEL` env (`debug`/`info`/`warn`/`error`/`fatal`/`silent`).
+
+User-facing terminal UI in `chat.ts`/`voice.ts`/`orchestrator.ts`/
+`mcp-call.ts` (the "User: …", "Assistant: …", REPL prompts) stays on
+`console.log` — it's UX, not logs. Don't migrate that to pino.
+
+For pretty output during local dev: `npm run start | npx pino-pretty`.
+
 ### Agent core (`src/agent/`)
 
 Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completions. Conversation state lives **server-side** at OpenAI — we keep only the `lastResponseId` locally in `Session` and chain turns via `previous_response_id`.
