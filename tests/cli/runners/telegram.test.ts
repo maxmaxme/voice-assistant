@@ -162,7 +162,66 @@ describe('runTelegramMode', () => {
     expect(cap.sent[0]).toMatch(/help|команд|hi/i);
   });
 
-  it('replies to voice messages with a "not yet supported" notice', async () => {
+  it('transcribes voice messages and forwards the transcript to the agent', async () => {
+    const respond = vi.fn(async (text: string) => ({ text: `ok:${text}` }));
+    const transcribe = vi.fn(async () => 'включи свет на кухне');
+    const cap = captureSender();
+    await runTelegramMode({
+      receiver: recvFromMessages([
+        {
+          updateId: 1,
+          chatId: 42,
+          fromUserId: 7,
+          kind: 'voice',
+          fileId: 'F',
+          durationSec: 3,
+          receivedAt: 0,
+        },
+      ]),
+      sender: cap.sender,
+      agent: { respond } as unknown as OpenAiAgent,
+      session: { reset: vi.fn() } as unknown as Session,
+      memory: fakeMemory(),
+      allowedChatIds: [42],
+      voiceTranscriber: { transcribe },
+    });
+    expect(transcribe).toHaveBeenCalledWith('F');
+    expect(respond).toHaveBeenCalledWith('включи свет на кухне');
+    expect(cap.sent).toHaveLength(1);
+    expect(cap.sent[0]).toContain('включи свет на кухне');
+    expect(cap.sent[0]).toContain('ok:включи свет на кухне');
+  });
+
+  it('reports transcription errors back to the user', async () => {
+    const respond = vi.fn();
+    const transcribe = vi.fn(async () => {
+      throw new Error('stt down');
+    });
+    const cap = captureSender();
+    await runTelegramMode({
+      receiver: recvFromMessages([
+        {
+          updateId: 1,
+          chatId: 42,
+          fromUserId: 7,
+          kind: 'voice',
+          fileId: 'F',
+          durationSec: 3,
+          receivedAt: 0,
+        },
+      ]),
+      sender: cap.sender,
+      agent: { respond } as unknown as OpenAiAgent,
+      session: { reset: vi.fn() } as unknown as Session,
+      memory: fakeMemory(),
+      allowedChatIds: [42],
+      voiceTranscriber: { transcribe },
+    });
+    expect(respond).not.toHaveBeenCalled();
+    expect(cap.sent[0]).toMatch(/stt down|распозна/i);
+  });
+
+  it('replies to voice messages with a "not yet supported" notice when no transcriber wired', async () => {
     const respond = vi.fn();
     const cap = captureSender();
     await runTelegramMode({
