@@ -1,39 +1,6 @@
 import type { RemindersAdapter } from '../memory/types.ts';
+import { parseLocalWallClock, toLocalIso } from '../utils/time.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
-
-function toLocalIso(ms: number): string {
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return new Intl.DateTimeFormat('sv-SE', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-    timeZone: tz,
-    timeZoneName: 'longOffset',
-  })
-    .format(new Date(ms))
-    .replace(',', '');
-}
-
-/** Parse a wall-clock string in the server's local TZ into a UTC epoch ms.
- * Accepts "YYYY-MM-DD HH:mm" or "YYYY-MM-DD HH:mm:ss" (space or 'T'
- * separator). The string MUST NOT include a timezone offset — the server's
- * TZ (process.env.TZ / system) is implicit. */
-function parseLocalWallClock(raw: string): number {
-  const s = raw.trim().replace(' ', 'T');
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s)) {
-    throw new Error(
-      `at_local: invalid format "${raw}", expected "YYYY-MM-DD HH:mm" or "YYYY-MM-DD HH:mm:ss"`,
-    );
-  }
-  // JS Date parses an ISO string without offset as local time (TZ env).
-  const ms = new Date(s).getTime();
-  if (!Number.isFinite(ms)) throw new Error(`at_local: failed to parse "${raw}"`);
-  return ms;
-}
 
 /** Resolve add_reminder's three alternative time inputs into a single UTC
  * epoch ms. Exactly one of `in_seconds`, `at_local`, `fire_at` must be a
@@ -52,7 +19,12 @@ function resolveFireAt(args: Record<string, unknown>): number {
   }
   if (args.at_local != null) {
     provided.push('at_local');
-    fireAt = parseLocalWallClock(String(args.at_local));
+    try {
+      fireAt = parseLocalWallClock(String(args.at_local));
+    } catch (e) {
+      // Re-throw with the param name in the message so test/CLI errors are clear.
+      throw new Error(`at_local: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+    }
   }
   if (args.fire_at != null) {
     provided.push('fire_at');

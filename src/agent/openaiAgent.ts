@@ -15,6 +15,7 @@ import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
 import type { TelegramSender } from '../telegram/types.ts';
 import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from './agentOutput.ts';
+import { getServerTimezone, toLocalIso } from '../utils/time.ts';
 
 export interface OpenAiAgentOptions {
   mcp: McpClient;
@@ -180,20 +181,8 @@ export class OpenAiAgent implements Agent {
     // Include both UTC ISO and local time with offset so the LLM can express
     // dates in the server's local timezone without doing timezone arithmetic.
     const nowUtcIso = new Date(nowMs).toISOString();
-    const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const nowLocal = new Intl.DateTimeFormat('sv-SE', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-      timeZone: tzName,
-      timeZoneName: 'longOffset',
-    })
-      .format(new Date(nowMs))
-      .replace(',', '');
+    const tzName = getServerTimezone();
+    const nowLocal = toLocalIso(nowMs);
     // Give the LLM a direct formula so it doesn't need to do timezone math.
     const timeBlock =
       `\n\nCurrent time: ${nowUtcIso} UTC = ${nowLocal} (server timezone: ${tzName}).` +
