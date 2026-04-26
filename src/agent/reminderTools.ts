@@ -1,6 +1,23 @@
 import type { RemindersAdapter } from '../memory/types.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
 
+function toLocalIso(ms: number): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return new Intl.DateTimeFormat('sv-SE', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZone: tz,
+    timeZoneName: 'longOffset',
+  })
+    .format(new Date(ms))
+    .replace(',', '');
+}
+
 export const REMINDER_TOOL_NAMES = new Set(['add_reminder', 'list_reminders', 'cancel_reminder']);
 
 export function buildReminderTools(): OpenAiFunctionTool[] {
@@ -67,7 +84,7 @@ export function executeReminderTool(
       return {
         id: r.id,
         fire_at: r.fireAt,
-        fire_at_iso: new Date(r.fireAt).toISOString(),
+        fire_at_local: toLocalIso(r.fireAt),
         text: r.text,
       };
     }
@@ -76,7 +93,7 @@ export function executeReminderTool(
         id: r.id,
         text: r.text,
         fire_at: r.fireAt,
-        fire_at_iso: new Date(r.fireAt).toISOString(),
+        fire_at_local: toLocalIso(r.fireAt),
       }));
     case 'cancel_reminder': {
       const id = Number(args.id);
