@@ -98,6 +98,30 @@ describe('SqliteScheduledActions', () => {
     expect(re?.status).toBe('error');
   });
 
+  it('markFired is a no-op on cancelled rows', () => {
+    const x = s.add({
+      goal: 'x',
+      schedule: { kind: 'once', at: 100 },
+      nextFireAt: 100,
+    });
+    s.cancel(x.id);
+    s.markFired(x.id, 200, null);
+    const out = s.get(x.id);
+    expect(out?.status).toBe('cancelled');
+    expect(out?.lastFiredAt).toBeNull();
+  });
+
+  it('markError is a no-op on cancelled rows', () => {
+    const x = s.add({
+      goal: 'x',
+      schedule: { kind: 'once', at: 100 },
+      nextFireAt: 100,
+    });
+    s.cancel(x.id);
+    s.markError(x.id);
+    expect(s.get(x.id)?.status).toBe('cancelled');
+  });
+
   it('cancel returns true on active and false on second call', () => {
     const x = s.add({
       goal: 'x',
