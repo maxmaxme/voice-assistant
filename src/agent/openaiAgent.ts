@@ -2,6 +2,7 @@ import type OpenAI from 'openai';
 import type {
   ResponseInputItem,
   ParsedResponseFunctionToolCall,
+  Tool,
 } from 'openai/resources/responses/responses';
 import type { Agent, AgentResponse } from './types.ts';
 import type { McpClient } from '../mcp/types.ts';
@@ -81,10 +82,22 @@ export class OpenAiAgent implements Agent {
       ...(this.mode === 'goal' ? [] : [buildAskTool()]),
       buildTelegramTool(),
     ];
-    const tools = [...mcpTools, ...localTools].map((t) => ({
+    const functionTools = [...mcpTools, ...localTools].map((t) => ({
       ...t,
       strict: t.strict ?? null,
     }));
+    // Hosted tools (e.g. OpenAI's web_search) have a different shape than
+    // function tools — no name/parameters, just `{ type: 'web_search' }`.
+    // Mix both into a single array of unknowns; the SDK's Tool union covers
+    // both. Re-read the env var on every turn so toggling it on a running
+    // process takes effect immediately, no restart required.
+    // Cast: our function-tool shape (`OpenAiFunctionTool`-derived) matches
+    // the SDK's `FunctionTool` member of the `Tool` union structurally, but
+    // our locally-built objects don't carry the SDK's exact nominal type.
+    const tools: Tool[] = [...functionTools] as Tool[];
+    if (process.env.OPENAI_WEB_SEARCH === '1') {
+      tools.push({ type: 'web_search' });
+    }
 
     // If the previous turn ended with an `ask` tool call, the API still has
     // an open function_call that needs a function_call_output. Submit the
