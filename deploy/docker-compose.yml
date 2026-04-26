@@ -29,6 +29,9 @@ services:
       - WAKE_WORD_PYTHON=/usr/bin/python3
       # ALSA device selection — override in .env if your mic is not card 1.
       - ALSA_CARD=${ALSA_CARD:-1}
+      # Server timezone (IANA name) — affects reminder scheduling/display.
+      # Inside the container the system TZ is UTC, so we forward TZ from .env.
+      - TZ=${TZ:-UTC}
     stop_grace_period: 10s
     healthcheck:
       # Both the Node entry point and the wake-word daemon must be alive.

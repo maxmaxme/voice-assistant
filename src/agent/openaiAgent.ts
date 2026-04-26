@@ -196,9 +196,13 @@ export class OpenAiAgent implements Agent {
       .replace(',', '');
     // Give the LLM a direct formula so it doesn't need to do timezone math.
     const timeBlock =
-      `\n\nCurrent time: ${nowUtcIso} UTC = ${nowLocal} (timezone: ${tzName}).` +
+      `\n\nCurrent time: ${nowUtcIso} UTC = ${nowLocal} (server timezone: ${tzName}).` +
       ` Unix ms now: ${nowMs}.` +
-      ` For add_reminder: fire_at = ${nowMs} + (seconds_from_now × 1000). Do NOT do timezone arithmetic — just add milliseconds to Unix ms now.`;
+      `\nFor add_reminder, NEVER do timezone arithmetic yourself. Pick one of:` +
+      `\n  • Relative ("через час", "in 10 minutes") → use in_seconds (3600, 600).` +
+      `\n  • Absolute ("завтра в 9 утра", "tomorrow at 9am") → use at_local with the server-timezone wall clock, e.g. "2026-04-27 09:00".` +
+      `\n  • fire_at (Unix ms UTC) is a fallback — prefer the two above.` +
+      `\nSet the unused fields to null. The server will compute the exact UTC instant.`;
     if (Object.keys(profile).length === 0) return base + timeBlock;
     return `${base}${timeBlock}\n\nKnown user profile: ${JSON.stringify(profile)}`;
   }

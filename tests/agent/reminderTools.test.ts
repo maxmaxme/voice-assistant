@@ -52,24 +52,119 @@ describe('reminderTools', () => {
     const tools = buildReminderTools();
     const add = tools.find((t) => t.name === 'add_reminder')!;
     expect(add.parameters).toMatchObject({
-      required: expect.arrayContaining(['text', 'fire_at']),
+      required: expect.arrayContaining(['text', 'in_seconds', 'at_local', 'fire_at']),
     });
   });
 
-  it('add_reminder writes to the adapter and returns the id', () => {
+  it('add_reminder writes to the adapter and returns the id (fire_at form)', () => {
     const r = memReminders();
     const out = executeReminderTool(r, 'add_reminder', {
       text: 'X',
       fire_at: Date.now() + 60_000,
+      in_seconds: null,
+      at_local: null,
     });
     expect(out.id).toBe(1);
     expect(r.listPending()).toHaveLength(1);
   });
 
+  it('add_reminder accepts in_seconds (relative) and computes fire_at server-side', () => {
+    const r = memReminders();
+    const before = Date.now();
+    const out = executeReminderTool(r, 'add_reminder', {
+      text: 'call mom',
+      in_seconds: 3600,
+      at_local: null,
+      fire_at: null,
+    });
+    expect(out.fire_at).toBeGreaterThanOrEqual(before + 3600_000);
+    expect(out.fire_at).toBeLessThanOrEqual(Date.now() + 3600_000 + 100);
+  });
+
+  it('add_reminder rejects non-positive in_seconds', () => {
+    const r = memReminders();
+    expect(() =>
+      executeReminderTool(r, 'add_reminder', {
+        text: 'X',
+        in_seconds: 0,
+        at_local: null,
+        fire_at: null,
+      }),
+    ).toThrow(/in_seconds/);
+    expect(() =>
+      executeReminderTool(r, 'add_reminder', {
+        text: 'X',
+        in_seconds: -10,
+        at_local: null,
+        fire_at: null,
+      }),
+    ).toThrow(/in_seconds/);
+  });
+
+  it('add_reminder accepts at_local as a wall-clock string in the server TZ', () => {
+    const originalTz = process.env.TZ;
+    process.env.TZ = 'Europe/Madrid';
+    try {
+      const r = memReminders();
+      // Pick a date far in the future so it is unambiguously in the future
+      // regardless of when this test runs.
+      const out = executeReminderTool(r, 'add_reminder', {
+        text: 'meeting',
+        at_local: '2099-06-15 09:00:00',
+        in_seconds: null,
+        fire_at: null,
+      });
+      // 2099-06-15 09:00 in Europe/Madrid (CEST = UTC+2 in summer) = 07:00:00Z
+      expect(out.fire_at).toBe(Date.UTC(2099, 5, 15, 7, 0, 0));
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+    }
+  });
+
+  it('add_reminder rejects malformed at_local strings', () => {
+    const r = memReminders();
+    expect(() =>
+      executeReminderTool(r, 'add_reminder', {
+        text: 'X',
+        at_local: 'tomorrow at 9am',
+        in_seconds: null,
+        fire_at: null,
+      }),
+    ).toThrow(/at_local/);
+  });
+
+  it('add_reminder requires exactly one of in_seconds/at_local/fire_at', () => {
+    const r = memReminders();
+    // None provided
+    expect(() =>
+      executeReminderTool(r, 'add_reminder', {
+        text: 'X',
+        in_seconds: null,
+        at_local: null,
+        fire_at: null,
+      }),
+    ).toThrow(/one of/);
+    // Two provided
+    expect(() =>
+      executeReminderTool(r, 'add_reminder', {
+        text: 'X',
+        in_seconds: 60,
+        at_local: null,
+        fire_at: Date.now() + 60_000,
+      }),
+    ).toThrow(/only one/);
+  });
+
   it('add_reminder rejects fire_at in the past with a clear error', () => {
     const r = memReminders();
     expect(() =>
-      executeReminderTool(r, 'add_reminder', { text: 'X', fire_at: Date.now() - 60_000 }),
+      executeReminderTool(r, 'add_reminder', {
+        text: 'X',
+        fire_at: Date.now() - 60_000,
+        in_seconds: null,
+        at_local: null,
+      }),
     ).toThrow(/past/i);
   });
 
