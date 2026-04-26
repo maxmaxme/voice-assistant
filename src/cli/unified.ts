@@ -11,6 +11,7 @@ import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runne
 import type { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { OpenAiTts } from '../audio/openaiTts.ts';
+import { Scheduler } from '../scheduling/scheduler.ts';
 
 export interface RunnerSet {
   chat: (deps: ChatRunnerDeps) => Promise<void>;
@@ -81,8 +82,18 @@ export async function dispatch(
     throw new Error(`No runners scheduled for AGENT_MODE=${mode}`);
   }
 
-  // Promise.race: if any runner crashes/exits, tear down the whole process.
-  await Promise.race(tasks);
+  const scheduler = new Scheduler({
+    reminders: deps.memory.reminders,
+    timers: deps.memory.timers,
+    sink: deps.fireSink,
+  });
+  scheduler.start();
+  try {
+    // Promise.race: if any runner crashes/exits, tear down the whole process.
+    await Promise.race(tasks);
+  } finally {
+    scheduler.stop();
+  }
 }
 
 export async function main(): Promise<void> {

@@ -11,6 +11,7 @@ import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
 import { telegramFromConfig, receiverFromConfig } from '../telegram/fromConfig.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
 import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from '../agent/agentOutput.ts';
+import type { FireSink } from '../scheduling/types.ts';
 
 export const AGENT_MODES = ['chat', 'voice', 'wake', 'telegram', 'both'] as const;
 export type AgentMode = (typeof AGENT_MODES)[number];
@@ -76,6 +77,7 @@ export interface CommonDeps {
   /** Create a TelegramReceiver backed by the configured bot. Tracks the active
    * receiver so dispose() can stop it on shutdown. */
   telegramReceiver(): TelegramReceiver;
+  fireSink: FireSink;
 }
 
 /** Initialise everything shared across runners. Call once per process. */
@@ -89,6 +91,16 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   const telegram = telegramFromConfig(config);
 
   await mcp.connect();
+
+  const fireSink: FireSink = {
+    async fire(item) {
+      if (item.kind === 'reminder') {
+        await telegram.send(`⏰ ${item.text}`);
+      } else {
+        await telegram.send(`⏱ Timer "${item.label}" finished.`);
+      }
+    },
+  };
 
   const buildAgent = (channel: PromptChannel): OpenAiAgent =>
     new OpenAiAgent({
@@ -118,5 +130,5 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     memory.close();
   };
 
-  return { config, llm, mcp, memory, telegram, buildAgent, dispose, telegramReceiver };
+  return { config, llm, mcp, memory, telegram, buildAgent, dispose, telegramReceiver, fireSink };
 }
