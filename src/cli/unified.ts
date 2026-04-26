@@ -77,7 +77,7 @@ export async function dispatch(
         replyTo: perChatSender(deps.config.telegram.botToken),
         voiceTranscriber: new BotVoiceTranscriber({
           botToken: deps.config.telegram.botToken,
-          client: deps.llm,
+          stt: new OpenAiStt({ client: deps.llm }),
         }),
       }),
     );
@@ -96,6 +96,7 @@ export async function dispatch(
     tasks.push(
       runners.http({
         agent,
+        stt: new OpenAiStt({ client: deps.llm }),
         session: (agent as unknown as { opts?: { session: Session } }).opts?.session as Session,
         memory: deps.memory,
         port,

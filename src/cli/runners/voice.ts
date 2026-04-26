@@ -31,9 +31,7 @@ export async function runVoiceMode(deps: VoiceRunnerDeps): Promise<void> {
       const audio = await recording.stop();
       console.log(`Captured ${audio.length} bytes; transcribing...`);
 
-      const text = (
-        await stt.transcribe(audio, { sampleRate: MIC_SAMPLE_RATE, language: 'ru' })
-      ).trim();
+      const text = (await stt.transcribe(audio, { sampleRate: MIC_SAMPLE_RATE })).trim();
       if (!text) {
         console.log('(no speech detected)');
         continue;

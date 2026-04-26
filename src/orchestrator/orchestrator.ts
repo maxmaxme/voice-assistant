@@ -156,7 +156,6 @@ export class Orchestrator {
           const text = (
             await this.opts.stt.transcribe(eff.audio, {
               sampleRate: this.opts.sampleRate,
-              language: 'ru',
             })
           ).trim();
           if (!text) {

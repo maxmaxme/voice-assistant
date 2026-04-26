@@ -16,7 +16,11 @@ export interface SpeakerOutput {
 }
 
 export interface Stt {
-  transcribe(audio: Buffer, opts: { sampleRate: number; language?: string }): Promise<string>;
+  transcribe(audio: Buffer, opts: { sampleRate: number }): Promise<string>;
+}
+
+export interface AudioFileStt {
+  transcribeFile(audio: Buffer, opts: { filename: string; contentType: string }): Promise<string>;
 }
 
 export interface TtsStream {
