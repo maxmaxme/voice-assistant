@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type OpenAI from 'openai';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
 import { Session } from '../../src/agent/session.ts';
@@ -430,5 +430,61 @@ describe('OpenAiAgent', () => {
     expect(result.text).toBe('Scheduled.');
     expect(added).toHaveLength(1);
     expect(added[0].goal).toBe('call mom');
+  });
+});
+
+describe('OpenAiAgent — OPENAI_WEB_SEARCH hosted tool', () => {
+  const original = process.env.OPENAI_WEB_SEARCH;
+  beforeEach(() => {
+    delete process.env.OPENAI_WEB_SEARCH;
+  });
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.OPENAI_WEB_SEARCH;
+    } else {
+      process.env.OPENAI_WEB_SEARCH = original;
+    }
+  });
+
+  function makeAgent(llm: ReturnType<typeof fakeLlm>, mode: 'chat' | 'goal' = 'chat') {
+    return new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as unknown as OpenAI,
+      telegram: noopTelegram,
+      mode,
+    });
+  }
+
+  it('does NOT include web_search in tools by default', async () => {
+    const llm = fakeLlm([textResponse('hi', 'r1')]);
+    const agent = makeAgent(llm);
+    await agent.respond('hello');
+    const callArgs = llm.calls[0]! as unknown as { tools?: Array<{ type: string }> };
+    const tools = callArgs.tools ?? [];
+    expect(tools.find((t) => t.type === 'web_search')).toBeUndefined();
+  });
+
+  it('includes web_search when OPENAI_WEB_SEARCH=1 (chat mode)', async () => {
+    process.env.OPENAI_WEB_SEARCH = '1';
+    const llm = fakeLlm([textResponse('hi', 'r1')]);
+    const agent = makeAgent(llm);
+    await agent.respond('what is the weather in Madrid');
+    const callArgs = llm.calls[0]! as unknown as { tools?: Array<{ type: string }> };
+    const tools = callArgs.tools ?? [];
+    expect(tools.find((t) => t.type === 'web_search')).toBeDefined();
+  });
+
+  it('includes web_search when OPENAI_WEB_SEARCH=1 (goal mode)', async () => {
+    process.env.OPENAI_WEB_SEARCH = '1';
+    const llm = fakeLlm([textResponse('done', 'r1')]);
+    const agent = makeAgent(llm, 'goal');
+    await agent.respond('check Madrid weather and tell me');
+    const callArgs = llm.calls[0]! as unknown as { tools?: Array<{ type: string }> };
+    const tools = callArgs.tools ?? [];
+    expect(tools.find((t) => t.type === 'web_search')).toBeDefined();
   });
 });
