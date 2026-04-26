@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Records every invocation to $DOCKER_LOG and returns canned output
+# determined by env vars set by the test.
+set -euo pipefail
+echo "$@" >> "${DOCKER_LOG:-/dev/null}"
+
+case "$1" in
+  inspect)
+    if [[ "${*:2}" == *RepoDigests* ]]; then
+      # Digest probe. We use a side-channel file because env vars
+      # don't survive across separate docker process invocations
+      # spawned by the parent update.sh.
+      if [[ -f "${DIGEST_STATE_FILE:-}" ]]; then
+        cat "$DIGEST_STATE_FILE"
+      else
+        echo "${DIGEST_PREV-sha256:aaa}"
+      fi
+    elif [[ "${*:2}" == *Health.Status* ]]; then
+      echo "${HEALTH_STATUS:-healthy}"
+    fi
+    ;;
+  compose)
+    # Look at remaining args (skip global flags like -f <file>) to find
+    # the subcommand. We only care about `pull`; everything else is a
+    # no-op success.
+    for arg in "${@:2}"; do
+      if [[ "$arg" == "pull" ]]; then
+        echo "${DIGEST_NEXT:-${DIGEST_PREV:-sha256:aaa}}" > "${DIGEST_STATE_FILE:?DIGEST_STATE_FILE required}"
+        break
+      fi
+    done
+    ;;
+  image)
+    : # tag / prune / etc. — no-op success
+    ;;
+  *)
+    : # default success
+    ;;
+esac

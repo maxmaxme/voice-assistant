@@ -7,6 +7,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:shell": "bats tests/update.bats",
     "mcp:call": "node src/cli/mcp-call.ts",
     "chat": "node src/cli/chat.ts",
     "voice": "node src/cli/voice.ts",
