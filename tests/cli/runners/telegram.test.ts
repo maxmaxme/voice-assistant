@@ -10,7 +10,39 @@ import type {
 } from '../../../src/telegram/types.ts';
 import type { OpenAiAgent } from '../../../src/agent/openaiAgent.ts';
 import type { Session } from '../../../src/agent/session.ts';
-import type { MemoryAdapter } from '../../../src/memory/types.ts';
+import type { MemoryStore } from '../../../src/memory/types.ts';
+
+function fakeMemory(recallFn?: () => Record<string, unknown>): MemoryStore {
+  return {
+    profile: {
+      remember: () => {},
+      recall: recallFn ?? (() => ({})),
+      forget: () => {},
+      close: () => {},
+    },
+    reminders: {
+      add: () => {
+        throw new Error('not used');
+      },
+      listPending: () => [],
+      listDue: () => [],
+      markFired: () => {},
+      cancel: () => false,
+      get: () => null,
+    },
+    timers: {
+      add: () => {
+        throw new Error('not used');
+      },
+      listActive: () => [],
+      listDue: () => [],
+      markFired: () => {},
+      cancel: () => false,
+      get: () => null,
+    },
+    close: () => {},
+  };
+}
 
 function recvFromMessages(items: TelegramMessage[]): TelegramReceiver {
   return {
@@ -38,7 +70,7 @@ describe('runTelegramMode', () => {
   it('forwards a text message to the agent and replies', async () => {
     const respond = vi.fn(async (text: string) => ({ text: `echo:${text}` }));
     const session = { reset: vi.fn() } as unknown as Session;
-    const memory = { recall: vi.fn(() => ({})) } as unknown as MemoryAdapter;
+    const memory = fakeMemory();
     const cap = captureSender();
 
     await runTelegramMode({
@@ -66,7 +98,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       session: { reset: vi.fn() } as unknown as Session,
-      memory: { recall: vi.fn(() => ({})) } as unknown as MemoryAdapter,
+      memory: fakeMemory(),
       allowedChatIds: [42],
     });
     expect(respond).not.toHaveBeenCalled();
@@ -84,7 +116,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       session,
-      memory: { recall: vi.fn(() => ({})) } as unknown as MemoryAdapter,
+      memory: fakeMemory(),
       allowedChatIds: [42],
     });
     expect(session.reset).toHaveBeenCalledTimes(1);
@@ -103,7 +135,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       session: { reset: vi.fn() } as unknown as Session,
-      memory: { recall } as unknown as MemoryAdapter,
+      memory: fakeMemory(recall),
       allowedChatIds: [42],
     });
     expect(recall).toHaveBeenCalled();
@@ -121,7 +153,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       session: { reset: vi.fn() } as unknown as Session,
-      memory: { recall: vi.fn(() => ({})) } as unknown as MemoryAdapter,
+      memory: fakeMemory(),
       allowedChatIds: [42],
     });
     expect(respond).not.toHaveBeenCalled();
@@ -146,7 +178,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       session: { reset: vi.fn() } as unknown as Session,
-      memory: { recall: vi.fn(() => ({})) } as unknown as MemoryAdapter,
+      memory: fakeMemory(),
       allowedChatIds: [42],
     });
     expect(respond).not.toHaveBeenCalled();
@@ -165,7 +197,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       session: { reset: vi.fn() } as unknown as Session,
-      memory: { recall: vi.fn(() => ({})) } as unknown as MemoryAdapter,
+      memory: fakeMemory(),
       allowedChatIds: [42],
     });
     expect(cap.sent[0]).toMatch(/error|ошибк/i);
@@ -181,7 +213,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       session: { reset: vi.fn() } as unknown as Session,
-      memory: { recall: vi.fn(() => ({})) } as unknown as MemoryAdapter,
+      memory: fakeMemory(),
       allowedChatIds: [42],
     });
     expect(respond).not.toHaveBeenCalled();

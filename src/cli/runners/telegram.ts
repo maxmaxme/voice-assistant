@@ -1,7 +1,7 @@
 import { exec } from 'child_process';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { Session } from '../../agent/session.ts';
-import type { MemoryAdapter } from '../../memory/types.ts';
+import type { MemoryStore } from '../../memory/types.ts';
 import type { TelegramReceiver, TelegramSender, TelegramMessage } from '../../telegram/types.ts';
 import { BotTelegramSender } from '../../telegram/telegramSender.ts';
 
@@ -12,7 +12,7 @@ export interface TelegramRunnerDeps {
   sender: TelegramSender;
   agent: OpenAiAgent;
   session: Session;
-  memory: MemoryAdapter;
+  memory: MemoryStore;
   allowedChatIds: number[];
   /** Build a new sender targeting a specific chat. Defaults to the global one
    * (single-user setup). Tests inject this. */
@@ -54,7 +54,7 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
 
 async function handleMessage(
   msg: TelegramMessage,
-  ctx: { agent: OpenAiAgent; session: Session; memory: MemoryAdapter; sender: TelegramSender },
+  ctx: { agent: OpenAiAgent; session: Session; memory: MemoryStore; sender: TelegramSender },
 ): Promise<void> {
   if (msg.kind === 'voice') {
     await ctx.sender.send('Voice messages are not supported yet — please send text.');
@@ -76,7 +76,7 @@ async function handleMessage(
     return;
   }
   if (text === '/profile') {
-    await ctx.sender.send(JSON.stringify(ctx.memory.recall(), null, 2));
+    await ctx.sender.send(JSON.stringify(ctx.memory.profile.recall(), null, 2));
     return;
   }
   if (text === '/update') {
