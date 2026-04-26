@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { dispatch } from '../../src/cli/unified.ts';
 import { Scheduler } from '../../src/scheduling/scheduler.ts';
-import type { CommonDeps, AgentMode } from '../../src/cli/shared.ts';
+import type { CommonDeps } from '../../src/cli/shared.ts';
 import type OpenAI from 'openai';
 import type { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
 import type { MemoryStore, ScheduledActionsAdapter } from '../../src/memory/types.ts';
@@ -69,7 +69,7 @@ describe('dispatch', () => {
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
     };
-    await dispatch('chat' as AgentMode, deps, runners);
+    await dispatch('chat', deps, runners);
     expect(runners.chat).toHaveBeenCalledTimes(1);
     expect(runners.voice).not.toHaveBeenCalled();
     expect(runners.wake).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ describe('dispatch', () => {
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
     };
-    await dispatch('voice' as AgentMode, deps, runners);
+    await dispatch('voice', deps, runners);
     expect(runners.voice).toHaveBeenCalledTimes(1);
   });
 
@@ -97,7 +97,7 @@ describe('dispatch', () => {
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
     };
-    await dispatch('wake' as AgentMode, deps, runners);
+    await dispatch('wake', deps, runners);
     expect(runners.wake).toHaveBeenCalledTimes(1);
   });
 
@@ -122,7 +122,7 @@ describe('dispatch', () => {
         await new Promise((r) => setTimeout(r, 5));
       }),
     };
-    await dispatch('both' as AgentMode, deps, runners);
+    await dispatch('both', deps, runners);
     expect(wakeStarted).toHaveBeenCalled();
     expect(telegramStarted).toHaveBeenCalled();
     expect(httpStarted).toHaveBeenCalled();
@@ -140,7 +140,7 @@ describe('dispatch', () => {
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
     };
-    await dispatch('telegram' as AgentMode, deps, runners);
+    await dispatch('telegram', deps, runners);
     expect(runners.telegram).toHaveBeenCalledTimes(1);
   });
 
@@ -153,7 +153,7 @@ describe('dispatch', () => {
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
     };
-    await dispatch('wake' as AgentMode, deps, runners);
+    await dispatch('wake', deps, runners);
     expect(deps.buildAgent).toHaveBeenCalledWith('wake');
   });
 
@@ -168,7 +168,7 @@ describe('dispatch', () => {
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
     };
-    await dispatch('chat' as AgentMode, deps, runners);
+    await dispatch('chat', deps, runners);
     expect(startSpy).toHaveBeenCalledTimes(1);
     expect(stopSpy).toHaveBeenCalledTimes(1);
     startSpy.mockRestore();
