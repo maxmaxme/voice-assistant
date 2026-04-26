@@ -146,7 +146,7 @@ export class Orchestrator {
           if (!this.capturing || this.speechSeen) {
             return;
           }
-          console.log('[no command heard within 5s — returning to idle]');
+          log.info('no command heard within 5s — returning to idle');
           this.endCapture();
         }, NO_SPEECH_TIMEOUT_MS);
         return;
@@ -162,11 +162,11 @@ export class Orchestrator {
             })
           ).trim();
           if (!text) {
-            console.log('[empty transcript — say a command right after the wake word]');
+            log.info('empty transcript — say a command right after the wake word');
             await this.dispatch({ type: 'speechFinished' });
             return;
           }
-          console.log(`User: ${text}`);
+          log.info({ user: text }, `user: ${text}`);
           const reply = await this.opts.agent.respond(text);
           await this.dispatch({
             type: 'agentReplied',
@@ -191,7 +191,10 @@ export class Orchestrator {
                 : eff.direction === 'off'
                   ? CONFIRM_OFF_BLIP
                   : CONFIRM_BLIP;
-            console.log(`Assistant: [${eff.direction}] (silent confirm)`);
+            log.info(
+              { direction: eff.direction },
+              `assistant: [${eff.direction}] (silent confirm)`,
+            );
             await this.opts.speaker.playStream(bufferToStream(blip, BLIP_SAMPLE_RATE), {
               signal: this.currentSpeechAbort.signal,
             });
@@ -199,7 +202,7 @@ export class Orchestrator {
             const stream = this.opts.tts.stream(eff.text, {
               signal: this.currentSpeechAbort.signal,
             });
-            console.log(`Assistant: ${eff.text}`);
+            log.info({ assistant: eff.text }, `assistant: ${eff.text}`);
             await this.opts.speaker.playStream(stream, {
               signal: this.currentSpeechAbort.signal,
             });
