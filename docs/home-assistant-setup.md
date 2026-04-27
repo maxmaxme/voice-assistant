@@ -145,6 +145,23 @@ RUN_INTEGRATION=1 npm test
 
 Expected: 1 integration test passes (turns the lamp on, then off).
 
+## HACS (Pi production stack only)
+
+`deploy/docker-compose.yml` runs a one-shot `hacs-init` container before HA
+starts. It downloads HACS into `ha-data/custom_components/hacs` if not
+already present (idempotent — safe to re-run on every `docker compose up`).
+
+Activation still requires manual UI steps **once**:
+
+1. Restart HA after the first install: `docker compose restart home-assistant`
+2. Settings → Devices & Services → Add Integration → search **HACS**
+3. Tick all four checkboxes, submit, then follow the GitHub device-flow
+   link and paste the one-time code (no PAT needed for the device flow).
+4. After approval HACS appears in the sidebar.
+
+To force a re-install, delete `ha-data/custom_components/hacs/` on the host
+and `docker compose up -d hacs-init`.
+
 ## Troubleshooting
 
 - **`MatchFailedReason.ASSISTANT`** — entity not exposed; redo step 5.
