@@ -33,6 +33,10 @@ services:
       # Inside the container the system TZ is UTC, so we forward TZ from .env.
       - TZ=${TZ:-UTC}
     stop_grace_period: 10s
+    # HA runs in host network mode (for HomeKit/mDNS/Bluetooth discovery), so
+    # it's not on the same docker network as us. Reach it via host.docker.internal.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     healthcheck:
       # The Node entry point must be alive. The wake-word daemon is optional
       # (only spawned when an ALSA capture device is present), so don't require
@@ -52,17 +56,23 @@ services:
   # per docs/home-assistant-setup.md — bundling only saves the extra
   # compose file, not the per-install setup work.
   #
-  # Voice-assistant reaches HA via Docker DNS at http://home-assistant:8123.
-  # Set HA_URL accordingly in .env.
+  # network_mode: host — required for HomeKit/mDNS/SSDP/Bluetooth discovery.
+  # Side effect: HA is no longer on docker DNS, so voice-assistant reaches it
+  # via http://host.docker.internal:8123 (set HA_URL accordingly in .env).
   home-assistant:
     image: ghcr.io/home-assistant/home-assistant:stable
     container_name: home-assistant
     restart: unless-stopped
+    network_mode: host
+    privileged: true
     volumes:
       - ../ha-data:/config
       - /etc/localtime:/etc/localtime:ro
-    ports:
-      - '8123:8123'
+      - /run/dbus:/run/dbus:ro
+    devices:
+      # All USB devices (Zigbee/Z-Wave/Sonoff dongles, etc.). Built-in
+      # Bluetooth on Pi 5 is reached via /run/dbus, not /dev.
+      - /dev/bus/usb:/dev/bus/usb
 
   # One-shot init container: writes Telegram alert config into the
   # netdataconfig volume before netdata starts. Values are taken from
