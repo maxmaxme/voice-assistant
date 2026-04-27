@@ -3,27 +3,23 @@ import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
 import { OpenWakeWord } from '../../src/audio/wakeWord.ts';
 
-function fakeProc(scriptedStdout: string[]) {
-  const stdout = new Readable({ read() {} });
-  const stdin = new Writable({
+class FakeProc extends EventEmitter {
+  stdin: Writable = new Writable({
     write(_c, _e, cb) {
       cb();
     },
   });
-  const proc = new EventEmitter() as EventEmitter & {
-    stdin: Writable;
-    stdout: Readable;
-    stderr: Readable;
-    kill: (sig?: string) => void;
-  };
-  proc.stdin = stdin;
-  proc.stdout = stdout;
-  proc.stderr = new Readable({ read() {} });
-  proc.kill = () => {};
+  stdout: Readable = new Readable({ read() {} });
+  stderr: Readable = new Readable({ read() {} });
+  kill(): void {}
+}
+
+function fakeProc(scriptedStdout: string[]): FakeProc {
+  const proc = new FakeProc();
   // Push scripted lines on next tick so callers have time to attach listeners.
   setImmediate(() => {
     for (const line of scriptedStdout) {
-      stdout.push(line + '\n');
+      proc.stdout.push(line + '\n');
     }
   });
   return proc;

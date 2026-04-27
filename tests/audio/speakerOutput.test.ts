@@ -11,30 +11,22 @@ vi.mock('node:child_process', () => ({ spawn: (...args: unknown[]) => spawnMock(
 // Import after mocks so the module picks them up.
 const { NodeSpeakerOutput } = await import('../../src/audio/speakerOutput.ts');
 
-interface FakeStdin extends EventEmitter {
-  write: ReturnType<typeof vi.fn>;
-  end: ReturnType<typeof vi.fn>;
-  destroy: ReturnType<typeof vi.fn>;
-  destroyed: boolean;
+class FakeStdin extends EventEmitter {
+  destroyed = false;
+  write = vi.fn(() => true);
+  end = vi.fn();
+  destroy = vi.fn(() => {
+    this.destroyed = true;
+  });
 }
 
-interface FakeProc extends EventEmitter {
-  stdin: FakeStdin;
-  kill: ReturnType<typeof vi.fn>;
+class FakeProc extends EventEmitter {
+  stdin = new FakeStdin();
+  kill = vi.fn();
 }
 
 function makeFakeProc(): FakeProc {
-  const stdin = new EventEmitter() as FakeStdin;
-  stdin.destroyed = false;
-  stdin.write = vi.fn(() => true);
-  stdin.end = vi.fn();
-  stdin.destroy = vi.fn(() => {
-    stdin.destroyed = true;
-  });
-  const proc = new EventEmitter() as FakeProc;
-  proc.stdin = stdin;
-  proc.kill = vi.fn();
-  return proc;
+  return new FakeProc();
 }
 
 async function streamFrom(
