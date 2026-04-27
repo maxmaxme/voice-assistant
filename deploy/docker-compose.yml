@@ -61,8 +61,8 @@ services:
   # via http://host.docker.internal:8123 (set HA_URL accordingly in .env).
   # One-shot init container: downloads HACS into ha-data/custom_components/hacs
   # before HA starts. Idempotent — skips if HACS is already present. Adding
-  # HACS as an integration in the HA UI (and pasting a GitHub PAT) is still a
-  # manual step — see docs/home-assistant-setup.md.
+  # HACS as an integration in the HA UI (and approving GitHub device-flow) is
+  # still a manual step — see docs/home-assistant-setup.md.
   hacs-init:
     image: alpine:3.20
     container_name: hacs-init
@@ -184,6 +184,10 @@ services:
       - DOCKER_HOST=/var/run/docker.sock
     volumes:
       - netdataconfig:/etc/netdata
+      # Custom alert templates live in version control. The bind mount
+      # overlays /etc/netdata/health.d (which otherwise comes from the
+      # netdataconfig volume) so adding/removing alerts is just a git diff.
+      - ./monitoring/health.d:/etc/netdata/health.d:ro
       - netdatalib:/var/lib/netdata
       - netdatacache:/var/cache/netdata
       - /etc/passwd:/host/etc/passwd:ro
