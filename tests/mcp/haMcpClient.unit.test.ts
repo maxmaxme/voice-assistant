@@ -27,7 +27,7 @@ describe('HaMcpClient', () => {
     const client = new HaMcpClient({
       url: 'http://h:8123',
       token: 't',
-      sdkClientFactory: () => sdk as never,
+      sdkClientFactory: () => sdk,
     });
     await client.connect();
     expect(sdk.connect).toHaveBeenCalledOnce();
@@ -38,7 +38,7 @@ describe('HaMcpClient', () => {
     const client = new HaMcpClient({
       url: 'http://h:8123',
       token: 't',
-      sdkClientFactory: () => sdk as never,
+      sdkClientFactory: () => sdk,
     });
     await client.connect();
     const tools = await client.listTools();
@@ -51,7 +51,7 @@ describe('HaMcpClient', () => {
     const client = new HaMcpClient({
       url: 'http://h:8123',
       token: 't',
-      sdkClientFactory: () => sdk as never,
+      sdkClientFactory: () => sdk,
     });
     await client.connect();
     const result = await client.callTool('HassTurnOn', { entity_id: 'light.x' });
@@ -67,7 +67,7 @@ describe('HaMcpClient', () => {
     const client = new HaMcpClient({
       url: 'http://h:8123',
       token: 't',
-      sdkClientFactory: () => sdk as never,
+      sdkClientFactory: () => sdk,
     });
     await client.connect();
     await client.disconnect();

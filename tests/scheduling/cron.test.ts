@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { nextFireAt, validateSchedule } from '../../src/scheduling/cron.ts';
 import type { Schedule } from '../../src/scheduling/types.ts';
+import { assertError } from '../../src/utils/assertError.ts';
 
 const originalTz = process.env.TZ;
 afterEach(() => {
@@ -107,16 +108,16 @@ describe('validateSchedule', () => {
   });
 
   it('throws on garbage cron expressions, mentioning the expression', () => {
-    let caught: unknown;
+    let caught: Error | undefined;
     try {
       validateSchedule({ kind: 'cron', expr: 'not a cron' });
     } catch (err) {
+      assertError(err);
       caught = err;
     }
-    expect(caught).toBeInstanceOf(Error);
-    const msg = (caught as Error).message.toLowerCase();
-    expect(msg).toContain('cron');
-    expect((caught as Error).message).toContain('not a cron');
+    expect(caught).toBeDefined();
+    expect(caught!.message.toLowerCase()).toContain('cron');
+    expect(caught!.message).toContain('not a cron');
   });
 
   it('accepts a valid 5-field cron', () => {

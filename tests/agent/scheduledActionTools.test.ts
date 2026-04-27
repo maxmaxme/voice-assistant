@@ -10,6 +10,7 @@ import type {
   ScheduledActionsAdapter,
 } from '../../src/memory/types.ts';
 import { toLocalIso } from '../../src/utils/time.ts';
+import { assertError } from '../../src/utils/assertError.ts';
 
 function memScheduled(): ScheduledActionsAdapter {
   let id = 0;
@@ -210,7 +211,8 @@ describe('scheduledActionTools — schedule_action cron', () => {
         schedule_expr: 'not a cron',
       });
     } catch (e) {
-      err = e as Error;
+      assertError(e);
+      err = e;
     }
     expect(err).toBeDefined();
     expect(err!.message).toMatch(/cron/);
