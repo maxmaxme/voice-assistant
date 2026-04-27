@@ -133,6 +133,10 @@ services:
       - ../.env
     volumes:
       - netdataconfig:/etc/netdata
+      # Repo's custom alerts, read-only. Init copies them into the named
+      # volume so netdata's own startup script can still write into
+      # /etc/netdata/health.d (it copies stock alerts there on boot).
+      - ./monitoring/health.d:/custom-health.d:ro
     # `$$VAR` escapes compose-time substitution so busybox sh expands the
     # variable at runtime from env_file. Required vars: TELEGRAM_BOT_TOKEN,
     # TELEGRAM_CHAT_ID — both already used by the assistant itself.
@@ -158,6 +162,10 @@ services:
         role_recipients_telegram[proxyadmin]="$$TELEGRAM_CHAT_ID"
         role_recipients_telegram[silent]="$$TELEGRAM_CHAT_ID"
         EOF
+        mkdir -p /etc/netdata/health.d
+        if [ -d /custom-health.d ]; then
+          cp -f /custom-health.d/*.conf /etc/netdata/health.d/ 2>/dev/null || true
+        fi
 
   # System metrics + alerts. NOT exposed directly — sits on the internal
   # `monitoring` network and is reached via the Caddy reverse proxy with
@@ -184,10 +192,6 @@ services:
       - DOCKER_HOST=/var/run/docker.sock
     volumes:
       - netdataconfig:/etc/netdata
-      # Custom alert templates live in version control. The bind mount
-      # overlays /etc/netdata/health.d (which otherwise comes from the
-      # netdataconfig volume) so adding/removing alerts is just a git diff.
-      - ./monitoring/health.d:/etc/netdata/health.d:ro
       - netdatalib:/var/lib/netdata
       - netdatacache:/var/cache/netdata
       - /etc/passwd:/host/etc/passwd:ro
