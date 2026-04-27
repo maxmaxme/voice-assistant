@@ -55,7 +55,7 @@ groups pi | grep -q audio || sudo usermod -aG audio pi
 Clone the repo and run the install script:
 
 ```bash
-sudo git clone https://github.com/<you>/voice-assistant.git /opt/voice-assistant
+sudo git clone https://github.com/maxmaxme/voice-assistant.git /opt/voice-assistant
 sudo /opt/voice-assistant/deploy/install.sh
 ```
 
