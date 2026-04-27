@@ -6,7 +6,7 @@ Requires=docker.service
 [Service]
 Type=simple
 ExecStartPre=/bin/bash -c 'if [ ! -p /tmp/va-update ]; then rm -rf /tmp/va-update && mkfifo /tmp/va-update; fi && chmod 666 /tmp/va-update'
-ExecStart=/bin/bash -c 'while true; do cat /tmp/va-update; /opt/voice-assistant/deploy/update.sh; done'
+ExecStart=/bin/bash -c 'while true; do cat /tmp/va-update; VA_UPDATE_NOTIFY_NOOP=1 /opt/voice-assistant/deploy/update.sh; done'
 Restart=always
 RestartSec=2
 
