@@ -56,6 +56,9 @@ log "new digest: ${NEW_DIGEST:-<none>}"
 
 if [[ "$PREV_DIGEST" == "$NEW_DIGEST" ]]; then
   log "no change"
+  if [[ "${VA_UPDATE_NOTIFY_NOOP:-}" == "1" ]]; then
+    notify "✓ voice-assistant already up to date"
+  fi
   exit 0
 fi
 
