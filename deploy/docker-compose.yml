@@ -101,6 +101,26 @@ services:
       # Bluetooth on Pi 5 is reached via /run/dbus, not /dev.
       - /dev/bus/usb:/dev/bus/usb
 
+  # Matter fabric controller. The Matter integration in Home Assistant is
+  # only a client — it talks to this server over WebSocket on :5580/ws.
+  # Runs on host network for IPv6 link-local + mDNS, and needs BlueZ via
+  # /run/dbus for BLE commissioning of new Matter devices. Persistent
+  # fabric/credentials live in ../matter-data on the host (gitignored).
+  matter-server:
+    image: ghcr.io/home-assistant-libs/python-matter-server:stable
+    container_name: matter-server
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+      - ../matter-data:/data
+      - /run/dbus:/run/dbus:ro
+    command:
+      - --storage-path=/data
+      - --paa-root-cert-dir=/data/credentials
+
   # One-shot init container: writes Telegram alert config into the
   # netdataconfig volume before netdata starts. Values are taken from
   # the same TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID used by the assistant.
