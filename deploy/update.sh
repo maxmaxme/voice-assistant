@@ -14,10 +14,14 @@ ROLLBACK_TAG="${_image_no_tag}:rollback"
 HEALTHCHECK_TIMEOUT_SECONDS="${HEALTHCHECK_TIMEOUT_SECONDS:-90}"
 
 # Load .env so TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID are available.
+# Disable nounset while sourcing — values legitimately may contain `$`
+# sequences (e.g. random tokens) that would trip `set -u` on expansion.
 if [[ -f "$ENV_FILE" ]]; then
   set -a
+  set +u
   # shellcheck disable=SC1090
   . "$ENV_FILE"
+  set -u
   set +a
 fi
 
