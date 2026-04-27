@@ -88,18 +88,21 @@ services:
         DEFAULT_RECIPIENT_TELEGRAM="$$TELEGRAM_CHAT_ID"
         EOF
 
-  # System metrics + alerts. UI on http://<pi-host>:19999.
-  # Telegram routing is set up by netdata-init; see docs/monitoring-setup.md
-  # for tuning thresholds (CPU temp, RAM, etc.).
+  # System metrics + alerts. NOT exposed directly — sits on the internal
+  # `monitoring` network and is reached via the Caddy reverse proxy with
+  # basic auth. Telegram routing is set up by netdata-init; see
+  # docs/monitoring-setup.md for tuning thresholds.
   netdata:
     image: netdata/netdata:stable
     container_name: netdata
+    hostname: netdata
     restart: unless-stopped
     depends_on:
       netdata-init:
         condition: service_completed_successfully
     pid: host
-    network_mode: host
+    networks:
+      - monitoring
     cap_add:
       - SYS_PTRACE
       - SYS_ADMIN
@@ -121,23 +124,50 @@ services:
       - /var/log:/host/var/log:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
-  # Docker container logs viewer. UI on http://<pi-host>:8888.
-  # Read-only access to docker socket; no data persisted.
+  # Docker container logs viewer. Reached via the Caddy proxy on :8888;
+  # no host port published directly.
   dozzle:
     image: amir20/dozzle:latest
     container_name: dozzle
+    hostname: dozzle
     restart: unless-stopped
+    networks:
+      - monitoring
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - DOZZLE_NO_ANALYTICS=true
-      # Uncomment and set to require login (recommended if Pi is reachable
-      # outside your LAN). See https://dozzle.dev/guide/authentication
-      # - DOZZLE_AUTH_PROVIDER=simple
+
+  # Reverse proxy with basic auth in front of Netdata + Dozzle.
+  # Credentials: MONITOR_USER + MONITOR_PASSWORD_HASH (bcrypt) in .env.
+  # Generate the hash with:
+  #   docker run --rm caddy:2-alpine caddy hash-password --plaintext '<password>'
+  monitoring-proxy:
+    image: caddy:2-alpine
+    container_name: monitoring-proxy
+    restart: unless-stopped
+    depends_on:
+      - netdata
+      - dozzle
+    networks:
+      - monitoring
+    env_file:
+      - ../.env
     ports:
-      - '8888:8080'
+      - '19999:19999'
+      - '8888:8888'
+    volumes:
+      - ./monitoring/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+
+networks:
+  monitoring:
+    driver: bridge
 
 volumes:
   netdataconfig:
   netdatalib:
   netdatacache:
+  caddydata:
+  caddyconfig:

@@ -1,0 +1,32 @@
+# Reverse proxy with basic auth in front of Netdata and Dozzle.
+# Both backends sit on the internal `monitoring` docker network and have
+# no host ports of their own — Caddy is the only externally reachable
+# entry point.
+#
+# Credentials are read from env vars (loaded via env_file in compose):
+#   MONITOR_USER             — username
+#   MONITOR_PASSWORD_HASH    — bcrypt hash, generated with:
+#     docker run --rm caddy:2-alpine caddy hash-password --plaintext '<pwd>'
+
+{
+	# No automatic HTTPS — listening on plain HTTP only. If you ever want
+	# TLS, terminate it on a real reverse proxy in front of this one.
+	auto_https off
+	admin off
+}
+
+# Netdata UI
+:19999 {
+	basic_auth {
+		{$MONITOR_USER} {$MONITOR_PASSWORD_HASH}
+	}
+	reverse_proxy netdata:19999
+}
+
+# Dozzle UI (docker logs viewer)
+:8888 {
+	basic_auth {
+		{$MONITOR_USER} {$MONITOR_PASSWORD_HASH}
+	}
+	reverse_proxy dozzle:8080
+}
