@@ -59,12 +59,39 @@ services:
   # network_mode: host — required for HomeKit/mDNS/SSDP/Bluetooth discovery.
   # Side effect: HA is no longer on docker DNS, so voice-assistant reaches it
   # via http://host.docker.internal:8123 (set HA_URL accordingly in .env).
+  # One-shot init container: downloads HACS into ha-data/custom_components/hacs
+  # before HA starts. Idempotent — skips if HACS is already present. Adding
+  # HACS as an integration in the HA UI (and pasting a GitHub PAT) is still a
+  # manual step — see docs/home-assistant-setup.md.
+  hacs-init:
+    image: alpine:3.20
+    container_name: hacs-init
+    restart: 'no'
+    volumes:
+      - ../ha-data:/config
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ -d /config/custom_components/hacs ]; then
+          echo "HACS already installed, skipping"
+          exit 0
+        fi
+        apk add --no-cache bash wget
+        mkdir -p /config
+        cd /config
+        wget -O - https://get.hacs.xyz | bash -
+
   home-assistant:
     image: ghcr.io/home-assistant/home-assistant:stable
     container_name: home-assistant
     restart: unless-stopped
     network_mode: host
     privileged: true
+    depends_on:
+      hacs-init:
+        condition: service_completed_successfully
     volumes:
       - ../ha-data:/config
       - /etc/localtime:/etc/localtime:ro
