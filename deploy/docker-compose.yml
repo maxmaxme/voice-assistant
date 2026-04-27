@@ -38,12 +38,13 @@ services:
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     healthcheck:
-      # The Node entry point must be alive. The wake-word daemon is optional
-      # (only spawned when an ALSA capture device is present), so don't require
-      # it — the runner logs a warn and keeps telegram/http running otherwise.
+      # Probe the HTTP runner's /health endpoint. The wake-word daemon is
+      # optional (only spawned when an ALSA capture device is present), and
+      # `procps`/`pgrep` aren't in the slim image — so we use Node (already
+      # present) to fetch /health and verify the runner is actually serving.
       test:
         - 'CMD-SHELL'
-        - '[ "$(pgrep -c -f ''node src/cli/unified.ts'')" -ge 1 ]'
+        - 'node -e "fetch(''http://127.0.0.1:''+(process.env.HTTP_SERVER_PORT||3000)+''/health'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"'
       interval: 30s
       timeout: 5s
       start_period: 30s
