@@ -230,6 +230,8 @@ Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth aga
 
 CI (`.github/workflows/build-image.yml`) cross-builds an arm64 image on every push to `main` and publishes it to `ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via `deploy/update.sh`, run by `voice-assistant-update.timer` at 04:00 daily or manually via `/update` Telegram command. The script bails when the digest hasn't changed, rolls back to the previous image if the existing healthcheck doesn't go green within 90 s, and posts the outcome to Telegram. There is no blue/green: a single ALSA mic forces a serial restart, and 5 s of unavailability at 04:00 is invisible.
 
+**Monitoring stack.** Same compose file also runs **Netdata** (metrics + alerts, `:19999`) and **Dozzle** (docker log viewer, `:8888`) alongside the assistant. A one-shot `netdata-init` busybox service writes a minimal `health_alarm_notify.conf` into the netdata config volume on every `docker compose up`, wiring Telegram alerts to the same `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` the assistant already uses — no manual setup. Tuning thresholds and security notes in `docs/monitoring-setup.md`. Both UIs are unauthenticated; safe only on a trusted LAN.
+
 **FIFO setup for `/update`:** The container writes to a FIFO mounted from the host. A
 lightweight systemd service on the Pi reads from it and calls `update.sh`. Install once:
 
