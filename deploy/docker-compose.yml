@@ -34,10 +34,12 @@ services:
       - TZ=${TZ:-UTC}
     stop_grace_period: 10s
     healthcheck:
-      # Both the Node entry point and the wake-word daemon must be alive.
+      # The Node entry point must be alive. The wake-word daemon is optional
+      # (only spawned when an ALSA capture device is present), so don't require
+      # it — the runner logs a warn and keeps telegram/http running otherwise.
       test:
         - 'CMD-SHELL'
-        - '[ "$(pgrep -c -f ''node src/cli/unified.ts'')" -ge 1 ] && [ "$(pgrep -c -f ''wake_word_daemon.py'')" -ge 1 ]'
+        - '[ "$(pgrep -c -f ''node src/cli/unified.ts'')" -ge 1 ]'
       interval: 30s
       timeout: 5s
       start_period: 30s
