@@ -40,16 +40,22 @@ browsers don't isolate cookies by port on the same hostname.
    It prints a single line like `admin:$$2a$$10$$...`. TOTP is optional —
    say "no" unless you want it.
 
-2. Decide on a public URL for the tinyauth login page. It must be
-   resolvable from the browser you'll log in with. Examples:
-   - `http://pi.local:8890` (mDNS, works on most LANs)
-   - `http://192.168.1.42:8890` (raw LAN IP)
+2. Decide on a public URL for the tinyauth login page. tinyauth requires
+   a hostname with at least 2 labels and **rejects raw IPs**, so:
+   - `http://<hostname>.local:8890` if mDNS works on your LAN — find the
+     hostname with `dns-sd -B _workstation._tcp .` from a Mac, or
+     `hostname` on the Pi itself.
+   - `http://192-168-1-42.nip.io:8890` (replace dots with dashes) if you
+     prefer to hit the LAN IP — nip.io is a public DNS that resolves
+     such names back to the original IP, no setup needed.
+   - `http://home.lan:8890` (or any 2+ label name) if you've added a
+     local DNS entry on your router pointing at the Pi.
 
 3. Put both into `.env` on the Pi:
 
    ```bash
-   MONITOR_AUTH_URL=http://pi.local:8890
-   MONITOR_AUTH_USERS=admin:$$2a$$10$$...   # the full line from step 1
+   TINYAUTH_APPURL=http://pi.local:8890
+   TINYAUTH_AUTH_USERS=admin:$$2a$$10$$...   # the full line from step 1
    ```
 
 4. Bring everything up:
@@ -64,7 +70,7 @@ browsers don't isolate cookies by port on the same hostname.
    uses the same cookie, no second login.
 
 To rotate credentials later: regenerate the user line, update
-`MONITOR_AUTH_USERS` in `.env`, then `docker compose up -d tinyauth`.
+`TINYAUTH_AUTH_USERS` in `.env`, then `docker compose up -d tinyauth`.
 To kick everyone out, also wipe the `tinyauthdata` volume:
 `docker compose down tinyauth && docker volume rm deploy_tinyauthdata`.
 
