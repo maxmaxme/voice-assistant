@@ -1,4 +1,5 @@
 import { Telegraf } from 'telegraf';
+import telegramifyMarkdown from 'telegramify-markdown';
 import type { TelegramSender } from './types.ts';
 
 export interface BotTelegramSenderOptions {
@@ -16,6 +17,9 @@ export class BotTelegramSender implements TelegramSender {
   }
 
   async send(text: string): Promise<void> {
-    await this.bot.telegram.sendMessage(this.chatId, text);
+    const formatted = telegramifyMarkdown(text, 'escape');
+    await this.bot.telegram.sendMessage(this.chatId, formatted, {
+      parse_mode: 'MarkdownV2',
+    });
   }
 }
