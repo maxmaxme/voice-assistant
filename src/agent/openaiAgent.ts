@@ -225,6 +225,7 @@ export class OpenAiAgent implements Agent {
         const settled = await Promise.allSettled(
           fnCalls.map(async (tc) => {
             const args = this.parseArgs(tc.arguments);
+            const startedAt = Date.now();
             let resultText: string;
             let isError = false;
             if (MEMORY_TOOL_NAMES.has(tc.name)) {
@@ -270,12 +271,13 @@ export class OpenAiAgent implements Agent {
                 isError = true;
               }
             }
+            const durationMs = Date.now() - startedAt;
             const argsStr = JSON.stringify(args);
-            const fields = { tool: tc.name, args, isError };
+            const fields = { tool: tc.name, args, isError, durationMs };
             if (isError) {
-              log.warn(fields, `${tc.name}(${argsStr}) → ${resultText}`);
+              log.warn(fields, `${tc.name}(${argsStr}) → ${resultText} (${durationMs}ms)`);
             } else {
-              log.debug(fields, `${tc.name}(${argsStr}) → ${resultText}`);
+              log.debug(fields, `${tc.name}(${argsStr}) → ${resultText} (${durationMs}ms)`);
             }
             const output = isError
               ? `ERROR: ${resultText}${appendRecoveryHint(tc.name, resultText)}`
