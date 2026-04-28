@@ -70,6 +70,11 @@ export class OpenAiAgent implements Agent {
     const session = opts.session ?? this.opts.session;
     const images = opts.images ?? [];
 
+    log.info(
+      { mode: this.mode, hasImages: images.length > 0, imageCount: images.length },
+      `user → ${userText}`,
+    );
+
     // In goal mode, every fire is a fresh chain — the directive (system
     // prompt) must apply on every call, and there's no continuing user
     // conversation to chain into.
@@ -190,10 +195,10 @@ export class OpenAiAgent implements Agent {
       if (response.output_parsed != null) {
         session.commit(response.id);
         const parsed = response.output_parsed;
-        return {
-          text: stripApiArtifacts(parsed.speak ?? ''),
-          direction: 'direction' in parsed ? (parsed.direction ?? null) : null,
-        };
+        const text = stripApiArtifacts(parsed.speak ?? '');
+        const direction = 'direction' in parsed ? (parsed.direction ?? null) : null;
+        log.info({ direction }, `assistant → ${text}`);
+        return { text, direction };
       }
 
       const fnCalls = (response.output ?? []).filter(
