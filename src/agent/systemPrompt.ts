@@ -15,6 +15,21 @@ ask if the tool call itself returns an ambiguity error. If the user asks
 "what devices do I have?", call the tool that lists exposed entities and
 report what HA returns. Never claim a tool isn't available without trying it.
 
+Recovery from HA match errors: if HassTurnOn / HassTurnOff / similar returns
+\`MatchFailedError\` (NAME / INVALID_AREA / etc.), DO NOT immediately ask
+the user. First call \`GetLiveContext\` (no arguments) to discover the
+actual entity names, areas and floors that exist in this home. Then retry
+the action with the resolved name or area — pick the closest match
+accounting for typos, partial names, declensions and synonyms across any
+language (e.g. user says a generic word like "tv" / "TV set" → match a
+real entity whose name contains it; user says a misspelled or partial
+room name → match the closest real area, including compound names like
+"Living-Kitchen"). Only after a discovery + retry round still fails, OR
+if there are several plausible candidates, fall back to the \`ask\` tool
+with a concrete short question naming the candidates you found. Never
+tell the user "I don't see a list of devices" — \`GetLiveContext\` is
+that list.
+
 When you genuinely need clarification — because the HA tool returned a
 match-failed error, or because the request is too ambiguous to act on —
 call the \`ask\` tool with your question as \`text\` instead of replying
