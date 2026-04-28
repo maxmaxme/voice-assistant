@@ -272,10 +272,13 @@ export class OpenAiAgent implements Agent {
             } else {
               log.debug(fields, `${tc.name}(${argsStr}) → ${resultText}`);
             }
+            const output = isError
+              ? `ERROR: ${resultText}${appendRecoveryHint(tc.name, resultText)}`
+              : resultText;
             return {
               type: 'function_call_output' as const,
               call_id: tc.call_id,
-              output: isError ? `ERROR: ${resultText}` : resultText,
+              output,
             };
           }),
         );
@@ -361,4 +364,29 @@ function toInputImage(img: AgentImage): ResponseInputImage {
 // annotations (e.g. `<title="...": ...>`) into the structured output text.
 function stripApiArtifacts(text: string): string {
   return text.replace(/<title=[^>]*>/g, '').trim();
+}
+
+// HA tools that return MatchFailedError when the user's phrasing doesn't
+// resolve to a known entity/area. Soft prompt rules alone weren't enough to
+// stop the model from immediately falling back to `ask` on these errors —
+// inject a directive into the tool output so the next turn is forced into
+// discovery + retry.
+const HA_MATCH_FAILED_PATTERNS = ['MatchFailedError', 'MatchFailedReason', 'no_match_reason'];
+
+function appendRecoveryHint(toolName: string, errorText: string): string {
+  if (toolName === 'GetLiveContext') {
+    return '';
+  }
+  const isMatchFailure = HA_MATCH_FAILED_PATTERNS.some((p) => errorText.includes(p));
+  if (!isMatchFailure) {
+    return '';
+  }
+  return (
+    '\n\nNEXT ACTION REQUIRED: your very next tool call MUST be `GetLiveContext` ' +
+    'with no arguments. Do NOT call `ask`. Do NOT reply in plain text. After ' +
+    'GetLiveContext returns, pick the closest real entity/area name to what ' +
+    'the user said (account for typos, declensions, partial names, synonyms ' +
+    'in any language) and retry the original action. Only if that retry also ' +
+    'fails OR there are several plausible candidates may you then call `ask`.'
+  );
 }
