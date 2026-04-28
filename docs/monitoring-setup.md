@@ -1,7 +1,7 @@
-# Monitoring (Netdata + Dozzle, behind Caddy)
+# Monitoring (Netdata + Dozzle, behind Caddy + tinyauth)
 
-Two monitoring UIs run alongside the assistant on the Pi, both gated by
-HTTP basic auth via a tiny Caddy reverse proxy:
+Two monitoring UIs run alongside the assistant on the Pi, both gated by a
+real HTML login page courtesy of [tinyauth](https://tinyauth.app):
 
 - **Netdata** (`http://<pi-host>:19999`) — metrics for CPU, RAM, disk,
   network, temperature, per-container stats, plus built-in alerts.
@@ -13,46 +13,60 @@ Network shape:
 ```
                 ┌──────────────────── monitoring (bridge) ─────────────────┐
 internet/LAN ──►│ caddy :19999 ──► netdata :19999                          │
-                │ caddy :8888  ──► dozzle :8080                            │
+                │ caddy :8888  ──► dozzle :8080      ┌───────────────┐     │
+                │       └─────── forward_auth ─────► │ tinyauth :3000│◄────┼── login UI on :8890
+                │                                    └───────────────┘     │
                 └──────────────────────────────────────────────────────────┘
 ```
 
-Netdata and Dozzle have **no host-published ports** — the only thing
-listening on the host is Caddy.
+Netdata and Dozzle have **no host-published ports**. The host listens on
+three ports: `:19999` and `:8888` (both Caddy), and `:8890` (tinyauth's
+login page + session API).
+
+A single tinyauth session cookie covers both `:19999` and `:8888` —
+browsers don't isolate cookies by port on the same hostname.
 
 ## First-time setup
 
-1. Generate a bcrypt hash for your monitoring password (run anywhere with
-   docker, e.g. on the Pi):
+1. Generate a user entry. The interactive command also handles bcrypt and
+   escapes every `$` to `$$` (required because docker-compose treats `$`
+   as variable expansion in `.env`):
 
    ```bash
-   docker run --rm caddy:2-alpine caddy hash-password --plaintext 'your-password'
+   docker run --rm -it ghcr.io/steveiliop56/tinyauth:v5 \
+     user create --interactive --docker
    ```
 
-   It prints a string starting with `$2a$14$...`.
+   It prints a single line like `admin:$$2a$$10$$...`. TOTP is optional —
+   say "no" unless you want it.
 
-2. Put the credentials into `.env` on the Pi (next to the rest of the
-   secrets — `MONITOR_USER` and `MONITOR_PASSWORD_HASH` are already in
-   `.env.example`):
+2. Decide on a public URL for the tinyauth login page. It must be
+   resolvable from the browser you'll log in with. Examples:
+   - `http://pi.local:8890` (mDNS, works on most LANs)
+   - `http://192.168.1.42:8890` (raw LAN IP)
+
+3. Put both into `.env` on the Pi:
 
    ```bash
-   MONITOR_USER=admin
-   MONITOR_PASSWORD_HASH=$2a$14$...   # the full hash, all $ characters intact
+   MONITOR_AUTH_URL=http://pi.local:8890
+   MONITOR_AUTH_USERS=admin:$$2a$$10$$...   # the full line from step 1
    ```
 
-3. Bring everything up:
+4. Bring everything up:
 
    ```bash
    cd /opt/voice-assistant/deploy
    docker compose up -d
    ```
 
-   Netdata's first start takes ~30 s (it builds the initial metrics
-   database). Open `http://<pi-host>:19999` and `http://<pi-host>:8888`,
-   log in with the credentials from step 2.
+   Open `http://<pi-host>:19999` — you'll be bounced to tinyauth's login
+   page, sign in once, and land on the Netdata dashboard. `:8888` (Dozzle)
+   uses the same cookie, no second login.
 
-To rotate the password later: regenerate the hash, update `.env`,
-`docker compose up -d monitoring-proxy` (only the proxy needs to restart).
+To rotate credentials later: regenerate the user line, update
+`MONITOR_AUTH_USERS` in `.env`, then `docker compose up -d tinyauth`.
+To kick everyone out, also wipe the `tinyauthdata` volume:
+`docker compose down tinyauth && docker volume rm deploy_tinyauthdata`.
 
 ## Telegram alerts
 
@@ -96,12 +110,12 @@ alerts most worth raising eyebrows over:
 - Netdata runs in **bridge** networking (not host) so it cannot bind to
   the host's `:19999` directly. It still sees real host metrics through
   the `/host/proc`, `/host/sys`, and `/host/var/log` mounts.
-- Caddy serves plain HTTP. If you ever forward `:19999`/`:8888` past
-  your router, terminate TLS upstream (Cloudflare Tunnel, Tailscale
-  Funnel, or a real domain + Caddy `tls` block) — basic auth over plain
-  HTTP is fine on a LAN, **not** over the open internet.
+- Caddy and tinyauth serve plain HTTP. If you ever forward
+  `:19999`/`:8888`/`:8890` past your router, terminate TLS upstream
+  (Cloudflare Tunnel, Tailscale Funnel, or a real domain + Caddy `tls`
+  block). Login over plain HTTP is fine on a LAN, **not** over the open
+  internet.
 - Dozzle has read-only access to the Docker socket (`:ro`). It can read
   any container's logs but cannot start, stop, or exec into anything.
-- Caddy's bcrypt cost is 14 by default — brute-forcing the hash
-  offline is not realistic. The `.env` file is still the weak point;
-  keep its permissions tight (`chmod 600`).
+- bcrypt cost 10+ makes offline brute-force impractical. The `.env` file
+  is still the weak point; keep its permissions tight (`chmod 600`).

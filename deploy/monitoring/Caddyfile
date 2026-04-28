@@ -1,12 +1,11 @@
-# Reverse proxy with basic auth in front of Netdata and Dozzle.
-# Both backends sit on the internal `monitoring` docker network and have
-# no host ports of their own — Caddy is the only externally reachable
-# entry point.
+# Reverse proxy in front of Netdata and Dozzle. Both backends sit on the
+# internal `monitoring` docker network and have no host ports of their own —
+# Caddy is the only externally reachable entry point.
 #
-# Credentials are read from env vars (loaded via env_file in compose):
-#   MONITOR_USER             — username
-#   MONITOR_PASSWORD_HASH    — bcrypt hash, generated with:
-#     docker run --rm caddy:2-alpine caddy hash-password --plaintext '<pwd>'
+# Auth is delegated to tinyauth (forward_auth). tinyauth serves the actual
+# login page and validates the session cookie; Caddy just forwards each
+# request to /api/auth/caddy and either lets it through or redirects the
+# browser to tinyauth's login UI.
 
 {
 	# No automatic HTTPS — listening on plain HTTP only. If you ever want
@@ -15,18 +14,20 @@
 	admin off
 }
 
+(tinyauth_forwarder) {
+	forward_auth tinyauth:3000 {
+		uri /api/auth/caddy
+	}
+}
+
 # Netdata UI
 :19999 {
-	basic_auth {
-		{$MONITOR_USER} {$MONITOR_PASSWORD_HASH}
-	}
+	import tinyauth_forwarder
 	reverse_proxy netdata:19999
 }
 
 # Dozzle UI (docker logs viewer)
 :8888 {
-	basic_auth {
-		{$MONITOR_USER} {$MONITOR_PASSWORD_HASH}
-	}
+	import tinyauth_forwarder
 	reverse_proxy dozzle:8080
 }
