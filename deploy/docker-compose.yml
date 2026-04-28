@@ -30,6 +30,8 @@ services:
       # ALSA device selection — override in .env if your mic is not card 1.
       - ALSA_CARD=${ALSA_CARD:-1}
     stop_grace_period: 10s
+    ports:
+      - '${HTTP_SERVER_PORT:-3000}:${HTTP_SERVER_PORT:-3000}'
     # HA runs in host network mode (for HomeKit/mDNS/Bluetooth discovery), so
     # it's not on the same docker network as us. Reach it via host.docker.internal.
     extra_hosts:
