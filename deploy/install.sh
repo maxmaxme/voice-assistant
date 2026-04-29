@@ -82,11 +82,25 @@ cd "$APP_DIR/deploy"
 sudo -u "$APP_USER" docker compose pull voice-assistant
 sudo -u "$APP_USER" docker compose up -d
 
-# 9. Install systemd update timer.
-install -m 0644 voice-assistant-update.service /etc/systemd/system/
+# 9. Install systemd units.
+#    - voice-assistant.service: brings the compose stack up at boot (safety
+#      net for when docker's `restart: unless-stopped` fails to recover the
+#      stack after a host reboot, e.g. unattended-upgrades restarting docker).
+#    - voice-assistant-update.{service,timer}: nightly auto-update at 04:00.
+#    - va-update-listener.service: reads the /tmp/va-update FIFO for the
+#      Telegram /update command.
+sed "s|^User=pi$|User=$APP_USER|" voice-assistant.service \
+  > /etc/systemd/system/voice-assistant.service
+chmod 0644 /etc/systemd/system/voice-assistant.service
+sed "s|^User=pi$|User=$APP_USER|" voice-assistant-update.service \
+  > /etc/systemd/system/voice-assistant-update.service
+chmod 0644 /etc/systemd/system/voice-assistant-update.service
 install -m 0644 voice-assistant-update.timer /etc/systemd/system/
+install -m 0644 va-update-listener.service /etc/systemd/system/
 systemctl daemon-reload
+systemctl enable --now voice-assistant.service
 systemctl enable --now voice-assistant-update.timer
+systemctl enable --now va-update-listener.service
 
 cat <<EOM
 

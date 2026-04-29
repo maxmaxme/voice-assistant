@@ -1,0 +1,27 @@
+[Unit]
+Description=Voice Assistant docker compose stack
+Requires=docker.service
+# va-update-listener creates /tmp/va-update (FIFO) which voice-assistant
+# bind-mounts. Without explicit ordering, docker's own restart-policy races
+# the listener after a host reboot: /tmp is wiped, docker auto-creates the
+# source as a directory, the bind-mount then fails with "not a directory"
+# and the container dies before the listener can mkfifo. We start AFTER the
+# listener so `docker compose up -d` runs against a valid FIFO.
+After=docker.service network-online.target va-update-listener.service
+Wants=network-online.target va-update-listener.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=pi
+Group=docker
+WorkingDirectory=/opt/voice-assistant/deploy
+# `up -d` is idempotent — it's a no-op when the stack is already running
+# (e.g. brought up by docker's `restart: unless-stopped`). When that fails
+# after a host reboot, this unit is the safety net that actually starts it.
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose stop
+TimeoutStartSec=5min
+
+[Install]
+WantedBy=multi-user.target
