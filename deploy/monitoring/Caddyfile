@@ -23,6 +23,9 @@
 # Netdata UI
 :19999 {
 	import tinyauth_forwarder
+	# Skip the v2 sign-in splash by sending the browser straight to /v3.
+	# https://community.netdata.cloud/t/how-to-disable-sign-in-page-in-netdata-version-2-1-1-for-direct-dashboard-access/7032
+	redir / /v3/ 302
 	reverse_proxy netdata:19999
 }
 
