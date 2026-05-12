@@ -5,8 +5,25 @@ Requires=docker.service
 
 [Service]
 Type=simple
-ExecStartPre=/bin/bash -c 'if [ ! -p /tmp/va-update ]; then rm -rf /tmp/va-update && mkfifo /tmp/va-update; fi && chmod 666 /tmp/va-update'
-ExecStart=/bin/bash -c 'while true; do cat /tmp/va-update; VA_UPDATE_NOTIFY_NOOP=1 /opt/voice-assistant/deploy/update.sh; done'
+# The loop is defensive on purpose: if /tmp/va-update gets clobbered into a
+# regular file or directory (e.g. docker bind-mount auto-create on a fresh
+# /tmp after reboot), `read` would return EOF immediately and we'd spin,
+# spamming Telegram with "already up to date". So each iteration verifies
+# the path is still a FIFO and recreates it otherwise, and a spurious EOF
+# triggers a 1s backoff instead of an instant rerun.
+ExecStart=/bin/bash -c '\
+  while true; do \
+    if [ ! -p /tmp/va-update ]; then \
+      rm -rf /tmp/va-update; \
+      mkfifo /tmp/va-update; \
+      chmod 666 /tmp/va-update; \
+    fi; \
+    if IFS= read -r _line < /tmp/va-update; then \
+      VA_UPDATE_NOTIFY_NOOP=1 /opt/voice-assistant/deploy/update.sh || true; \
+    else \
+      sleep 1; \
+    fi; \
+  done'
 Restart=always
 RestartSec=2
 
