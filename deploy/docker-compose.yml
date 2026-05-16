@@ -287,6 +287,44 @@ services:
       - caddydata:/data
       - caddyconfig:/config
 
+  sing-box-ru:
+    image: ghcr.io/maxmaxme/ru-meters-bot-sing-box:latest
+    pull_policy: always
+    build:
+      context: ../services/meters
+      dockerfile: sing-box/Dockerfile
+    container_name: sing-box-ru
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    ports:
+      - '127.0.0.1:1080:1080' # localhost-only, for Mac dev loop
+    healthcheck:
+      test: ['CMD', 'sh', '-c', 'nc -z 127.0.0.1 1080']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  meters-bot:
+    image: ghcr.io/maxmaxme/ru-meters-bot:latest
+    pull_policy: always
+    build:
+      context: ../services/meters
+      dockerfile: Dockerfile
+    # NB: no `restart` and no `container_name` — this service is invoked via
+    # `docker compose run --rm meters-bot`, not `up`.
+    depends_on:
+      sing-box-ru:
+        condition: service_started
+    env_file:
+      - ../.env
+    environment:
+      - PROXY_URL=socks5://sing-box-ru:1080
+      - METERS_DATA_DIR=/app/data
+      - TZ=Europe/Moscow
+    volumes:
+      - ../data/meters:/app/data
+
 networks:
   monitoring:
     driver: bridge
