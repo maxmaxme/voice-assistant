@@ -2,13 +2,10 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-# better-sqlite3 ships prebuilds for alpine-musl on most arches, but fall back
-# to source compile if the prebuild is missing.
-RUN apk add --no-cache python3 make g++
-
+# better-sqlite3 v12+ publishes prebuilt binaries for node-v137 linuxmusl-arm64
+# (Node 24 + Alpine arm64), so no native compile toolchain is needed.
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts && \
-    npm rebuild better-sqlite3
+RUN npm ci --omit=dev
 
 COPY tsconfig.json ./
 COPY src ./src
