@@ -37,12 +37,11 @@ runtime.
   reading" on the portal (i.e., do not advance the meter).
 - Surface results in Telegram: a short success message confirming
   readings are submitted plus the current account balance
-  (переплата / задолженность). On failure — error text + screenshot
-  path.
+  (переплата / задолженность). On failure — error text.
 - Idempotent across restarts and within a month — never submit twice
   for the same `(portal, period)`.
 - Live next to voice-assistant but isolated: own image, own deps,
-  own SQLite, no Playwright / chromium leakage into the va image.
+  own SQLite, slim runtime (Node 24 alpine, no chromium).
 
 ## Non-goals
 
@@ -55,9 +54,10 @@ runtime.
   shared agent, no scheduled-actions table.
 - Петроэлектросбыт (`ikus.pesc.ru`). Deferred to a follow-up; the
   per-portal seam is in place so it is additive when picked up.
-- Captcha-solving services or stealth browser fingerprinting beyond
-  Playwright defaults. If the chosen RU exit triggers anti-fraud, we
-  swap exits (a config change) rather than escalate the cat-and-mouse.
+- Captcha-solving or browser fingerprint spoofing. The ТГК-1 REST API
+  has no captcha on its endpoints; a bare HTTPS + Bearer token suffices.
+  If anti-fraud ever surfaces (e.g. the WAF flags our exit IP), we swap
+  exits (a config change) rather than escalate the cat-and-mouse.
 - Cross-restart "fire missed schedules" replay beyond the submission
   window — if the Pi is off for the whole window, the user submits
   manually and we move on.
@@ -71,28 +71,18 @@ one Pi, one solo developer, one `git pull`, one `.env`, one
 `deploy/docker-compose.yml` as a whole — adding two more services there
 is free.
 
-Two containers in `deploy/docker-compose.yml`, with different
-lifecycles:
+One container in `deploy/docker-compose.yml`:
 
-1. **`sing-box-ru`** — sing-box proxy. Always-on
-   (`restart: unless-stopped`). Reads a single VLESS URL from
-   `RU_PROXY_URL` (`.env`), parses it on container start,
-   exposes SOCKS5 on `:1080` inside the docker network **and bound to
-   `127.0.0.1:1080`** on the host (localhost-only, for the Mac-laptop
-   dev loop — see "Local development"). Outbound to the proxy provider
-   goes through docker's default network. Idle footprint ~30 MB;
-   keeping it warm avoids paying TLS handshake on every meters-bot
-   invocation.
-2. **`meters-bot`** — Node 24 + Playwright + `better-sqlite3`.
-   **One-shot.** Not started by `docker compose up`; instead, a host
-   systemd timer (`deploy/meters-bot.timer`, by analogy with
-   `voice-assistant-update.timer`) runs `docker compose run --rm
+- **`meters-bot`** — Node 24 (alpine) + `better-sqlite3` + native
+  `fetch` (undici). **One-shot.** Not started by `docker compose up`;
+  instead, a host systemd timer (`deploy/meters-bot.timer`, by analogy
+  with `voice-assistant-update.timer`) runs `docker compose run --rm
 meters-bot` on schedule. The container performs exactly one
-   submission cycle and exits. Manual invocation is the same path —
-   `docker compose run --rm meters-bot [--portal=tgc1] [--force]`.
-   No `node-cron`, no daemon lifecycle, no in-process scheduler.
-   Playwright connects through `socks5://sing-box-ru:1080`; Telegram
-   API is reached directly.
+  submission cycle and exits. Manual invocation is the same path —
+  `docker compose run --rm meters-bot [--portal=tgc1] [--force]`.
+  No `node-cron`, no daemon lifecycle, no in-process scheduler.
+  ТГК-1's WAF doesn't geofence by region, so no RU proxy is needed —
+  both ТГК-1 and Telegram are reached with the default dispatcher.
 
 Scheduling lives on the host:
 
@@ -122,7 +112,7 @@ keeps duplicate fires harmless.
 services/meters/
 ├── package.json                 # type:module, Node 24, .ts imports — same conventions as root
 ├── tsconfig.json                # noEmit, allowImportingTsExtensions, strict
-├── Dockerfile                   # FROM mcr.microsoft.com/playwright:latest (multi-arch)
+├── Dockerfile                   # FROM node:24-alpine (slim; no chromium)
 ├── src/
 │   ├── index.ts                 # CLI entry: parses argv, runs one cycle, exits
 │   ├── runOnce.ts               # the one-cycle function (gated by targetDay)
@@ -132,28 +122,21 @@ services/meters/
 │   │   ├── types.ts             # SubmissionsStore interface
 │   │   ├── sqlite.ts            # better-sqlite3 implementation
 │   │   └── migrations.ts        # TS string constants, like va/memory
-│   ├── browser.ts               # Playwright launch with proxy, withPage() helper
 │   ├── portals/
-│   │   ├── types.ts             # Portal interface
-│   │   └── tgc1.ts              # ТГК-1 driver (pesc.ts added later)
-│   ├── notify/
-│   │   ├── types.ts             # Notifier interface
-│   │   └── telegram.ts          # uses TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID from .env
-│   └── proxy/
-│       └── parseVlessUrl.ts     # pure function: VLESS URL → sing-box config object
-├── sing-box/
-│   ├── Dockerfile               # FROM sagernet/sing-box + apk add nodejs
-│   └── entrypoint.mjs           # imports parseVlessUrl, writes /tmp/config.json, exec sing-box
+│   │   ├── types.ts             # Portal interface (single run() method)
+│   │   └── tgc1.ts              # ТГК-1 REST driver (login + JSON endpoints)
+│   └── notify/
+│       ├── types.ts             # Notifier interface
+│       └── telegram.ts          # uses TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID from .env
 └── tests/
     ├── period.test.ts           # vitest
+    ├── schedule.test.ts         # vitest
     ├── storage.test.ts          # vitest, in-memory SQLite
-    ├── parseVlessUrl.test.ts    # vitest: valid URL + unsupported scheme
-    └── tgc1.contract.test.ts    # vitest with HTML fixtures (no live portal)
+    └── tgc1.test.ts             # vitest with fetch mock (no live portal)
 ```
 
-The root `package.json` is **not modified** — Playwright stays out of
-the va dependency graph. The root `tsconfig.json` excludes
-`services/**`. CI is the only seam (see below).
+The root `package.json` is **not modified**. The root `tsconfig.json`
+excludes `services/**`. CI is the only seam (see below).
 
 ### Data flow
 
@@ -170,14 +153,10 @@ for each portal in [tgc1]:                        # pesc to be added later
   if row.status == 'done' or 'blocked' → skip
   if row.attempts >= 5 → mark blocked + notify + skip
   ↓
-  browser.withPage(proxy, async page => {
-    const info = await portal.fetchAccountInfo?.(page)
-    const values = await portal.submit(page)             // throws on failure
-    return { info, values }
-  })
+  { info, values } = await portal.run(deps)            // throws on failure
   ↓
   success: store.markDone(portal, period, values); notify.success(portal, info, values)
-  failure: store.markFailed(portal, period, error, screenshotPath); notify.failure(...)
+  failure: store.markFailed(portal, period, error); notify.failure(...)
   ↓
 process exits with code 0 (success or recoverable failure) or 1 (unexpected)
 ```
@@ -185,8 +164,8 @@ process exits with code 0 (success or recoverable failure) or 1 (unexpected)
 `targetDay(currentMonth)` returns the first Mon-Fri date on or after
 the 15th. The systemd timer fires every weekday in 15-21, but the
 process gates itself on `targetDay` so the first 0-2 fires of the
-window no-op cheaply (no Playwright launch). This naturally gives
-5-7 retry attempts.
+window no-op cheaply (no network call). This naturally gives 5-7
+retry attempts.
 
 On the last fire of the window (the latest weekday on/before day 21),
 if any portal is still not `done`, the process emits a one-shot
@@ -208,141 +187,84 @@ export interface AccountInfo {
   balanceText: string; // raw, as shown on the portal, e.g. "переплата N руб"
 }
 
+export interface PortalDeps {
+  login: string;
+  password: string;
+  lastSubmittedValueFor(meter: string): number | null;
+  today(): Date;
+}
+
 export interface Portal {
   readonly name: 'tgc1';
-  fetchAccountInfo(page: Page): Promise<AccountInfo>;
   /**
-   * Logs in (if needed), submits readings for every meter on the account,
-   * verifies "Дата последних показаний" advanced to today for each.
-   * Throws on any unrecoverable failure; partial success (1 of 2 meters)
-   * also throws — the storage row's last_error encodes which meter failed.
+   * Logs in, reads account balance and the device list, submits readings
+   * for every counter where it's accepted, verifies the new `dtLastReading`
+   * advanced to today. Throws on any unrecoverable failure; partial success
+   * also throws — the storage row's last_error encodes what failed.
    */
-  submit(page: Page): Promise<MeterReading[]>;
+  run(deps: PortalDeps): Promise<{ info: AccountInfo | null; values: MeterReading[] }>;
 }
 ```
 
-### ТГК-1 flow
+The single `run()` method merges the previous `fetchAccountInfo` and
+`submit` because the REST flow naturally does both as part of one
+authenticated session.
 
-`lk.tgc1.ru`, all interactions inside the SOCKS5 RU proxy:
+### ТГК-1 REST flow
 
-1. **Login.** `goto /fl/login` → fill username / password from
-   `TGC1_LOGIN` / `TGC1_PASSWORD` → submit. Wait for redirect to
-   `/fl`.
-2. **Account info.** On `/fl`, locate the "Задолженность" block and
-   scrape the line "По лицевым счетам № `<accountId>` имеется
-   `<переплата|задолженность>` в размере `<amount>` руб". Build
-   `AccountInfo { accountId, balanceText }` and stash it on the
-   submission row for later use in the notification.
-3. **Readings page.** `goto /fl/readings`. The page lists one card per
-   прибор учёта (`Прибор учёта №<meter>`). Each card contains:
-   - A type label (`ГВС м3`, `Отопление`, …) — kept verbatim in
-     `MeterReading.kind`.
-   - The `Лицевой счёт` value (sanity-check against the account scraped
-     in step 2).
-   - A `Показания: <number>` line — this is **`prev`** (the last
-     accepted reading).
-   - A separate "Ввод показаний" sub-card with a `Дата: <today
-DD.MM.YYYY>` field and an **empty input** plus a «ДОБАВИТЬ» button.
-4. **For each card, in order:**
-   - Parse `prev` from the `Показания:` line (handle `,` and `.` as
-     decimal separator).
-   - Sanity-check against `storage.lastSubmittedValue('tgc1', meter)`
-     if any: if portal's `prev` differs from our cached value by more
-     than `0.001`, **bail** for this period and notify "prev на
-     портале не совпадает с нашим кэшем — подайте вручную". This is
-     the safety net against unnoticed manual submissions or portal
-     resets.
-   - Type `prev` into the input (string form, dot separator, the
-     portal accepts both but dot is unambiguous).
-   - Click «ДОБАВИТЬ».
-   - Wait for the network request to settle and the card to re-render.
-   - Verify the `Дата последних показаний` field inside the same card
-     now reads today's date (`DD.MM.YYYY` in Europe/Moscow). On
-     mismatch — throw, capture screenshot, retry next day.
-   - Record `MeterReading { meter, kind, value: prev }`.
-5. Return the array. The caller marks the period `done` only if every
-   card was confirmed.
-
-This flow assumes meters appear in a stable order across page renders.
-We do not rely on it — each card carries its own meter number, which
-we use as the de-facto key.
-
-### Sing-box URL parser
-
-The sing-box image is built locally from a thin Dockerfile that extends
-the official `ghcr.io/sagernet/sing-box` with Node:
-
-```dockerfile
-FROM ghcr.io/sagernet/sing-box:latest
-RUN apk add --no-cache nodejs
-COPY entrypoint.mjs /entrypoint.mjs
-COPY parseVlessUrl.js /parseVlessUrl.js
-ENTRYPOINT ["node", "/entrypoint.mjs"]
-```
-
-`parseVlessUrl.ts` (compiled to plain JS at image build time, or
-shipped as `.ts` and consumed by Node 24's native TS stripping like the
-rest of the project) is a pure function:
-
-```ts
-export function parseVlessUrl(url: string): SingBoxConfig;
-```
-
-It accepts a VLESS URL of the form:
+All four calls go to `https://lk.tgc1.ru`. Mandatory request headers
+(without them the WAF returns HTML 403 «Доступ запрещён»):
 
 ```
-vless://<uuid>@<host>:<port>?security=reality&type=tcp&flow=xtls-rprx-vision
-  &sni=<sni>&pbk=<pubkey>&sid=<shortid>&fp=chrome#<label>
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 ...
+Accept:     application/json
+Origin:     https://lk.tgc1.ru
+Referer:    https://lk.tgc1.ru/fl/      (or /fl/login for the auth call)
 ```
 
-and returns the sing-box config object below. Any other scheme throws
-on startup with a clear error — easier to debug than letting sing-box
-fail later. Support for Trojan / Shadowsocks can be added when actually
-needed.
+1. **Login.** `POST /api/security/auth/login/fl` with JSON
+   `{ username, password }` from `TGC1_LOGIN` / `TGC1_PASSWORD`.
+   Response 200 `{ accessToken, type: "Bearer", refreshToken }`.
+   JWT TTL ≈ 1 hour — one run makes ~4 requests in 2 seconds, so no
+   refresh logic is needed; a stale-token 401 simply fails the run and
+   the next cron tick gets a fresh token.
 
-Parsing is done with Node's built-in `URL` and `URLSearchParams`. The
-entrypoint reads `RU_PROXY_URL`, calls `parseVlessUrl`, writes the
-result as `/tmp/config.json`, then `exec`s sing-box. Output:
+2. **Account balance.** `GET /api/fl/dashboard/debt` with
+   `Authorization: Bearer <jwt>`. Response 200
+   `{ accountList: string[], sm: number }`. `sm` is the aggregate:
+   negative = переплата, positive = задолженность, 0 = нулевой
+   расчёт. The Telegram-facing `balanceText` is built in code from
+   `sm` and `Math.abs(sm).toFixed(2)`. `accountList` becomes
+   `AccountInfo.accountId` (multiple accounts joined with commas;
+   unlikely in practice).
 
-```json
-{
-  "log": { "level": "info" },
-  "inbounds": [
-    {
-      "type": "socks",
-      "tag": "in",
-      "listen": "0.0.0.0",
-      "listen_port": 1080
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "vless",
-      "tag": "out",
-      "server": "<host>",
-      "server_port": 443,
-      "uuid": "<uuid>",
-      "flow": "xtls-rprx-vision",
-      "tls": {
-        "enabled": true,
-        "server_name": "cloudflare.com",
-        "utls": { "enabled": true, "fingerprint": "chrome" },
-        "reality": {
-          "enabled": true,
-          "public_key": "<pbk>",
-          "short_id": "<sid>"
-        }
-      }
-    }
-  ]
-}
-```
+3. **Device list.** `GET /api/fl/device` returns an array of
+   `{ id, number, serviceName, lastReading, dtLastReading, enabled,
+requiredVerification, verificationWarning, ... }`. Per device:
+   - `enabled: true` → submit step 4 with `value = lastReading`.
+   - `enabled: false` and `dtLastReading == today` (МСК,
+     `DD.MM.YYYY`) → already submitted today; mark as success, skip
+     POST.
+   - `enabled: false` and `dtLastReading != today` → real refusal;
+     throw with a clear message, do not POST.
+   - `requiredVerification` or `verificationWarning: true` → log a
+     warning but proceed (verification deadlines are a year out;
+     we don't gate on them).
+   - Prev sanity check against
+     `storage.lastSubmittedValue('tgc1', number)`: if cached value
+     differs from `lastReading` by more than `0.001`, throw and ask
+     the user to investigate.
 
-The entrypoint replaces itself with sing-box via Node's
-`child_process.spawnSync` invoking `execve` (or simpler — `child =
-spawn('sing-box', ['run', '-c', '/tmp/config.json'], { stdio:
-'inherit' })` then propagate SIGTERM / SIGINT explicitly). The wrapper
-is a few dozen lines and a non-issue.
+4. **Submit.** `POST /api/fl/device/create-reading` with
+   `{ counterId: <id>, value: <Number(lastReading)> }`. On HTTP 2xx
+   we treat it as accepted (the response body shape is not relied on).
+   On HTTP 4xx the response is parsed as
+   `{ message, details: [{ field, errorMessage }] }` and surfaced in
+   the error message.
+
+5. **Verify.** After ~1 second wait, re-fetch `/api/fl/device` and
+   confirm `dtLastReading == today` for every counter we submitted.
+   Mismatch → throw.
 
 ### Storage schema
 
@@ -355,7 +277,7 @@ CREATE TABLE submissions (
   submitted_values TEXT,                 -- JSON: MeterReading[]
   account_info TEXT,                     -- JSON: AccountInfo
   last_error TEXT,
-  last_error_screenshot TEXT,            -- path relative to /app/data
+  last_error_screenshot TEXT,            -- legacy, always NULL under REST driver
   last_attempt_at INTEGER,
   submitted_at INTEGER,
   notified_window_closed INTEGER NOT NULL DEFAULT 0,
@@ -375,16 +297,15 @@ typed helpers.
 
 ```
 # RU exit proxy
-RU_PROXY_URL=vless://...                 # VLESS+Reality only for now
+# No proxy: ТГК-1 reachable from any IP, Telegram likewise.
 
 # ТГК-1
 TGC1_LOGIN=...
 TGC1_PASSWORD=...
 
 # Optional knobs
-METERS_DRY_RUN=0                         # 1 = login + reach form, skip submit
-METERS_HEADED=0                          # 1 = launch chromium with --headed (debug)
-METERS_DATA_DIR=/app/data                # sqlite + screenshots
+METERS_DRY_RUN=0                         # 1 = login + read device list, skip POST
+METERS_DATA_DIR=/app/data                # sqlite
 LOG_LEVEL=info
 
 # Reused from voice-assistant (already present in .env):
@@ -408,8 +329,7 @@ the **fact** of submission and the account balance. Three templates:
 ```
 
 ```
-✗ ТГК-1 за 2026-05 — попытка 3/5: TimeoutError waiting for «Добавить» on meter <serial>
-   Скриншот: /app/data/screenshots/tgc1-2026-05-attempt-3.png
+✗ ТГК-1 за 2026-05 — попытка 3/5: POST /api/fl/device/create-reading → HTTP 400: Validation Failed (value=must be positive)
    Повтор завтра.
 ```
 
@@ -420,13 +340,9 @@ the **fact** of submission and the account balance. Three templates:
 
 The exact meter values are still recorded in
 `submissions.submitted_values` for debugging / audit — they just don't
-clutter the notification.
-
-Screenshots are stored in the data volume; on failure the most recent
-one is referenced by absolute path. We don't ship them through
-Telegram as photo attachments (keeps the implementation single-message,
-text-only); the user SSHs to the Pi or runs `docker cp` if they want
-to inspect.
+clutter the notification. Error text comes from the REST response body
+(`message` + `details[]`) and is preserved verbatim in
+`last_error` for inspection via SQLite.
 
 ### Error handling and retries
 
@@ -445,42 +361,38 @@ to inspect.
 - **Process crash mid-submit:** worst case is a duplicate submission
   attempt next day. ТГК-1 simply records the same value with a new
   date — harmless. ПЭС would reject `prev + 0.01` the second time
-  (because `prev` advanced after the first success) and return an
-  error visible to us — we mark `done` only on confirmed success, so
-  the user gets a misleading "failed" Telegram once. Acceptable for a
-  rare crash scenario; not worth a distributed-lock to fix.
+  and return an error visible to us — we mark `done` only on confirmed
+  success, so the user gets a misleading "failed" Telegram once.
+  Acceptable for a rare crash scenario; not worth a distributed-lock
+  to fix.
 
 ### Testing
 
-- **vitest** for `period`, `storage`, portal "contract" tests that
-  feed canned HTML fixtures into a portal-specific `extractAccountInfo`
-  / `findMeterCards` pure-function layer. The Playwright integration
-  layer is **not** exercised in CI — too brittle, requires RU IP and
-  live credentials.
-- **vitest** for `parseVlessUrl`: one positive test against a sample
-  URL with a known expected `SingBoxConfig`, one negative test for
-  an unsupported scheme (`trojan://...`, `ss://...`) — must throw.
-- **Local debug loop:** `METERS_DRY_RUN=1 METERS_HEADED=1 npm run
-debug:tgc1` opens a visible Chromium through the proxy, runs the
-  flow up to but not including the final «Добавить» click, and stops.
-  Same for ПЭС once it's wired.
-- **NO** end-to-end tests against live portals. `runOnce.ts` is
-  structured so the per-portal `submit(page)` function is callable
-  directly from a debug entry point for manual verification.
+- **vitest** for `period`, `schedule`, `storage`, and `Tgc1Portal`
+  with a `fetch` mock. The portal tests route by URL and return
+  canned JSON for each endpoint (login → JWT, debt → balance,
+  device → list, create-reading → empty 200, then re-fetch device
+  → updated `dtLastReading`). Failure cases (HTTP 400 with
+  `ApiError`, WAF HTML 403, `enabled:false` semantics, cached-prev
+  mismatch, verify mismatch) all live in this single file.
+- **Local debug loop:** `METERS_DRY_RUN=1 node --env-file=../../.env
+src/index.ts --portal=tgc1 --force` logs in and prints the device
+  list without POSTing readings.
+- **NO** end-to-end tests against the live portal. Live verification
+  is a manual `--force` run during the submission window.
 
 ### CI / build / deploy
 
-- `.github/workflows/build-image.yml` gains a sibling matrix job:
-  - Working dir `services/meters/`
+- `.github/workflows/ci.yml` has a sibling matrix job that:
+  - Works in `services/meters/`
   - Builds the meters Dockerfile, tags
-    `ghcr.io/maxmaxme/ru-meters-bot:arm64` and `:latest`.
+    `ghcr.io/maxmaxme/ru-meters-bot:latest` and `:sha-<short>`.
   - Pushed on push-to-main, same as va.
-- `deploy/docker-compose.yml` references both images. `deploy/update.sh`
-  runs `docker compose pull` (which fetches the new meters-bot image
-  too) and `docker compose up -d` (which only brings up services with
-  a restart policy — sing-box-ru — and leaves the one-shot
-  `meters-bot` definition untouched). The next systemd-timer fire
-  uses the new image.
+- `deploy/docker-compose.yml` defines the one meters-bot service.
+  `deploy/update.sh` runs `docker compose pull` (which fetches the new
+  meters-bot image) and `docker compose up -d`. Since meters-bot has
+  no restart policy, `up -d` is a no-op for it; the next systemd-timer
+  fire uses the new image.
 - `/update` Telegram command works as before.
 - **First-time setup on the Pi** (one-off, not idempotent with
   `update.sh`): copy `deploy/meters-bot.{service,timer}` into
@@ -488,7 +400,7 @@ debug:tgc1` opens a visible Chromium through the proxy, runs the
 enable --now meters-bot.timer`. Documented in `deploy/README.md`
   alongside the existing va-update-listener instructions.
 
-### Local development (macOS, no Docker for the bot itself)
+### Local development (macOS, no Docker required)
 
 The one-shot model means `index.ts` is just a Node script — runnable
 directly from a laptop without building any image:
@@ -496,54 +408,27 @@ directly from a laptop without building any image:
 ```bash
 cd services/meters/
 npm install
-npx playwright install chromium      # one-time
-docker compose -f ../../deploy/docker-compose.yml up -d sing-box-ru
-                                     # only the proxy in docker;
-                                     # port 1080 bound to 127.0.0.1
 node --env-file=../../.env src/index.ts --portal=tgc1 --force
 ```
 
-The compose file binds sing-box-ru's port as `127.0.0.1:1080:1080`
-(localhost-only, no external exposure). On the Pi this binding is
-harmless — the meters-bot container reaches sing-box via the docker
-network, not the host port — but it makes Mac dev a one-liner.
-
-Alternatives, if avoiding Docker entirely for proxy:
-
-- `brew install sing-box`, write `config.json` via a tiny helper
-  `node services/meters/scripts/genSingBoxConfig.ts > /tmp/sb.json`
-  (reuses `parseVlessUrl`), `sing-box run -c /tmp/sb.json` in another
-  terminal.
-- Use an existing VLESS client on the Mac (Hiddify, v2box, …) that
-  exposes a local SOCKS5 — point `PROXY_URL` at it.
-
-`METERS_HEADED=1` makes Playwright open a visible Chromium so you can
-watch the flow and tweak selectors live. `METERS_DRY_RUN=1` reaches
-the form without clicking «Добавить».
+`METERS_DRY_RUN=1` logs in and fetches the device list without
+POSTing any readings — useful while iterating on selectors or
+diagnosing WAF behaviour.
 
 ### Operational considerations
 
-- **Exit IP quality.** The provided RU exit is labelled
-  "Torrent-Node 🏴‍☠️" — IP pool is shared with P2P traffic and may be
-  on Cloudflare / antifraud block lists. If portals captcha us, the
-  fallback is (a) swap to a cleaner RU node if the provider has one,
-  (b) rent a 200₽/mo RU VPS and run our own WireGuard endpoint. Both
-  are config-only changes (different `RU_PROXY_URL`); the code does
-  not change.
-- **Credential leakage.** `.env` is git-ignored; never logged. Errors
-  scrub query strings before logging (an OAuth redirect could embed
-  tokens). Screenshots are written to a docker volume the user owns,
-  not pushed anywhere.
-- **Anti-bot evolution.** Playwright with `chromium` defaults plus
-  human-ish typing delays should be enough for portals of this tier.
-  If we ever need stealth (UA randomisation, fingerprint shaping),
-  `playwright-extra` + `stealth` plugin is the path — added when
-  needed, not preemptively.
-- **Pi resources.** Between fires, only sing-box is running (~30 MB
-  RAM). At fire time the meters-bot container starts, Playwright +
-  Chromium load (~250 MB), one submission runs (~30 s), the container
-  exits and the memory is freed. Total cost in a normal month: ~5
-  short Chromium runs.
+- **Geofencing.** ТГК-1's WAF does not geo-block — the bot reaches the
+  REST endpoints from any IP. If that ever changes, we'd reintroduce a
+  scoped SOCKS5 proxy at the `fetch` dispatcher level (one file, ~30
+  lines); the public Portal interface doesn't need to change.
+- **Credential leakage.** `.env` is git-ignored; never logged. The
+  JWT obtained from `/api/security/auth/login/fl` lives in memory for
+  the duration of the run and is dropped on exit. Error messages
+  surface the REST `message` + `details[]` verbatim — none of which
+  carry the token.
+- **Pi resources.** Nothing runs between fires. At fire time
+  meters-bot starts on `node:24-alpine` (~30 MB RSS), makes 4 HTTPS
+  requests over a couple of seconds, then exits.
 - **Manual / first-run trigger.** Same command as the timer:
   `docker compose run --rm meters-bot [--portal=tgc1] [--force]`.
   `--force` ignores both the `targetDay` gate and the `done` /
