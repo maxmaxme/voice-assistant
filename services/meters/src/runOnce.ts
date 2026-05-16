@@ -34,6 +34,15 @@ function ymdInMoscow(now: Date): { year: number; month: number; day: number } {
 
 function readMessage(err: unknown): string {
   if (err instanceof Error) {
+    // undici-style errors keep the underlying network/TLS reason on `.cause`
+    // — surface it so "fetch failed" isn't the whole story we tell.
+    const { cause } = err;
+    if (cause instanceof Error && cause.message !== '') {
+      return `${err.message}: ${cause.message}`;
+    }
+    if (cause !== undefined && cause !== null) {
+      return `${err.message}: ${String(cause)}`;
+    }
     return err.message;
   }
   return String(err);
@@ -65,13 +74,15 @@ export async function runOnce(deps: RunOnceDeps): Promise<void> {
 
     if (!deps.force && row.attempts >= MAX_ATTEMPTS) {
       deps.store.markBlocked(portal.name, period);
-      await deps.notifier.failure({
-        portal: portal.name,
-        period,
-        attempt: row.attempts,
-        maxAttempts: MAX_ATTEMPTS,
-        error: 'Превышен лимит попыток — статус blocked',
-      });
+      await safeNotify(() =>
+        deps.notifier.failure({
+          portal: portal.name,
+          period,
+          attempt: row.attempts,
+          maxAttempts: MAX_ATTEMPTS,
+          error: 'Превышен лимит попыток — статус blocked',
+        }),
+      );
       continue;
     }
 
@@ -83,24 +94,30 @@ export async function runOnce(deps: RunOnceDeps): Promise<void> {
         values,
         info ?? { accountId: '?', balanceText: '?' },
       );
-      await deps.notifier.success({
-        portal: portal.name,
-        period,
-        meterCount: values.length,
-        info,
-        alreadySubmitted,
-      });
+      log.info({ portal: portal.name, meters: values.length }, 'portal run succeeded');
+      await safeNotify(() =>
+        deps.notifier.success({
+          portal: portal.name,
+          period,
+          meterCount: values.length,
+          info,
+          alreadySubmitted,
+        }),
+      );
     } catch (err) {
       const message = readMessage(err);
+      log.error({ portal: portal.name, err: message }, 'portal run failed');
       deps.store.markFailed(portal.name, period, message);
       const updated = deps.store.getOrCreate(portal.name, period);
-      await deps.notifier.failure({
-        portal: portal.name,
-        period,
-        attempt: updated.attempts,
-        maxAttempts: MAX_ATTEMPTS,
-        error: message,
-      });
+      await safeNotify(() =>
+        deps.notifier.failure({
+          portal: portal.name,
+          period,
+          attempt: updated.attempts,
+          maxAttempts: MAX_ATTEMPTS,
+          error: message,
+        }),
+      );
     }
   }
 
@@ -109,9 +126,23 @@ export async function runOnce(deps: RunOnceDeps): Promise<void> {
     for (const portal of deps.portals) {
       const row = deps.store.getOrCreate(portal.name, period);
       if (row.status !== 'done' && !row.notifiedWindowClosed) {
-        await deps.notifier.windowClosed({ portal: portal.name, period });
+        await safeNotify(() => deps.notifier.windowClosed({ portal: portal.name, period }));
         deps.store.markWindowClosedNotified(portal.name, period);
       }
     }
+  }
+}
+
+/**
+ * Best-effort notifier wrapper. Notifications must never replace the real
+ * portal error in our logs — e.g. when api.telegram.org itself is
+ * unreachable, we still want the pesc/tgc1 root cause to survive in stderr
+ * and in the submissions store.
+ */
+async function safeNotify(fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    log.warn({ err: readMessage(err) }, 'notifier call failed');
   }
 }

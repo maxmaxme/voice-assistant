@@ -8,7 +8,7 @@ export interface PortalDeps {
 }
 
 export interface Portal {
-  readonly name: 'tgc1';
+  readonly name: 'tgc1' | 'pesc';
   /**
    * Logs in, fetches account balance and the device list, submits readings
    * for every counter where it's accepted, verifies that `dtLastReading`
