@@ -287,6 +287,38 @@ services:
       - caddydata:/data
       - caddyconfig:/config
 
+  # Outbound proxy with a Russian exit IP. Required for pesc.ru, which
+  # geo-blocks non-RU addresses. tgc1.ru works without it (white-listed by
+  # provider). Reads the vless:// URL from RU_PROXY_URL in .env, builds a
+  # sing-box config on start, exposes an HTTP CONNECT/SOCKS5 "mixed" inbound
+  # on container port 7890. No host port — only meters-bot reaches it via
+  # the default docker network.
+  sing-box-ru:
+    image: ghcr.io/sagernet/sing-box:latest
+    container_name: sing-box-ru
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    entrypoint: /entrypoint.sh
+    volumes:
+      - ./sing-box/entrypoint.sh:/entrypoint.sh:ro
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '-q',
+          '--spider',
+          '--proxy=on',
+          '-e',
+          'http_proxy=http://127.0.0.1:7890',
+          'http://ikus.pesc.ru/api/v6/users/manual/existence',
+        ]
+      interval: 60s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
   meters-bot:
     image: ghcr.io/maxmaxme/ru-meters-bot:latest
     pull_policy: always
@@ -295,11 +327,16 @@ services:
       dockerfile: Dockerfile
     # NB: no `restart` and no `container_name` — this service is invoked via
     # `docker compose run --rm meters-bot`, not `up`.
+    depends_on:
+      sing-box-ru:
+        condition: service_started
     env_file:
       - ../.env
     environment:
       - METERS_DATA_DIR=/app/data
       - TZ=Europe/Moscow
+      # Route only the pesc adapter through the RU exit. tgc1 stays direct.
+      - PESC_PROXY_URL=http://sing-box-ru:7890
     volumes:
       - ../data/meters:/app/data
 

@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",
-    "pino": "^9.4.0"
+    "pino": "^9.4.0",
+    "undici": "^8.3.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

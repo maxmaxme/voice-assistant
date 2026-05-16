@@ -482,6 +482,24 @@ describe('PescPortal.run', () => {
   });
 });
 
+describe('PescPortal proxyUrl', () => {
+  it('constructor with proxyUrl builds without throwing (ProxyAgent factory smoke test)', () => {
+    expect(() => new PescPortal({ proxyUrl: 'http://127.0.0.1:7890' })).not.toThrow();
+  });
+
+  it('explicit fetch wins over proxyUrl (tests stay deterministic)', async () => {
+    const fetchMock = makeFetchMock({ metersBefore: [] });
+    const portal = new PescPortal({
+      fetch: fetchMock as unknown as NonNullable<
+        ConstructorParameters<typeof PescPortal>[0]
+      >['fetch'],
+      proxyUrl: 'http://does-not-exist.invalid:1',
+    });
+    // If the proxy URL had taken precedence we'd ECONNREFUSED here.
+    await expect(portal.run(makeDeps())).resolves.toBeDefined();
+  });
+});
+
 describe('generateTotp', () => {
   // RFC 6238 test vectors use a 20-byte ASCII key "12345678901234567890".
   // In base32 that is GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ.

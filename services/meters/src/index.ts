@@ -77,7 +77,12 @@ Options:
     allPortals.push(new Tgc1Portal());
   }
   if (process.env.PESC_LOGIN !== undefined && process.env.PESC_LOGIN !== '') {
-    allPortals.push(new PescPortal({ totpSecret: process.env.PESC_TOTP_SECRET }));
+    allPortals.push(
+      new PescPortal({
+        totpSecret: process.env.PESC_TOTP_SECRET,
+        proxyUrl: process.env.PESC_PROXY_URL,
+      }),
+    );
   }
 
   const portals =

@@ -1,7 +1,30 @@
 import { createHmac } from 'node:crypto';
+import { ProxyAgent, fetch as undiciFetch, type Dispatcher } from 'undici';
 import type { AccountInfo, MeterReading } from '../storage/types.ts';
 import type { Portal, PortalDeps } from './types.ts';
 import { createLogger } from '../logger.ts';
+
+/**
+ * Minimal fetch contract that both the global Node 24 fetch and undici's
+ * fetch satisfy structurally. Letting us swap in a proxied undici fetch
+ * for the pesc portal without dragging through the (subtly different)
+ * lib.dom Response/ReadableStream type hierarchies.
+ */
+interface FetchResponse {
+  readonly ok: boolean;
+  readonly status: number;
+  text(): Promise<string>;
+  readonly headers: {
+    get(name: string): string | null;
+    getSetCookie?(): string[];
+  };
+}
+type FetchInit = {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+};
+type FetchImpl = (input: string, init?: FetchInit) => Promise<FetchResponse>;
 
 const log = createLogger('portal:pesc');
 
@@ -57,7 +80,7 @@ interface TwoFactorDto {
 // ─── Portal options ─────────────────────────────────────────────────────────
 
 export interface PescOptions {
-  fetch?: typeof fetch;
+  fetch?: FetchImpl;
   verifyDelayMs?: number;
   /**
    * Base32 TOTP shared secret captured from pesc.ru security settings.
@@ -68,6 +91,14 @@ export interface PescOptions {
    */
   totpSecret?: string;
   /**
+   * HTTP CONNECT proxy URL (e.g. `http://sing-box-ru:7890`). When set,
+   * every fetch in this portal is routed via an undici ProxyAgent — pesc
+   * geo-blocks non-RU IPs, so on Pi we tunnel only the pesc-portal
+   * traffic through a sidecar sing-box container. The tgc1 portal is
+   * unaffected.
+   */
+  proxyUrl?: string;
+  /**
    * Overridable clock for TOTP code generation — tests only.
    */
   now?: () => number;
@@ -75,16 +106,30 @@ export interface PescOptions {
 
 export class PescPortal implements Portal {
   readonly name = 'pesc' as const;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: FetchImpl;
   private readonly verifyDelayMs: number;
   private readonly totpSecret: string | undefined;
   private readonly nowFn: () => number;
 
   constructor(opts: PescOptions = {}) {
-    this.fetchImpl = opts.fetch ?? fetch;
     this.verifyDelayMs = opts.verifyDelayMs ?? VERIFY_DELAY_MS;
     this.totpSecret = opts.totpSecret;
     this.nowFn = opts.now ?? Date.now;
+
+    if (opts.fetch !== undefined) {
+      // Test/custom fetch — proxyUrl is ignored, the caller provides their
+      // own transport.
+      this.fetchImpl = opts.fetch;
+    } else if (opts.proxyUrl !== undefined && opts.proxyUrl !== '') {
+      // Route every fetch in this portal through the configured HTTP proxy.
+      // We pin the dispatcher onto each request rather than calling
+      // setGlobalDispatcher — keeps the tgc1 portal and the notifier on the
+      // direct default dispatcher.
+      const dispatcher: Dispatcher = new ProxyAgent({ uri: opts.proxyUrl });
+      this.fetchImpl = (input, init) => undiciFetch(input, { ...init, dispatcher });
+    } else {
+      this.fetchImpl = (input, init) => undiciFetch(input, init);
+    }
   }
 
   async run(deps: PortalDeps): Promise<{
@@ -358,7 +403,7 @@ export class PescPortal implements Portal {
 
 // ─── Stand-alone helpers ────────────────────────────────────────────────────
 
-function extractCookieValue(headers: Headers, name: string): string | undefined {
+function extractCookieValue(headers: FetchResponse['headers'], name: string): string | undefined {
   // Node 24 exposes Headers#getSetCookie() which returns each Set-Cookie line
   // separately, unlike the legacy single-string concat from headers.get().
   const lines =
