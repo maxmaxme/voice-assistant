@@ -84,6 +84,36 @@ jobs:
 
       - run: npm run format -- --check
 
+  meters-typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/meters
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/meters/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+
+  meters-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/meters
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/meters/package-lock.json
+      - run: npm ci
+      - run: npm test
+
   build:
     needs: [lint, typecheck, test, test-shell, format]
     if: github.event_name != 'pull_request'
@@ -116,5 +146,51 @@ jobs:
           tags: |
             ghcr.io/maxmaxme/voice-assistant:latest
             ghcr.io/maxmaxme/voice-assistant:sha-${{ steps.sha.outputs.short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-meters:
+    needs: [meters-typecheck, meters-test, lint, format]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build meters-bot image
+        uses: docker/build-push-action@v6
+        with:
+          context: services/meters
+          file: services/meters/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/maxmaxme/ru-meters-bot:latest
+            ghcr.io/maxmaxme/ru-meters-bot:sha-${{ steps.sha.outputs.short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build sing-box-ru image
+        uses: docker/build-push-action@v6
+        with:
+          context: services/meters
+          file: services/meters/sing-box/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/maxmaxme/ru-meters-bot-sing-box:latest
+            ghcr.io/maxmaxme/ru-meters-bot-sing-box:sha-${{ steps.sha.outputs.short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
