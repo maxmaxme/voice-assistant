@@ -77,4 +77,4 @@ cat >/tmp/sing-box.json <<JSON
 JSON
 
 echo "[sing-box entrypoint] config built: server=$host:$port type=${ttype:-tcp}"
-exec /sbin/sing-box run -c /tmp/sing-box.json
+exec sing-box run -c /tmp/sing-box.json
