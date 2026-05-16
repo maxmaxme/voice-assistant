@@ -76,7 +76,7 @@ export async function runOnce(deps: RunOnceDeps): Promise<void> {
     }
 
     try {
-      const { values, info } = await portal.run(deps.portalDepsFor(portal.name));
+      const { values, info, alreadySubmitted } = await portal.run(deps.portalDepsFor(portal.name));
       deps.store.markDone(
         portal.name,
         period,
@@ -88,6 +88,7 @@ export async function runOnce(deps: RunOnceDeps): Promise<void> {
         period,
         meterCount: values.length,
         info,
+        alreadySubmitted,
       });
     } catch (err) {
       const message = readMessage(err);

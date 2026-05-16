@@ -16,5 +16,10 @@ export interface Portal {
    * readings actually submitted. Throws on any unrecoverable failure;
    * partial success also throws.
    */
-  run(deps: PortalDeps): Promise<{ info: AccountInfo | null; values: MeterReading[] }>;
+  run(deps: PortalDeps): Promise<{
+    info: AccountInfo | null;
+    values: MeterReading[];
+    /** True when no new reading was POSTed — every counter was already submitted earlier today. */
+    alreadySubmitted: boolean;
+  }>;
 }

@@ -53,7 +53,11 @@ export class Tgc1Portal implements Portal {
     this.verifyDelayMs = opts.verifyDelayMs ?? VERIFY_DELAY_MS;
   }
 
-  async run(deps: PortalDeps): Promise<{ info: AccountInfo | null; values: MeterReading[] }> {
+  async run(deps: PortalDeps): Promise<{
+    info: AccountInfo | null;
+    values: MeterReading[];
+    alreadySubmitted: boolean;
+  }> {
     const token = await this.login(deps.login, deps.password);
     const info = await this.fetchAccountInfo(token);
     const devices = await this.fetchDevices(token);
@@ -118,7 +122,7 @@ export class Tgc1Portal implements Portal {
       }
     }
 
-    return { info, values: submitted };
+    return { info, values: submitted, alreadySubmitted: newlyPosted.length === 0 };
   }
 
   private async login(username: string, password: string): Promise<string> {

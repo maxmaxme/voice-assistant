@@ -31,10 +31,12 @@ export class TelegramNotifier implements Notifier {
     period: string;
     meterCount: number;
     info: AccountInfo | null;
+    alreadySubmitted: boolean;
   }): Promise<void> {
-    const lines = [
-      `✓ ${label(input.portal)} за ${input.period}: показания поданы (${input.meterCount} счётчика).`,
-    ];
+    const headline = input.alreadySubmitted
+      ? `✓ ${label(input.portal)} за ${input.period}: показания уже были поданы ранее (${input.meterCount} шт).`
+      : `✓ ${label(input.portal)} за ${input.period}: показания поданы (${input.meterCount} шт).`;
+    const lines = [headline];
     if (input.info) {
       lines.push(`💰 ЛС ${input.info.accountId}: ${input.info.balanceText}`);
     }

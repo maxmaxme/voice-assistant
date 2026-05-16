@@ -16,6 +16,7 @@ function makePortal(impl: Partial<Portal> = {}): Portal {
     run: vi.fn(async () => ({
       info: { accountId: 'ACC', balanceText: 'переплата 1 руб' },
       values: READINGS,
+      alreadySubmitted: false,
     })),
   };
   return { ...base, ...impl };

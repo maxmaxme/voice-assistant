@@ -6,6 +6,7 @@ export interface Notifier {
     period: string;
     meterCount: number;
     info: AccountInfo | null;
+    alreadySubmitted: boolean;
   }): Promise<void>;
   failure(input: {
     portal: string;
