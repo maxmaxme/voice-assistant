@@ -1,0 +1,10 @@
+[Unit]
+Description=Run meters-bot Mon-Fri 12:00 MSK in the 15-21 window
+
+[Timer]
+OnCalendar=Mon..Fri *-*-15..21 12:00:00
+Persistent=true
+Unit=meters-bot.service
+
+[Install]
+WantedBy=timers.target

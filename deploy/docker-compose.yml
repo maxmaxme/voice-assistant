@@ -287,6 +287,22 @@ services:
       - caddydata:/data
       - caddyconfig:/config
 
+  meters-bot:
+    image: ghcr.io/maxmaxme/ru-meters-bot:latest
+    pull_policy: always
+    build:
+      context: ../services/meters
+      dockerfile: Dockerfile
+    # NB: no `restart` and no `container_name` — this service is invoked via
+    # `docker compose run --rm meters-bot`, not `up`.
+    env_file:
+      - ../.env
+    environment:
+      - METERS_DATA_DIR=/app/data
+      - TZ=Europe/Moscow
+    volumes:
+      - ../data/meters:/app/data
+
 networks:
   monitoring:
     driver: bridge

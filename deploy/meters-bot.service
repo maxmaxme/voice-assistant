@@ -1,0 +1,12 @@
+[Unit]
+Description=Submit monthly meter readings via meters-bot container
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/voice-assistant/deploy
+Environment=TZ=Europe/Moscow
+ExecStart=/usr/bin/docker compose run --rm meters-bot
+StandardOutput=journal
+StandardError=journal

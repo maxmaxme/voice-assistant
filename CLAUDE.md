@@ -247,6 +247,26 @@ The service creates `/tmp/va-update` on startup if it doesn't exist. The FIFO is
 mounted into the container via `deploy/docker-compose.yml`. No sudo, no docker socket
 inside the container.
 
+## services/meters/ — ru-meters-bot (sibling service)
+
+A separate one-shot Node service that submits monthly ТГК-1 meter readings
+via the portal's JSON REST API (login → JWT → debt + device list →
+create-reading → verify). Lives entirely under `services/meters/` with its
+own `package.json`, `tsconfig.json`, `Dockerfile`, and vitest config. The
+voice-assistant runtime does NOT import from it and is unaware it exists.
+
+Scheduled by a host systemd timer (`deploy/meters-bot.timer`) — runs Mon-Fri
+12:00 МСК on calendar days 15-21. In-code gate (`schedule.ts::targetDay`)
+no-ops on dates before the first weekday ≥ 15. Manual: `docker compose run
+--rm meters-bot --force`.
+
+No browser, no proxy, no chromium — slim `node:24-alpine` image. The image
+is built by the same `ci.yml` workflow as voice-assistant.
+
+Design:
+
+- `docs/superpowers/specs/2026-05-16-ru-meters-bot-design.md`
+
 ## Home Assistant — gotchas
 
 The MCP integration only sees entities that are **exposed to Assist**. The UI toggle in HA 2026.x silently desyncs entity-registry from `homeassistant.exposed_entities`. Use the WebSocket service `homeassistant/expose_entity` from `docs/home-assistant-setup.md` — that's the canonical path.

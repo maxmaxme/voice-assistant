@@ -277,7 +277,6 @@ CREATE TABLE submissions (
   submitted_values TEXT,                 -- JSON: MeterReading[]
   account_info TEXT,                     -- JSON: AccountInfo
   last_error TEXT,
-  last_error_screenshot TEXT,            -- legacy, always NULL under REST driver
   last_attempt_at INTEGER,
   submitted_at INTEGER,
   notified_window_closed INTEGER NOT NULL DEFAULT 0,
@@ -442,9 +441,10 @@ diagnosing WAF behaviour.
 These are non-blocking for the spec — captured here so they're not
 forgotten and filled during implementation:
 
-1. **ТГК-1 meter count.** Screenshot shows ГВС + Отопление; ХВС (cold
-   water) is typically Водоканал, not ТГК-1, but worth confirming on
-   the live account that only two cards appear on `/fl/readings`.
+1. **ТГК-1 meter count.** The reverse-engineered device list shows
+   ГВС + Отопление; ХВС (cold water) is typically Водоканал, not
+   ТГК-1, but worth confirming on the live account that only two
+   counters come back from `/api/fl/device`.
 2. **Cron window.** 15-21 inclusive, weekdays only, gives 5 attempts
    in the worst case (15 falls on a Monday → submissions Mon-Fri). If
    ТГК-1's real deadline is later in the month, we can extend.
