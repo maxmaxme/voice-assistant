@@ -32,7 +32,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['tests/**/*.ts'],
+    files: ['tests/**/*.ts', 'services/*/tests/**/*.ts'],
     rules: {
       '@typescript-eslint/consistent-type-assertions': ['warn', { assertionStyle: 'never' }],
     },
