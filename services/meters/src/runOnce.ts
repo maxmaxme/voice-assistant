@@ -71,7 +71,6 @@ export async function runOnce(deps: RunOnceDeps): Promise<void> {
         attempt: row.attempts,
         maxAttempts: MAX_ATTEMPTS,
         error: 'Превышен лимит попыток — статус blocked',
-        screenshotPath: null,
       });
       continue;
     }
@@ -92,7 +91,7 @@ export async function runOnce(deps: RunOnceDeps): Promise<void> {
       });
     } catch (err) {
       const message = readMessage(err);
-      deps.store.markFailed(portal.name, period, message, null);
+      deps.store.markFailed(portal.name, period, message);
       const updated = deps.store.getOrCreate(portal.name, period);
       await deps.notifier.failure({
         portal: portal.name,
@@ -100,7 +99,6 @@ export async function runOnce(deps: RunOnceDeps): Promise<void> {
         attempt: updated.attempts,
         maxAttempts: MAX_ATTEMPTS,
         error: message,
-        screenshotPath: null,
       });
     }
   }

@@ -75,7 +75,7 @@ describe('TelegramNotifier.success', () => {
 });
 
 describe('TelegramNotifier.failure', () => {
-  it('mentions attempt/maxAttempts and the screenshot path', async () => {
+  it('mentions attempt/maxAttempts and the error', async () => {
     const n = new TelegramNotifier({
       token: 'T',
       chatId: '42',
@@ -87,15 +87,14 @@ describe('TelegramNotifier.failure', () => {
       period: '2026-05',
       attempt: 3,
       maxAttempts: 5,
-      error: 'TimeoutError',
-      screenshotPath: '/data/s.png',
+      error: 'HTTP 400: Validation Failed',
     });
 
     const body = extractCallBody(calls[0]);
     expect(String(body?.text)).toContain('✗ ТГК-1 за 2026-05');
     expect(String(body?.text)).toContain('попытка 3/5');
-    expect(String(body?.text)).toContain('TimeoutError');
-    expect(String(body?.text)).toContain('/data/s.png');
+    expect(String(body?.text)).toContain('HTTP 400: Validation Failed');
+    expect(String(body?.text)).toContain('Повтор завтра');
   });
 });
 

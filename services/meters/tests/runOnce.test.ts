@@ -125,7 +125,6 @@ describe('runOnce', () => {
     expect(row.status).toBe('failed');
     expect(row.attempts).toBe(1);
     expect(row.lastError).toBe('HTTP 400: Validation Failed');
-    expect(row.lastErrorScreenshot).toBeNull();
     expect(notifier.calls.failure).toHaveLength(1);
   });
 
@@ -140,7 +139,7 @@ describe('runOnce', () => {
     // pre-seed 5 prior attempts
     store.getOrCreate('tgc1', '2026-05');
     for (let i = 0; i < 5; i++) {
-      store.markFailed('tgc1', '2026-05', 'e', null);
+      store.markFailed('tgc1', '2026-05', 'e');
     }
 
     await runOnce({

@@ -47,16 +47,11 @@ export class TelegramNotifier implements Notifier {
     attempt: number;
     maxAttempts: number;
     error: string;
-    screenshotPath: string | null;
   }): Promise<void> {
-    const lines = [
-      `✗ ${label(input.portal)} за ${input.period} — попытка ${input.attempt}/${input.maxAttempts}: ${input.error}`,
-    ];
-    if (input.screenshotPath) {
-      lines.push(`Скриншот: ${input.screenshotPath}`);
-    }
-    lines.push('Повтор завтра.');
-    await this.send(lines.join('\n'));
+    const text =
+      `✗ ${label(input.portal)} за ${input.period} — попытка ${input.attempt}/${input.maxAttempts}: ${input.error}\n` +
+      `Повтор завтра.`;
+    await this.send(text);
   }
 
   async windowClosed(input: { portal: string; period: string }): Promise<void> {

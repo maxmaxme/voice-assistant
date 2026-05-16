@@ -13,7 +13,6 @@ export interface Notifier {
     attempt: number;
     maxAttempts: number;
     error: string;
-    screenshotPath: string | null;
   }): Promise<void>;
   windowClosed(input: { portal: string; period: string }): Promise<void>;
 }

@@ -8,7 +8,6 @@ export const MIGRATIONS: string[] = [
     submitted_values TEXT,
     account_info TEXT,
     last_error TEXT,
-    last_error_screenshot TEXT,
     last_attempt_at INTEGER,
     submitted_at INTEGER,
     notified_window_closed INTEGER NOT NULL DEFAULT 0,

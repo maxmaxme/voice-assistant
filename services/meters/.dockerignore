@@ -1,6 +1,5 @@
 node_modules
 data
-screenshots
 tests
 *.log
 .env

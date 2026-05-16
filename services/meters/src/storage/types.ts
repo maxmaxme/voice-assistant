@@ -19,7 +19,6 @@ export interface SubmissionRow {
   submittedValues: MeterReading[] | null;
   accountInfo: AccountInfo | null;
   lastError: string | null;
-  lastErrorScreenshot: string | null;
   lastAttemptAt: number | null;
   submittedAt: number | null;
   notifiedWindowClosed: boolean;
@@ -29,7 +28,7 @@ export interface SubmissionsStore {
   getOrCreate(portal: string, period: string): SubmissionRow;
   markPending(portal: string, period: string): void;
   markDone(portal: string, period: string, values: MeterReading[], info: AccountInfo): void;
-  markFailed(portal: string, period: string, error: string, screenshotPath: string | null): void;
+  markFailed(portal: string, period: string, error: string): void;
   markBlocked(portal: string, period: string): void;
   markWindowClosedNotified(portal: string, period: string): void;
   lastSubmittedValueFor(portal: string, meter: string): number | null;

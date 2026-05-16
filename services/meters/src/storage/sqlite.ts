@@ -16,7 +16,6 @@ interface DbRow {
   submitted_values: string | null;
   account_info: string | null;
   last_error: string | null;
-  last_error_screenshot: string | null;
   last_attempt_at: number | null;
   submitted_at: number | null;
   notified_window_closed: number;
@@ -45,7 +44,6 @@ function deserialize(row: DbRow): SubmissionRow {
     submittedValues: parseValues(row.submitted_values),
     accountInfo: parseInfo(row.account_info),
     lastError: row.last_error,
-    lastErrorScreenshot: row.last_error_screenshot,
     lastAttemptAt: row.last_attempt_at,
     submittedAt: row.submitted_at,
     notifiedWindowClosed: row.notified_window_closed === 1,
@@ -109,16 +107,15 @@ export function openSubmissionsStore(path: string): SubmissionsStore {
          WHERE portal = ? AND period = ?`,
       ).run(JSON.stringify(values), JSON.stringify(info), Date.now(), Date.now(), portal, period);
     },
-    markFailed(portal, period, error, screenshotPath) {
+    markFailed(portal, period, error) {
       db.prepare(
         `UPDATE submissions
          SET status = 'failed',
              attempts = attempts + 1,
              last_error = ?,
-             last_error_screenshot = ?,
              last_attempt_at = ?
          WHERE portal = ? AND period = ?`,
-      ).run(error, screenshotPath, Date.now(), portal, period);
+      ).run(error, Date.now(), portal, period);
     },
     markBlocked(portal, period) {
       db.prepare(`UPDATE submissions SET status = 'blocked' WHERE portal = ? AND period = ?`).run(

@@ -45,13 +45,12 @@ describe('SubmissionsStore', () => {
 
   it('markFailed increments attempts and records error', () => {
     store.getOrCreate('tgc1', '2026-05');
-    store.markFailed('tgc1', '2026-05', 'TimeoutError', '/data/s1.png');
-    store.markFailed('tgc1', '2026-05', 'TimeoutError again', '/data/s2.png');
+    store.markFailed('tgc1', '2026-05', 'TimeoutError');
+    store.markFailed('tgc1', '2026-05', 'TimeoutError again');
 
     const row = store.getOrCreate('tgc1', '2026-05');
     expect(row.attempts).toBe(2);
     expect(row.lastError).toBe('TimeoutError again');
-    expect(row.lastErrorScreenshot).toBe('/data/s2.png');
     expect(row.status).toBe('failed');
   });
 
@@ -80,7 +79,7 @@ describe('SubmissionsStore', () => {
 
   it('lastSubmittedValueFor ignores rows that are not done', () => {
     store.getOrCreate('tgc1', '2026-05');
-    store.markFailed('tgc1', '2026-05', 'err', null);
+    store.markFailed('tgc1', '2026-05', 'err');
     expect(store.lastSubmittedValueFor('tgc1', 'M1')).toBeNull();
   });
 });
