@@ -113,7 +113,7 @@ function makeDeps(overrides: Partial<PortalDeps> = {}): PortalDeps {
 }
 
 describe('PescPortal.run', () => {
-  it('happy path: logs in, lists meters, submits +0.01, returns balance and values', async () => {
+  it('happy path: logs in, lists meters, submits +0.001 (smallest step at numberOfDigitsRight=3), returns balance and values', async () => {
     const submits: MockOptions['submits'] = [];
     const fetchMock = makeFetchMock({
       submits,
@@ -130,7 +130,7 @@ describe('PescPortal.run', () => {
           id: { registration: '12345' },
           numberOfDigitsRight: 3,
           name: 'ХВС',
-          indications: [{ meterScaleId: 1, scaleName: 'T1', previousReading: 10.01 }],
+          indications: [{ meterScaleId: 1, scaleName: 'T1', previousReading: 10.001 }],
         },
       ],
     });
@@ -143,9 +143,9 @@ describe('PescPortal.run', () => {
 
     expect(result.alreadySubmitted).toBe(false);
     expect(result.info).toEqual({ accountId: '4116588', balanceText: 'переплата 75.18 руб' });
-    expect(result.values).toEqual([{ meter: '12345:1', kind: 'T1', value: 10.01 }]);
+    expect(result.values).toEqual([{ meter: '12345:1', kind: 'T1', value: 10.001 }]);
     expect(submits).toHaveLength(1);
-    expect(submits[0]).toEqual({ registration: '12345', body: [{ scaleId: 1, value: 10.01 }] });
+    expect(submits[0]).toEqual({ registration: '12345', body: [{ scaleId: 1, value: 10.001 }] });
   });
 
   it('uses session-cookie from Set-Cookie and Bearer from auth response', async () => {
@@ -267,7 +267,7 @@ describe('PescPortal.run', () => {
     expect(result).toBeDefined();
   });
 
-  it('uses stored value + 0.01 when stored > portalPrev (guards against portal regression)', async () => {
+  it('uses stored value + step when stored > portalPrev (guards against portal regression)', async () => {
     const submits: MockOptions['submits'] = [];
     const fetchMock = makeFetchMock({
       submits,
@@ -282,7 +282,7 @@ describe('PescPortal.run', () => {
         {
           id: { registration: '12345' },
           numberOfDigitsRight: 3,
-          indications: [{ meterScaleId: 1, scaleName: 'T1', previousReading: 20.01 }],
+          indications: [{ meterScaleId: 1, scaleName: 'T1', previousReading: 20.001 }],
         },
       ],
     });
@@ -297,11 +297,11 @@ describe('PescPortal.run', () => {
       }),
     );
 
-    expect(submits[0].body).toEqual([{ scaleId: 1, value: 20.01 }]);
-    expect(result.values[0].value).toBe(20.01);
+    expect(submits[0].body).toEqual([{ scaleId: 1, value: 20.001 }]);
+    expect(result.values[0].value).toBe(20.001);
   });
 
-  it('electricity meter (numberOfDigitsRight=0) increments by +1, not +0.01', async () => {
+  it('electricity meter (numberOfDigitsRight=0) increments by +1, not by fractional step', async () => {
     const submits: MockOptions['submits'] = [];
     const fetchMock = makeFetchMock({
       submits,
@@ -364,8 +364,8 @@ describe('PescPortal.run', () => {
           numberOfDigitsRight: 3,
           name: 'Электроэнергия',
           indications: [
-            { meterScaleId: 1, scaleName: 'Day', previousReading: 100.01 },
-            { meterScaleId: 2, scaleName: 'Night', previousReading: 50.01 },
+            { meterScaleId: 1, scaleName: 'Day', previousReading: 100.001 },
+            { meterScaleId: 2, scaleName: 'Night', previousReading: 50.001 },
           ],
         },
       ],
@@ -381,8 +381,8 @@ describe('PescPortal.run', () => {
     expect(submits[0]).toEqual({
       registration: '999',
       body: [
-        { scaleId: 1, value: 100.01 },
-        { scaleId: 2, value: 50.01 },
+        { scaleId: 1, value: 100.001 },
+        { scaleId: 2, value: 50.001 },
       ],
     });
     expect(result.values).toHaveLength(2);

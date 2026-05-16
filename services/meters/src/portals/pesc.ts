@@ -35,7 +35,6 @@ const UA =
 const COOKIE_NAME = 'session-cookie';
 const CUSTOMER = 'ikus-spb';
 const VERIFY_DELAY_MS = 1500;
-const FRACTIONAL_INCREMENT = 0.01;
 const INTEGER_INCREMENT = 1;
 const DEFAULT_DECIMALS = 3;
 
@@ -168,9 +167,10 @@ export class PescPortal implements Portal {
       // numberOfDigitsRight tells us the meter's decimal precision:
       // 0 = whole units (electricity in kWh), 3 = thousandths (water m³).
       // pesc rejects same-as-prev readings, so we bump by the smallest
-      // legal step for the meter's precision.
+      // legal step the meter can express — that's 10^-decimals for
+      // fractional meters and 1 for integer-only ones.
       const decimals = meter.numberOfDigitsRight ?? DEFAULT_DECIMALS;
-      const step = decimals === 0 ? INTEGER_INCREMENT : FRACTIONAL_INCREMENT;
+      const step = decimals === 0 ? INTEGER_INCREMENT : Math.pow(10, -decimals);
 
       const payload: Array<{ scaleId: number; value: number }> = [];
 
