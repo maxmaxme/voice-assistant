@@ -250,22 +250,22 @@ inside the container.
 ## services/meters/ — ru-meters-bot (sibling service)
 
 A separate one-shot Node service that submits monthly ТГК-1 meter readings
-through a RU SOCKS5 proxy (sing-box). Lives entirely under `services/meters/`
-with its own `package.json`, `tsconfig.json`, `Dockerfile`, and vitest config.
-The voice-assistant runtime does NOT import from it and is unaware it exists.
+via the portal's JSON REST API (login → JWT → debt + device list →
+create-reading → verify). Lives entirely under `services/meters/` with its
+own `package.json`, `tsconfig.json`, `Dockerfile`, and vitest config. The
+voice-assistant runtime does NOT import from it and is unaware it exists.
 
 Scheduled by a host systemd timer (`deploy/meters-bot.timer`) — runs Mon-Fri
 12:00 МСК on calendar days 15-21. In-code gate (`schedule.ts::targetDay`)
 no-ops on dates before the first weekday ≥ 15. Manual: `docker compose run
 --rm meters-bot --force`.
 
-The two Docker images (`ru-meters-bot` and `ru-meters-bot-sing-box`) are built
-by the same `ci.yml` workflow as voice-assistant.
+No browser, no proxy, no chromium — slim `node:24-alpine` image. The image
+is built by the same `ci.yml` workflow as voice-assistant.
 
-Design + plan:
+Design:
 
 - `docs/superpowers/specs/2026-05-16-ru-meters-bot-design.md`
-- `docs/superpowers/plans/2026-05-16-ru-meters-bot.md`
 
 ## Home Assistant — gotchas
 

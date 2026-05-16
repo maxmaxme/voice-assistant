@@ -5,7 +5,6 @@ import { runOnce } from './runOnce.ts';
 import { openSubmissionsStore } from './storage/sqlite.ts';
 import { TelegramNotifier } from './notify/telegram.ts';
 import { Tgc1Portal } from './portals/tgc1.ts';
-import { withBrowser } from './browser.ts';
 import { createLogger } from './logger.ts';
 import type { Portal } from './portals/types.ts';
 
@@ -55,22 +54,14 @@ Options:
   const allPortals: Portal[] = [tgc1];
   const portals = allPortals.filter((p) => p.name === values.portal);
   if (portals.length === 0) {
-    throw new Error(`Unknown portal: ${values.portal}`);
+    throw new Error(`Unknown portal: ${values.portal ?? ''}`);
   }
-
-  const proxyUrl = env('PROXY_URL', 'socks5://sing-box-ru:1080');
-  const screenshotDir = join(dataDir, 'screenshots');
-  const headed = env('METERS_HEADED', '0') === '1';
 
   try {
     await runOnce({
       store,
       notifier,
       portals,
-      withPage: (_unused, fn) =>
-        withBrowser({ proxyUrl, headed, screenshotDir }, (sess) =>
-          fn({ page: sess.page, screenshotOnFailure: sess.screenshotOnFailure }),
-        ),
       portalDepsFor: (name) => {
         if (name === 'tgc1') {
           return {

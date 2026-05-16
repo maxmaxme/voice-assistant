@@ -181,16 +181,3 @@ jobs:
             ghcr.io/maxmaxme/ru-meters-bot:sha-${{ steps.sha.outputs.short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Build sing-box-ru image
-        uses: docker/build-push-action@v6
-        with:
-          context: services/meters
-          file: services/meters/sing-box/Dockerfile
-          platforms: linux/arm64
-          push: true
-          tags: |
-            ghcr.io/maxmaxme/ru-meters-bot-sing-box:latest
-            ghcr.io/maxmaxme/ru-meters-bot-sing-box:sha-${{ steps.sha.outputs.short }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

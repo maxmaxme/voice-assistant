@@ -1,25 +1,20 @@
-# Playwright base image — comes with chromium + system fonts.
-FROM mcr.microsoft.com/playwright:v1.50.0-jammy
-
-# Install Node 24 (base image has Node 22; need 24 for native TS stripping).
-# The Playwright base already has build-essential, but we need to ensure it's available.
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
-    apt-get install -y nodejs build-essential
+FROM node:24-alpine
 
 WORKDIR /app
 
-# Install deps with prebuilt better-sqlite3 binaries.
+# better-sqlite3 ships prebuilds for alpine-musl on most arches, but fall back
+# to source compile if the prebuild is missing.
+RUN apk add --no-cache python3 make g++
+
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && \
+RUN npm ci --omit=dev --ignore-scripts && \
     npm rebuild better-sqlite3
 
-# Copy source (no build step — Node 24 strips TS at runtime).
 COPY tsconfig.json ./
 COPY src ./src
 
 ENV NODE_ENV=production \
-    METERS_DATA_DIR=/app/data \
-    PROXY_URL=socks5://sing-box-ru:1080
+    METERS_DATA_DIR=/app/data
 
 VOLUME ["/app/data"]
 

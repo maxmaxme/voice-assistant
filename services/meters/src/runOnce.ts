@@ -4,22 +4,15 @@ import type { SubmissionsStore } from './storage/types.ts';
 import { currentPeriod } from './period.ts';
 import { isInWindow, targetDay, lastWeekdayOfWindow } from './schedule.ts';
 import { createLogger } from './logger.ts';
-import type { Page } from 'playwright';
 
 const log = createLogger('runOnce');
 
 const MAX_ATTEMPTS = 5;
 
-export interface BrowserSession {
-  page: Page;
-  screenshotOnFailure(label: string): Promise<string | null>;
-}
-
 export interface RunOnceDeps {
   store: SubmissionsStore;
   notifier: Notifier;
   portals: Portal[];
-  withPage<T>(_: unknown, fn: (sess: BrowserSession) => Promise<T>): Promise<T>;
   portalDepsFor(portalName: string): PortalDeps;
   now: Date;
   force: boolean;
@@ -37,25 +30,6 @@ function ymdInMoscow(now: Date): { year: number; month: number; day: number } {
     month: Number(parts.find((p) => p.type === 'month')?.value),
     day: Number(parts.find((p) => p.type === 'day')?.value),
   };
-}
-
-interface AnnotatedError extends Error {
-  screenshotPath: string | null;
-}
-
-function annotateError(err: unknown, path: string | null): AnnotatedError {
-  const base: Error = err instanceof Error ? err : new Error(String(err));
-  return Object.assign(base, { screenshotPath: path });
-}
-
-function readScreenshotPath(err: unknown): string | null {
-  if (err && typeof err === 'object') {
-    const v: unknown = Reflect.get(err, 'screenshotPath');
-    if (typeof v === 'string') {
-      return v;
-    }
-  }
-  return null;
 }
 
 function readMessage(err: unknown): string {
@@ -97,23 +71,13 @@ export async function runOnce(deps: RunOnceDeps): Promise<void> {
         attempt: row.attempts,
         maxAttempts: MAX_ATTEMPTS,
         error: 'Превышен лимит попыток — статус blocked',
-        screenshotPath: row.lastErrorScreenshot,
+        screenshotPath: null,
       });
       continue;
     }
 
     try {
-      const { values, info } = await deps.withPage({}, async (sess) => {
-        try {
-          const info = await portal.fetchAccountInfo(sess.page);
-          const values = await portal.submit(sess.page, deps.portalDepsFor(portal.name));
-          return { values, info };
-        } catch (err) {
-          const screenshotPath = await sess.screenshotOnFailure(`${portal.name}-${period}`);
-          throw annotateError(err, screenshotPath);
-        }
-      });
-
+      const { values, info } = await portal.run(deps.portalDepsFor(portal.name));
       deps.store.markDone(
         portal.name,
         period,
@@ -127,9 +91,8 @@ export async function runOnce(deps: RunOnceDeps): Promise<void> {
         info,
       });
     } catch (err) {
-      const screenshotPath = readScreenshotPath(err);
       const message = readMessage(err);
-      deps.store.markFailed(portal.name, period, message, screenshotPath);
+      deps.store.markFailed(portal.name, period, message, null);
       const updated = deps.store.getOrCreate(portal.name, period);
       await deps.notifier.failure({
         portal: portal.name,
@@ -137,7 +100,7 @@ export async function runOnce(deps: RunOnceDeps): Promise<void> {
         attempt: updated.attempts,
         maxAttempts: MAX_ATTEMPTS,
         error: message,
-        screenshotPath,
+        screenshotPath: null,
       });
     }
   }

@@ -29,6 +29,6 @@ Logs:
 
 ```bash
 journalctl -u meters-bot.service --since today
-docker compose logs sing-box-ru
-ls /opt/voice-assistant/data/meters/screenshots/
+sqlite3 /opt/voice-assistant/data/meters/meters.sqlite \
+  'SELECT portal, period, status, attempts, last_error FROM submissions;'
 ```
