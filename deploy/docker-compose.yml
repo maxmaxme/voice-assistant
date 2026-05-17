@@ -303,16 +303,12 @@ services:
     volumes:
       - ./sing-box/entrypoint.sh:/entrypoint.sh:ro
     healthcheck:
+      # Busybox wget (shipped in the sing-box image) doesn't understand
+      # `-e http_proxy=...` — that's a GNU wget flag. Set the env var instead.
       test:
         [
-          'CMD',
-          'wget',
-          '-q',
-          '--spider',
-          '--proxy=on',
-          '-e',
-          'http_proxy=http://127.0.0.1:7890',
-          'http://ikus.pesc.ru/api/v6/users/manual/existence',
+          'CMD-SHELL',
+          'http_proxy=http://127.0.0.1:7890 wget -q --spider http://ikus.pesc.ru/api/v6/users/manual/existence',
         ]
       interval: 60s
       timeout: 10s
