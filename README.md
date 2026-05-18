@@ -34,10 +34,13 @@ Working features:
 - Scheduled actions: `schedule_action` tool persists one-shot
   (wall-clock) or recurring (cron) goals; a tick-based scheduler fires
   them through a goal-mode agent with the full tool surface.
-- **ru-meters-bot** — sibling service under `services/meters/` that submits
-  monthly ТГК-1 readings via the portal's JSON REST API. Independent image
-  (slim `node:24-alpine`), independent schedule (systemd timer, Mon-Fri
-  12:00 МСК, days 15-21). Voice-assistant is not aware of it.
+- **ru-meters-bot** — separate repo
+  ([github.com/maxmaxme/ru-meters-bot](https://github.com/maxmaxme/ru-meters-bot))
+  that submits monthly readings to Russian utility portals (ТГК-1,
+  pesc.ru) via their JSON REST APIs.
+  Its prebuilt image is wired into `deploy/docker-compose.yml` and runs on
+  the Pi via a host systemd timer (Mon-Fri 12:00 МСК, days 15-21).
+  Voice-assistant does not import from it.
 
 ## Requirements
 

@@ -316,11 +316,10 @@ services:
       retries: 3
 
   meters-bot:
+    # Image built and published from the standalone ru-meters-bot repo
+    # (https://github.com/maxmaxme/ru-meters-bot). No local build context.
     image: ghcr.io/maxmaxme/ru-meters-bot:latest
     pull_policy: always
-    build:
-      context: ../services/meters
-      dockerfile: Dockerfile
     # NB: no `restart` and no `container_name` — this service is invoked via
     # `docker compose run --rm meters-bot`, not `up`.
     depends_on:

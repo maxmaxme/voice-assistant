@@ -247,25 +247,28 @@ The service creates `/tmp/va-update` on startup if it doesn't exist. The FIFO is
 mounted into the container via `deploy/docker-compose.yml`. No sudo, no docker socket
 inside the container.
 
-## services/meters/ — ru-meters-bot (sibling service)
+## ru-meters-bot — external sibling service
 
-A separate one-shot Node service that submits monthly ТГК-1 meter readings
-via the portal's JSON REST API (login → JWT → debt + device list →
-create-reading → verify). Lives entirely under `services/meters/` with its
-own `package.json`, `tsconfig.json`, `Dockerfile`, and vitest config. The
-voice-assistant runtime does NOT import from it and is unaware it exists.
+A separate one-shot Node service that submits monthly meter readings to
+Russian utility portals (ТГК-1, pesc.ru) via their JSON REST APIs. Lives in its own repo at
+`~/Developer/ru-meters-bot/` (published image: `ghcr.io/maxmaxme/ru-meters-bot:latest`).
+The voice-assistant runtime does NOT import from it.
 
-Scheduled by a host systemd timer (`deploy/meters-bot.timer`) — runs Mon-Fri
-12:00 МСК on calendar days 15-21. In-code gate (`schedule.ts::targetDay`)
-no-ops on dates before the first weekday ≥ 15. Manual: `docker compose run
---rm meters-bot --force`.
+This repo only references it operationally:
 
-No browser, no proxy, no chromium — slim `node:24-alpine` image. The image
-is built by the same `ci.yml` workflow as voice-assistant.
+- `deploy/docker-compose.yml` defines the `meters-bot` service, pulling
+  the prebuilt image (no `build:` context). It depends on `sing-box-ru`
+  in the same compose for pesc.ru's RU-only egress, and shares
+  `../.env` and the host's `data/meters/` directory.
+- `deploy/meters-bot.service` / `deploy/meters-bot.timer` — host systemd
+  units that run `docker compose run --rm meters-bot` Mon-Fri 12:00 МСК
+  on calendar days 15-21.
 
-Design:
+Code changes happen in the standalone repo; deployment of a new version
+is just `docker compose pull meters-bot` from `/opt/voice-assistant/deploy/`.
 
-- `docs/superpowers/specs/2026-05-16-ru-meters-bot-design.md`
+Original design doc: `docs/superpowers/specs/2026-05-16-ru-meters-bot-design.md`
+(written when the service still lived under `services/meters/`).
 
 ## Home Assistant — gotchas
 
