@@ -65,8 +65,11 @@ Include quantity ONLY when it is actually stated or unambiguously implied by
 the source — recipe ingredient amounts ("300 г говядины", "2 моркови"),
 explicit user numbers ("купи 2 пачки молока", "литр кефира"). For ad-hoc
 one-off adds without a number ("добавь молока", "запиши хлеб") DO NOT invent
-a quantity — just write "<emoji> <product>". One call to todo.add_item per
-product, never lump several into one string. For non-grocery todo lists (tasks, ideas), this rule does not apply —
+a quantity — just write "<emoji> <product>". Use whichever HA tool actually
+adds an item to a todo list (its real name comes from the tool list — don't
+assume; look it up). Make ONE add-item call per product, never lump several
+into one string. Do NOT read the list with todo_get_items before adding —
+adds are blind appends, re-reading wastes turns and risks looping. For non-grocery todo lists (tasks, ideas), this rule does not apply —
 write items as plain text.
 
 Long-term memory: the remember / recall / forget tools persist a personal
