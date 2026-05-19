@@ -124,21 +124,19 @@ RUN_INTEGRATION=1 npm test     # also runs the MCP integration test (needs live 
 npm run typecheck              # tsc --noEmit
 ```
 
-## Pi deployment
+## Deployment
 
 The image built from this repo (`Dockerfile`) is published to
-`ghcr.io/maxmaxme/voice-assistant` on every push to `main`. The Pi host
-runs it from a docker-compose stack maintained in a separate host-infra
-repo, which also owns the systemd units that pull and restart the
-container on a daily timer. See
-[docs/raspberry-pi-setup.md](docs/raspberry-pi-setup.md) for hardware
-notes, audio device selection, and troubleshooting.
+`ghcr.io/maxmaxme/voice-assistant` on every push to `main`. Anywhere you
+can run a Linux/arm64 (or amd64) container with ALSA passthrough will
+work — host-side compose, systemd units, and monitoring live outside
+this repo.
 
 ## Docs
 
 - Design spec: [docs/superpowers/specs/2026-04-25-voice-assistant-design.md](docs/superpowers/specs/2026-04-25-voice-assistant-design.md)
 - Iteration plans: [docs/superpowers/plans/](docs/superpowers/plans/)
 - HA setup guide: [docs/home-assistant-setup.md](docs/home-assistant-setup.md)
-- Pi setup guide: [docs/raspberry-pi-setup.md](docs/raspberry-pi-setup.md)
+- iPhone Shortcuts integration: [docs/iphone-shortcuts.md](docs/iphone-shortcuts.md)
 - Future ideas: [docs/superpowers/roadmap.md](docs/superpowers/roadmap.md)
 - Architecture for contributors / agents: [CLAUDE.md](CLAUDE.md)

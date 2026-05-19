@@ -1,18 +1,16 @@
 # Home Assistant Setup (one-time, manual)
 
-These steps are needed once on each dev machine. They produce a running HA
-instance with the MCP Server enabled and a Long-Lived Access Token for the
-Node.js client.
+These steps configure any reachable Home Assistant instance with the
+MCP Server enabled and a Long-Lived Access Token, so the Node.js client
+in this repo can drive it.
 
-## 1. Start HA
+## 1. Reach a running HA
 
-```bash
-cd docker
-docker compose up -d
-```
-
-Wait ~60 seconds, then open http://localhost:8123. Complete the onboarding
-wizard (create your owner user; everything else can be skipped).
+Point `HA_URL` in `.env` at whichever HA you want to drive — a local
+install (`http://localhost:8123`), a LAN box, or a remote one tunnelled
+via Tailscale (`https://<host>.<tailnet>.ts.net`). The rest of this
+guide assumes you can open that URL in a browser and have completed the
+HA onboarding wizard (owner user created).
 
 ## 2. Enable the MCP Server integration
 
@@ -65,16 +63,18 @@ files end up out of sync between `core.entity_registry` and
 The canonical, reliable way is the WebSocket service
 `homeassistant/expose_entity`:
 
+Run from your dev machine (any Python 3 with `aiohttp` installed), with
+`HA_URL` and `HA_TOKEN` exported (or sourced from `.env`):
+
 ```bash
-docker exec -e TOKEN="$(grep '^HA_TOKEN=' .env | cut -d= -f2-)" \
-  voice-assistant-ha python3 -c '
-import asyncio, json, os, aiohttp
+HA_WS_URL="${HA_URL/#http/ws}/api/websocket" python3 -c '
+import asyncio, os, aiohttp
 
 async def go():
     async with aiohttp.ClientSession() as s:
-        async with s.ws_connect("http://localhost:8123/api/websocket") as ws:
+        async with s.ws_connect(os.environ["HA_WS_URL"]) as ws:
             await ws.receive_json()  # auth_required
-            await ws.send_json({"type":"auth","access_token":os.environ["TOKEN"]})
+            await ws.send_json({"type":"auth","access_token":os.environ["HA_TOKEN"]})
             await ws.receive_json()  # auth_ok
             await ws.send_json({
                 "id": 1,
@@ -105,14 +105,13 @@ section → toggle **Expose new entities**.
 WebSocket equivalent (set / read):
 
 ```bash
-docker exec -e TOKEN="$(grep '^HA_TOKEN=' .env | cut -d= -f2-)" \
-  voice-assistant-ha python3 -c '
+HA_WS_URL="${HA_URL/#http/ws}/api/websocket" python3 -c '
 import asyncio, os, aiohttp
 async def go():
     async with aiohttp.ClientSession() as s:
-        async with s.ws_connect("http://localhost:8123/api/websocket") as ws:
+        async with s.ws_connect(os.environ["HA_WS_URL"]) as ws:
             await ws.receive_json()
-            await ws.send_json({"type":"auth","access_token":os.environ["TOKEN"]})
+            await ws.send_json({"type":"auth","access_token":os.environ["HA_TOKEN"]})
             await ws.receive_json()
             await ws.send_json({"id":1,"type":"homeassistant/expose_new_entities/set",
                                 "assistant":"conversation","expose_new":True})
@@ -144,23 +143,6 @@ RUN_INTEGRATION=1 npm test
 ```
 
 Expected: 1 integration test passes (turns the lamp on, then off).
-
-## HACS (Pi production stack only)
-
-The host-side docker-compose stack runs a one-shot `hacs-init` container before HA
-starts. It downloads HACS into `ha-data/custom_components/hacs` if not
-already present (idempotent — safe to re-run on every `docker compose up`).
-
-Activation still requires manual UI steps **once**:
-
-1. Restart HA after the first install: `docker compose restart home-assistant`
-2. Settings → Devices & Services → Add Integration → search **HACS**
-3. Tick all four checkboxes, submit, then follow the GitHub device-flow
-   link and paste the one-time code (no PAT needed for the device flow).
-4. After approval HACS appears in the sidebar.
-
-To force a re-install, delete `ha-data/custom_components/hacs/` on the host
-and `docker compose up -d hacs-init`.
 
 ## Troubleshooting
 
