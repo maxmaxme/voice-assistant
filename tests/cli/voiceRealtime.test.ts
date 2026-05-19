@@ -40,13 +40,13 @@ class FakeMic implements MicLike {
 
 class FakeSpeaker implements SpeakerLike {
   chunks: Buffer[] = [];
-  started = false;
+  doneCount = 0;
   stopped = false;
-  start(): void {
-    this.started = true;
-  }
   write(c: Buffer): void {
     this.chunks.push(c);
+  }
+  async done(): Promise<void> {
+    this.doneCount++;
   }
   stop(): void {
     this.stopped = true;
@@ -149,7 +149,6 @@ describe('runVoiceRealtimeMode', () => {
     // Tear the runner down by rejecting the pending prompt.
     promptRejecters[1]!(new Error('test-done'));
     await runP.catch(() => {});
-    expect(speaker.stopped).toBe(true);
   });
 
   it('dispatches a tool call on response.done and replies with function_call_output', async () => {

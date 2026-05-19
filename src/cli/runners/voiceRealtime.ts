@@ -1,7 +1,7 @@
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { StreamingMic } from '../../audio/streamingMic.ts';
-import { SessionSpeaker } from '../../realtime/sessionSpeaker.ts';
+import { ResponseSpeaker } from '../../realtime/responseSpeaker.ts';
 import {
   RealtimeSession,
   type RealtimeSocket,
@@ -47,8 +47,8 @@ export interface MicLike {
 }
 
 export interface SpeakerLike {
-  start(): void;
   write(chunk: Buffer): void;
+  done(): Promise<void>;
   stop(): void;
 }
 
@@ -67,8 +67,8 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
   });
 
   const mic = (deps.micFactory ?? defaultMicFactory)();
-  const speaker = (deps.speakerFactory ?? defaultSpeakerFactory)();
-  speaker.start();
+  const makeSpeaker = deps.speakerFactory ?? defaultSpeakerFactory;
+  const speakerRef: { current: SpeakerLike | null } = { current: null };
 
   const pendingFunctionCalls = new Map<string, FunctionCallItem>();
   let speechStoppedResolve: (() => void) | null = null;
@@ -118,7 +118,10 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
       case 'response.output_audio.delta': {
         const b64 = typeof ev.delta === 'string' ? ev.delta : '';
         if (b64) {
-          speaker.write(Buffer.from(b64, 'base64'));
+          if (!speakerRef.current) {
+            speakerRef.current = makeSpeaker();
+          }
+          speakerRef.current.write(Buffer.from(b64, 'base64'));
         }
         return;
       }
@@ -152,6 +155,11 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
         const calls = [...pendingFunctionCalls.values()];
         pendingFunctionCalls.clear();
         if (calls.length === 0) {
+          const finishing = speakerRef.current;
+          speakerRef.current = null;
+          if (finishing) {
+            await finishing.done();
+          }
           responseDoneResolve?.();
           responseDoneResolve = null;
           return;
@@ -223,7 +231,7 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
     }
   } finally {
     rl.close();
-    speaker.stop();
+    speakerRef.current?.stop();
     session.close();
   }
 }
@@ -274,5 +282,5 @@ function defaultMicFactory(): MicLike {
 }
 
 function defaultSpeakerFactory(): SpeakerLike {
-  return new SessionSpeaker(SPEAKER_SAMPLE_RATE);
+  return new ResponseSpeaker(SPEAKER_SAMPLE_RATE);
 }

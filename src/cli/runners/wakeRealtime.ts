@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import type { Config } from '../../config.ts';
 import { StreamingMic } from '../../audio/streamingMic.ts';
 import { OpenWakeWord } from '../../audio/wakeWord.ts';
-import { SessionSpeaker } from '../../realtime/sessionSpeaker.ts';
+import { ResponseSpeaker } from '../../realtime/responseSpeaker.ts';
 import { RealtimeSession, type WsFactory } from '../../realtime/realtimeSession.ts';
 import { buildRealtimeTools, dispatchRealtimeTool } from '../../realtime/toolDispatch.ts';
 import type { McpClient } from '../../mcp/types.ts';
@@ -62,8 +62,7 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
     telegram: deps.telegram,
   });
 
-  const speaker = new SessionSpeaker(REALTIME_SAMPLE_RATE);
-  speaker.start();
+  const speakerRef: { current: ResponseSpeaker | null } = { current: null };
 
   // Two mics, used sequentially: wakeMic @ 16kHz feeds the wake-word daemon
   // while idle; realtimeMic @ 24kHz streams to the OpenAI session during a
@@ -182,7 +181,10 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
       case 'response.output_audio.delta': {
         const b64 = typeof ev.delta === 'string' ? ev.delta : '';
         if (b64) {
-          speaker.write(Buffer.from(b64, 'base64'));
+          if (!speakerRef.current) {
+            speakerRef.current = new ResponseSpeaker(REALTIME_SAMPLE_RATE);
+          }
+          speakerRef.current.write(Buffer.from(b64, 'base64'));
         }
         return;
       }
@@ -218,6 +220,11 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
         const calls = [...pendingFunctionCalls.values()];
         pendingFunctionCalls.clear();
         if (calls.length === 0) {
+          const finishing = speakerRef.current;
+          speakerRef.current = null;
+          if (finishing) {
+            await finishing.done();
+          }
           if (state === 'responding') {
             enterIdle();
           }
