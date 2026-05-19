@@ -117,7 +117,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     telegram,
     textFormat: CHAT_TEXT_FORMAT,
   });
-  const goalRunner: GoalRunner = buildGoalRunner({ agent: goalAgent });
+  const goalRunner: GoalRunner = buildGoalRunner({ agent: goalAgent, telegram });
 
   const buildAgent = (channel: PromptChannel): OpenAiAgent =>
     new OpenAiAgent({

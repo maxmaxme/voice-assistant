@@ -20,6 +20,10 @@ export interface AgentResponse {
    * expects an immediate verbal answer (set when the LLM calls the `ask`
    * tool). */
   expectsFollowUp?: boolean;
+  /** Names of tools the agent invoked during this turn, in call order.
+   * Empty when the agent answered with plain text only. Used by goal-mode
+   * callers to detect "goal returned text but never reached the user". */
+  toolsUsed?: string[];
 }
 
 export interface AgentImage {

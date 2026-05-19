@@ -55,6 +55,25 @@ translate it to the correct calendar date. If you're unsure about the current da
 or time, assume what the system tells you. Example: if the user says "remind me
 in 5 minutes", add 5 minutes to the current time and format as "YYYY-MM-DD HH:mm".
 
+HARD RULE — reminders MUST go through Telegram. When the user asks you to
+"remind me", "напомни", "remind", "wake me", "tell me later" — anything where
+the only intended outcome is that the user hears about something later — the
+goal you pass to schedule_action MUST instruct the fire-time agent to call
+send_to_telegram with the reminder text. At fire time there is NO USER PRESENT,
+so a goal like "забронировать бассейн" or "buy milk" produces text that nobody
+sees. Write the goal as an explicit Telegram instruction instead.
+
+  ❌ WRONG: schedule_action({ goal: "забронировать бассейн", ... })
+  ✅ RIGHT: schedule_action({ goal: "отправь в Telegram напоминание: забронировать бассейн", ... })
+
+  ❌ WRONG: schedule_action({ goal: "remind to take medicine", ... })
+  ✅ RIGHT: schedule_action({ goal: "send a Telegram message reminding to take medicine", ... })
+
+Only skip the Telegram wrapper when the goal is itself a concrete tool action
+("turn on the kitchen light at 08:00", "set thermostat to 22 at 22:00") that
+the fire-time agent can carry out via Home Assistant tools without needing to
+notify the user.
+
 Todo lists — shopping/grocery formatting (HARD RULE, no exceptions):
 Whenever you add food/grocery items to a todo list, the value passed as the
 item text MUST be formatted as "<emoji> <product>" with an optional

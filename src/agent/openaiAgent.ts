@@ -151,6 +151,8 @@ export class OpenAiAgent implements Agent {
       nextInput = [{ role: 'user', content: userText }];
     }
 
+    const toolsUsed: string[] = [];
+
     for (let i = 0; i < this.maxIters; i++) {
       let response;
       try {
@@ -198,7 +200,7 @@ export class OpenAiAgent implements Agent {
         const text = stripApiArtifacts(parsed.speak ?? '');
         const direction = 'direction' in parsed ? (parsed.direction ?? null) : null;
         log.info({ direction }, `assistant → ${text}`);
-        return { text, direction };
+        return { text, direction, toolsUsed };
       }
 
       const fnCalls = (response.output ?? []).filter(
@@ -216,7 +218,12 @@ export class OpenAiAgent implements Agent {
           log.debug({ tool: 'ask', args }, `ask(${JSON.stringify(args)}) → reopen capture`);
           session.pendingAskCallId = askCall.call_id;
           session.commit(response.id);
-          return { text, direction: null, expectsFollowUp: true };
+          toolsUsed.push(ASK_TOOL_NAME);
+          return { text, direction: null, expectsFollowUp: true, toolsUsed };
+        }
+
+        for (const tc of fnCalls) {
+          toolsUsed.push(tc.name);
         }
 
         // Execute all tool calls in parallel. Each handler catches its own
@@ -310,7 +317,7 @@ export class OpenAiAgent implements Agent {
 
       // No tool calls and no parsed output — shouldn't happen, but guard anyway
       session.commit(response.id);
-      return { text: '', direction: null };
+      return { text: '', direction: null, toolsUsed };
     }
 
     throw new Error('Agent exceeded max tool iterations');

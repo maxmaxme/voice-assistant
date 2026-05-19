@@ -70,6 +70,12 @@ export class Scheduler {
       return;
     }
 
+    if (due.length > 0) {
+      log.info({ dueCount: due.length, now }, `tick: ${due.length} due action(s)`);
+    } else {
+      log.debug({ now }, 'tick: no due actions');
+    }
+
     for (const row of due) {
       // Advance the schedule BEFORE firing so a crash mid-fire (process kill,
       // uncaught throw, infinite loop) doesn't tight-loop on the same goal.
@@ -84,6 +90,16 @@ export class Scheduler {
           this.scheduledActions.markFired(row.id, now, next);
         }
         advanced = true;
+        log.info(
+          {
+            actionId: row.id,
+            scheduleKind: row.schedule.kind,
+            scheduledFor: row.nextFireAt,
+            lateBy: now - row.nextFireAt,
+            goal: row.goal,
+          },
+          `firing action ${row.id} (${row.schedule.kind})`,
+        );
       } catch (err) {
         assertError(err);
         // Defense in depth: validateSchedule (Task 3) should have caught any
