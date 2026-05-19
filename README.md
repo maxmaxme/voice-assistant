@@ -9,11 +9,11 @@ detection.
 
 ## Status
 
-Iterations 1-4 + Memory Level 1 done. Pi deployment artifacts (Iter 5)
-live in the separate [`home-infra`](../home-infra) repo
-(`docker-compose.yml`, `install.sh`, systemd units). This repo just
-ships the app + image (`Dockerfile` at the root, published to
-`ghcr.io/maxmaxme/voice-assistant` by CI).
+Iterations 1-4 + Memory Level 1 done. The Pi deployment artifacts
+(Iter 5) — docker-compose, systemd units, install scripts — live in a
+separate host-infra repo. This repo just ships the app + image
+(`Dockerfile` at the root, published to `ghcr.io/maxmaxme/voice-assistant`
+by CI).
 
 Working features:
 
@@ -40,7 +40,7 @@ Working features:
   ([github.com/maxmaxme/ru-meters-bot](https://github.com/maxmaxme/ru-meters-bot))
   that submits monthly readings to Russian utility portals (ТГК-1,
   pesc.ru) via their JSON REST APIs.
-  Its prebuilt image is wired into `home-infra`'s `docker-compose.yml`
+  Its prebuilt image is wired into the host-side docker-compose stack
   and runs on the Pi via a host systemd timer (Mon-Fri 12:00 МСК, days
   15-21). Voice-assistant does not import from it.
 
@@ -126,17 +126,11 @@ npm run typecheck              # tsc --noEmit
 
 ## Pi deployment
 
-Host-side install (Docker compose stack, systemd units, monitoring) is
-in the separate [`home-infra`](../home-infra) repo. On a fresh Pi:
-
-```bash
-sudo git clone https://github.com/maxmaxme/home-infra.git /opt/home-infra
-sudo /opt/home-infra/install.sh
-sudoedit /opt/home-infra/.env       # OPENAI_API_KEY, TELEGRAM_*, HA_TOKEN, etc.
-```
-
-The image built from this repo (`Dockerfile`) is pulled from
-`ghcr.io/maxmaxme/voice-assistant`. See
+The image built from this repo (`Dockerfile`) is published to
+`ghcr.io/maxmaxme/voice-assistant` on every push to `main`. The Pi host
+runs it from a docker-compose stack maintained in a separate host-infra
+repo, which also owns the systemd units that pull and restart the
+container on a daily timer. See
 [docs/raspberry-pi-setup.md](docs/raspberry-pi-setup.md) for hardware
 notes, audio device selection, and troubleshooting.
 

@@ -33,7 +33,7 @@ npm run start                      # always-listening daemon (wake-word + VAD + 
 ```
 
 The Pi host stack (docker compose, systemd units, update.sh, monitoring)
-lives in a separate repo: [`home-infra`](../home-infra). The image built
+lives in a separate host-infra repo, not in this one. The image built
 from this repo (`Dockerfile` at the root) is published to
 `ghcr.io/maxmaxme/voice-assistant` by CI and pulled from there by the Pi.
 
@@ -196,7 +196,7 @@ agent as the `send_to_telegram` tool.
 `/reset` / `/profile` / `/start` / `/update` locally, and forwards everything else.
 `/update` writes a trigger to `/tmp/va-update` (a host-side FIFO); the
 `va-update-listener.service` systemd unit on the Pi (defined in the
-[`home-infra`](../home-infra) repo) reads it and runs `update.sh`.
+separate host-infra repo) reads it and runs `update.sh`.
 
 Voice messages are downloaded via telegraf's `getFileLink` and transcribed
 by OpenAI (`gpt-4o-transcribe`, accepts OGG/OPUS directly). The runner
@@ -225,23 +225,23 @@ Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth aga
 ### Deployment & auto-update
 
 Host-side artifacts (docker compose, systemd units, `update.sh`,
-monitoring) live in a separate repo, [`home-infra`](../home-infra),
-cloned to `/opt/home-infra/` on the Pi. This repo only owns the
-**image build**: CI (`.github/workflows/ci.yml`) cross-builds an arm64
-image on every push to `main` from the root `Dockerfile` and publishes
-it to `ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via
+monitoring) live in a separate host-infra repo, cloned to
+`/opt/home-infra/` on the Pi. This repo only owns the **image build**:
+CI (`.github/workflows/ci.yml`) cross-builds an arm64 image on every
+push to `main` from the root `Dockerfile` and publishes it to
+`ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via
 `/opt/home-infra/update.sh`, run by `voice-assistant-update.timer` at
 04:00 daily or manually via `/update` Telegram command. The script rolls
 back if the healthcheck doesn't go green within 90 s and posts the
 outcome to Telegram.
 
 **FIFO for `/update`:** the container writes to `/tmp/va-update`, mounted
-from the host. `va-update-listener.service` (in `home-infra`) reads it
-and invokes `update.sh`. No docker socket inside the container.
+from the host. The host-side `va-update-listener.service` reads it and
+invokes `update.sh`. No docker socket inside the container.
 
-For Tailscale Funnel publishing, monitoring stack (Netdata + Dozzle +
-Caddy + tinyauth), and other host-side topology: see the README and
-`monitoring/` in the `home-infra` repo.
+Tailscale Funnel publishing, the monitoring stack (Netdata + Dozzle +
+Caddy + tinyauth), and the rest of the host-side topology are
+documented inside the host-infra repo itself.
 
 ## ru-meters-bot — external sibling service
 
@@ -252,8 +252,8 @@ The voice-assistant runtime does NOT import from it.
 
 This repo doesn't reference it at all — the meters-bot service, its
 systemd timer (Mon-Fri 12:00 МСК on calendar days 15-21), and its
-sing-box egress sidecar all live in the [`home-infra`](../home-infra)
-repo's `docker-compose.yml`. Code changes happen in the standalone
+sing-box egress sidecar all live in the separate host-infra repo's
+`docker-compose.yml`. Code changes happen in the standalone
 ru-meters-bot repo; deployment is `docker compose pull meters-bot` from
 `/opt/home-infra/`.
 
@@ -265,14 +265,14 @@ Original design doc: `docs/superpowers/specs/2026-05-16-ru-meters-bot-design.md`
 The MCP integration only sees entities that are **exposed to Assist**. The UI toggle in HA 2026.x silently desyncs entity-registry from `homeassistant.exposed_entities`. Use the WebSocket service `homeassistant/expose_entity` from `docs/home-assistant-setup.md` — that's the canonical path.
 
 Mock entities for testing now live in HA itself (the prod instance on the
-Pi). The old `docker/homeassistant/` dev stack was removed when the stack
-moved to the `home-infra` repo — point local dev at the prod HA via
-Tailscale when needed.
+Pi). The old `docker/homeassistant/` dev stack was removed when the
+host-side stack moved to a separate repo — point local dev at the prod
+HA via Tailscale when needed.
 
 ## Project history & where things are decided
 
 - `docs/superpowers/specs/` — design docs (one big up-front, plus per-feature)
-- `docs/superpowers/plans/` — TDD-style implementation plans, one per iteration. Iterations 1-4 + Memory Level 1 are done; Iteration 5 (Pi deployment) was reduced to deployment artifacts now living in the `home-infra` repo.
+- `docs/superpowers/plans/` — TDD-style implementation plans, one per iteration. Iterations 1-4 + Memory Level 1 are done; Iteration 5 (Pi deployment) was reduced to deployment artifacts now living in a separate host-infra repo.
 - `docs/superpowers/roadmap.md` — backlog of deferred wishes (acoustic echo cancellation, custom Russian wake-word, streaming TTS, episodic memory, etc.). When picking a new feature, start here, then groom into a spec + plan via the `superpowers:brainstorming` and `superpowers:writing-plans` skills.
 
 The codebase was built iteration by iteration through TDD; tests are real and worth running. Don't loosen the conventions above to "make a quick fix work" — they're load-bearing.

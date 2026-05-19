@@ -19,8 +19,8 @@ works but the wake-word daemon is heavier (~10% idle CPU instead of ~3%).
    sudo reboot
    ```
 
-That is the entire host setup. Docker is installed by `/opt/home-infra/install.sh` —
-no Node, no Python, no build tools on the host.
+That is the entire host setup. Docker is installed by the host-side
+install script — no Node, no Python, no build tools on the host.
 
 ## 2. Audio
 
@@ -52,16 +52,13 @@ groups pi | grep -q audio || sudo usermod -aG audio pi
 > **Note:** Instructions below assume the default `pi` username from Pi Imager.
 > If you chose a different username, substitute it everywhere.
 
-Clone the repo and run the install script:
-
-```bash
-sudo git clone https://github.com/maxmaxme/home-infra.git /opt/home-infra
-sudo /opt/home-infra/install.sh
-```
-
-The script installs Docker, adds `pi` to the `docker` group, creates `.env`
-from the example, pulls the prebuilt image from GHCR, starts the container,
-and arms the `voice-assistant-update.timer` for daily 04:00 updates.
+The Pi runs the voice-assistant container as part of a host-side
+docker-compose stack (systemd units, `update.sh`, monitoring, HA, etc.)
+maintained outside this repo. The conventional install location is
+`/opt/home-infra/`. The host-side `install.sh` installs Docker, adds the
+runtime user to the `docker` group, creates `.env` from the example,
+pulls the prebuilt image from GHCR, starts the container, and arms
+`voice-assistant-update.timer` for daily 04:00 updates.
 
 Then fill in secrets:
 
@@ -170,15 +167,6 @@ sudo -u pi docker compose -f docker-compose.yml -f /tmp/rollback-override.yml \
 
 After fixing the bad commit and pushing, the next timer run (or `/update`) will
 pull `:latest` again and clear the override automatically — no manual cleanup needed.
-
-Build locally on the Pi (no GHCR roundtrip — useful when iterating
-on a hot-fix):
-
-```bash
-cd /opt/home-infra
-sudo -u pi docker compose build voice-assistant
-sudo -u pi docker compose up -d voice-assistant
-```
 
 ## Troubleshooting
 

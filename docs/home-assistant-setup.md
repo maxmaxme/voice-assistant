@@ -147,7 +147,7 @@ Expected: 1 integration test passes (turns the lamp on, then off).
 
 ## HACS (Pi production stack only)
 
-`home-infra's docker-compose.yml` runs a one-shot `hacs-init` container before HA
+The host-side docker-compose stack runs a one-shot `hacs-init` container before HA
 starts. It downloads HACS into `ha-data/custom_components/hacs` if not
 already present (idempotent — safe to re-run on every `docker compose up`).
 
