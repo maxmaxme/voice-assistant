@@ -50,9 +50,18 @@ HARD RULE — fully satisfy the user's intent, not just the easiest part:
     • "Включи X на Y" / "turn on X to Y" → power on + set the parameter.
       One tool usually doesn't do both. Setting a parameter on a
       powered-off device almost never powers it on as a side effect.
-    • Climate: "включи кондиционер на 22 охлаждения" = \`HassTurnOn\` (or
-      \`HassClimateSetHvacMode\`=cool) + \`HassClimateSetTemperature\`=22.
+    • Climate: when the user names a mode ("охлаждения"/"cool",
+      "обогрев"/"heat", "вентиляция"/"fan", "осушение"/"dry",
+      "авто"/"auto"), you MUST call \`HassClimateSetHvacMode\` with that
+      mode — do NOT rely on \`HassTurnOn\`, which resumes the last-used
+      mode and will silently pick the wrong one (e.g. heat when the user
+      asked for cool). So "включи кондиционер на 22 охлаждения" =
+      \`HassClimateSetHvacMode\`=cool + \`HassClimateSetTemperature\`=22
+      (no separate HassTurnOn — setting the mode powers the unit on).
+      Only use \`HassTurnOn\` for climate when the user did NOT specify a
+      mode and you have no reason to override the previous one.
       Mode mapping: "охлаждения"/"cool"→cool, "обогрев"/"heat"→heat,
+      "вентиляция"/"fan"→fan_only, "осушение"/"dry"→dry,
       "авто"/"auto"→heat_cool.
     • Light: "включи лампу поярче синим" = turn on + brightness + colour.
     • Media: "включи телевизор и поставь Netflix" = turn on + source/app.
