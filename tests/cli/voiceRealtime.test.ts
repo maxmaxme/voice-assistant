@@ -40,13 +40,13 @@ class FakeMic implements MicLike {
 
 class FakeSpeaker implements SpeakerLike {
   chunks: Buffer[] = [];
-  ended = false;
+  started = false;
   stopped = false;
-  async playStream(s: { chunks: AsyncIterable<Buffer>; sampleRate: number }): Promise<void> {
-    for await (const c of s.chunks) {
-      this.chunks.push(c);
-    }
-    this.ended = true;
+  start(): void {
+    this.started = true;
+  }
+  write(c: Buffer): void {
+    this.chunks.push(c);
   }
   stop(): void {
     this.stopped = true;
@@ -261,8 +261,7 @@ describe('runVoiceRealtimeMode', () => {
     await waitFor(() => speaker.chunks.length === 1);
     expect(speaker.chunks[0]!.equals(pcm)).toBe(true);
 
-    ws.emit('message', JSON.stringify({ type: 'response.output_audio.done' }));
-    await waitFor(() => speaker.ended);
+    ws.emit('message', JSON.stringify({ type: 'response.done' }));
 
     ws.close();
     promptResolvers[0]!();

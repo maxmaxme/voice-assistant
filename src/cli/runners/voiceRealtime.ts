@@ -2,8 +2,7 @@ import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import WebSocket from 'ws';
 import { StreamingMic } from '../../audio/streamingMic.ts';
-import { NodeSpeakerOutput } from '../../audio/speakerOutput.ts';
-import { AudioChunkQueue } from '../../realtime/audioQueue.ts';
+import { SessionSpeaker } from '../../realtime/sessionSpeaker.ts';
 import { buildRealtimeTools, dispatchRealtimeTool } from '../../realtime/toolDispatch.ts';
 import type { McpClient } from '../../mcp/types.ts';
 import type { MemoryStore } from '../../memory/types.ts';
@@ -52,7 +51,8 @@ export interface MicLike {
 }
 
 export interface SpeakerLike {
-  playStream(s: { chunks: AsyncIterable<Buffer>; sampleRate: number }): Promise<void>;
+  start(): void;
+  write(chunk: Buffer): void;
   stop(): void;
 }
 
@@ -100,27 +100,8 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
     }),
   );
 
-  let audioQueue: AudioChunkQueue | null = null;
-  let playPromise: Promise<void> | null = null;
+  speaker.start();
   const pendingFunctionCalls = new Map<string, FunctionCallItem>();
-
-  const startPlayback = (): void => {
-    if (audioQueue && playPromise) {
-      return;
-    }
-    audioQueue = new AudioChunkQueue();
-    playPromise = speaker
-      .playStream({ chunks: audioQueue, sampleRate: SPEAKER_SAMPLE_RATE })
-      .catch((err: unknown) => {
-        log.warn({ err }, 'speaker playback error');
-      });
-  };
-
-  const endPlayback = (): void => {
-    audioQueue?.end();
-    audioQueue = null;
-    playPromise = null;
-  };
 
   const handleEvent = async (ev: Record<string, unknown>): Promise<void> => {
     const type = typeof ev.type === 'string' ? ev.type : '';
@@ -130,13 +111,9 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
         if (!b64) {
           return;
         }
-        startPlayback();
-        audioQueue?.push(Buffer.from(b64, 'base64'));
+        speaker.write(Buffer.from(b64, 'base64'));
         return;
       }
-      case 'response.output_audio.done':
-        endPlayback();
-        return;
       case 'response.output_audio_transcript.done': {
         const t = typeof ev.transcript === 'string' ? ev.transcript : '';
         if (t) {
@@ -160,7 +137,6 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
         return;
       }
       case 'response.done': {
-        endPlayback();
         const calls = [...pendingFunctionCalls.values()];
         pendingFunctionCalls.clear();
         if (calls.length === 0) {
@@ -205,6 +181,9 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
     } catch (err) {
       log.warn({ err }, 'unparseable ws message');
       return;
+    }
+    if (typeof parsed.type === 'string' && parsed.type !== 'response.output_audio.delta') {
+      log.debug({ event: parsed.type }, `← ${parsed.type}`);
     }
     void handleEvent(parsed).catch((err) => log.error({ err }, 'event handler threw'));
   });
@@ -308,5 +287,5 @@ function defaultMicFactory(): MicLike {
 }
 
 function defaultSpeakerFactory(): SpeakerLike {
-  return new NodeSpeakerOutput();
+  return new SessionSpeaker(SPEAKER_SAMPLE_RATE);
 }
