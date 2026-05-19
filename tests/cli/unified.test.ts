@@ -65,6 +65,7 @@ describe('dispatch', () => {
     const runners = {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
+      voiceRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
@@ -80,12 +81,59 @@ describe('dispatch', () => {
     const runners = {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
+      voiceRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
     };
-    await dispatch('voice', deps, runners);
+    const prev = process.env.VOICE_REALTIME;
+    delete process.env.VOICE_REALTIME;
+    try {
+      await dispatch('voice', deps, runners);
+    } finally {
+      if (prev !== undefined) {
+        process.env.VOICE_REALTIME = prev;
+      }
+    }
     expect(runners.voice).toHaveBeenCalledTimes(1);
+    expect(runners.voiceRealtime).not.toHaveBeenCalled();
+  });
+
+  it('voice mode invokes runVoiceRealtimeMode when VOICE_REALTIME=1', async () => {
+    const deps = makeDeps();
+    deps.config = {
+      ...deps.config,
+      openai: { apiKey: 'sk-test', model: 'gpt-4o' },
+    } as unknown as CommonDeps['config'];
+    const runners = {
+      chat: vi.fn(async () => {}),
+      voice: vi.fn(async () => {}),
+      voiceRealtime: vi.fn(async () => {}),
+      wake: vi.fn(async () => {}),
+      telegram: vi.fn(async () => {}),
+      http: vi.fn(async () => {}),
+    };
+    const prev = process.env.VOICE_REALTIME;
+    process.env.VOICE_REALTIME = '1';
+    try {
+      await dispatch('voice', deps, runners);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.VOICE_REALTIME;
+      } else {
+        process.env.VOICE_REALTIME = prev;
+      }
+    }
+    expect(runners.voiceRealtime).toHaveBeenCalledTimes(1);
+    expect(runners.voice).not.toHaveBeenCalled();
+    const call = (
+      runners.voiceRealtime.mock.calls as unknown as Array<
+        [{ apiKey: string; model: string; systemPrompt: string }]
+      >
+    )[0]?.[0];
+    expect(call?.apiKey).toBe('sk-test');
+    expect(call?.model).toBeTruthy();
+    expect(call?.systemPrompt).toContain('You are');
   });
 
   it('wake mode invokes runWakeMode only', async () => {
@@ -93,6 +141,7 @@ describe('dispatch', () => {
     const runners = {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
+      voiceRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
@@ -109,6 +158,7 @@ describe('dispatch', () => {
     const runners = {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
+      voiceRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {
         wakeStarted();
         await new Promise((r) => setTimeout(r, 5));
@@ -136,6 +186,7 @@ describe('dispatch', () => {
     const runners = {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
+      voiceRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
@@ -149,6 +200,7 @@ describe('dispatch', () => {
     const runners = {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
+      voiceRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
@@ -164,6 +216,7 @@ describe('dispatch', () => {
     const runners = {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
+      voiceRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),

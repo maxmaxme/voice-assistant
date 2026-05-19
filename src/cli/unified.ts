@@ -3,11 +3,13 @@ import 'dotenv/config';
 import {
   initializeCommonDependencies,
   parseAgentMode,
+  buildSystemPromptFor,
   type AgentMode,
   type CommonDeps,
 } from './shared.ts';
 import { runChatMode, type ChatRunnerDeps } from './runners/chat.ts';
 import { runVoiceMode, type VoiceRunnerDeps } from './runners/voice.ts';
+import { runVoiceRealtimeMode, type VoiceRealtimeRunnerDeps } from './runners/voiceRealtime.ts';
 import { runWakeMode, type WakeRunnerDeps } from './runners/wake.ts';
 import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runners/telegram.ts';
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
@@ -27,6 +29,7 @@ const log = createLogger('unified');
 export interface RunnerSet {
   chat: (deps: ChatRunnerDeps) => Promise<void>;
   voice: (deps: VoiceRunnerDeps) => Promise<void>;
+  voiceRealtime: (deps: VoiceRealtimeRunnerDeps) => Promise<void>;
   wake: (deps: WakeRunnerDeps) => Promise<void>;
   telegram: (deps: TelegramRunnerDeps) => Promise<void>;
   http: (deps: HttpRunnerDeps) => Promise<void>;
@@ -67,14 +70,28 @@ export async function dispatch(
   }
 
   if (mode === 'voice') {
-    const agent = deps.buildAgent('voice');
-    tasks.push(
-      runners.voice({
-        agent,
-        stt: new OpenAiStt({ client: deps.llm }),
-        tts: buildTts(deps.llm),
-      }),
-    );
+    if (process.env.VOICE_REALTIME === '1') {
+      tasks.push(
+        runners.voiceRealtime({
+          apiKey: deps.config.openai.apiKey,
+          model: process.env.OPENAI_REALTIME_MODEL ?? 'gpt-realtime',
+          systemPrompt: buildSystemPromptFor('voice-realtime'),
+          mcp: deps.mcp,
+          memory: deps.memory,
+          telegram: deps.telegram,
+          voice: process.env.OPENAI_REALTIME_VOICE,
+        }),
+      );
+    } else {
+      const agent = deps.buildAgent('voice');
+      tasks.push(
+        runners.voice({
+          agent,
+          stt: new OpenAiStt({ client: deps.llm }),
+          tts: buildTts(deps.llm),
+        }),
+      );
+    }
   }
 
   if (mode === 'wake' || mode === 'both') {
@@ -174,6 +191,7 @@ export async function main(): Promise<void> {
     await dispatch(mode, deps, {
       chat: runChatMode,
       voice: runVoiceMode,
+      voiceRealtime: runVoiceRealtimeMode,
       wake: runWakeMode,
       telegram: runTelegramMode,
       http: runHttpMode,

@@ -18,22 +18,27 @@ export const AGENT_MODES = ['chat', 'voice', 'wake', 'telegram', 'http', 'both']
 export type AgentMode = (typeof AGENT_MODES)[number];
 
 /** "Channel" = a system-prompt flavour. Multiple modes can share a channel. */
-export type PromptChannel = 'chat' | 'voice' | 'wake' | 'telegram' | 'http';
+export type PromptChannel = 'chat' | 'voice' | 'wake' | 'telegram' | 'http' | 'voice-realtime';
 
 const VOICE_ADDENDUM = loadPrompt('./prompts/voice-addendum.md', import.meta.url);
 const SILENT_CONFIRM_ADDENDUM = loadPrompt('./prompts/silent-confirm-addendum.md', import.meta.url);
+const TEXT_FORMAT_ADDENDUM = loadPrompt('./prompts/text-format-addendum.md', import.meta.url);
 
 export function buildSystemPromptFor(channel: PromptChannel): string {
-  switch (channel) {
-    case 'chat':
-    case 'telegram':
-    case 'http':
-      return BASE_SYSTEM_PROMPT;
-    case 'voice':
-      return `${BASE_SYSTEM_PROMPT}\n\n${VOICE_ADDENDUM}`;
-    case 'wake':
-      return `${BASE_SYSTEM_PROMPT}\n\n${VOICE_ADDENDUM}\n\n${SILENT_CONFIRM_ADDENDUM}`;
+  const parts: string[] = [BASE_SYSTEM_PROMPT];
+  if (channel === 'voice' || channel === 'wake' || channel === 'voice-realtime') {
+    parts.push(VOICE_ADDENDUM);
   }
+  if (channel === 'wake') {
+    parts.push(SILENT_CONFIRM_ADDENDUM);
+  }
+  // voice-realtime is the only channel that doesn't consume the reply as
+  // structured JSON — the Realtime API synthesises speech itself, so the
+  // JSON-format contract is irrelevant.
+  if (channel !== 'voice-realtime') {
+    parts.push(TEXT_FORMAT_ADDENDUM);
+  }
+  return parts.join('\n\n');
 }
 
 function isAgentMode(value: string): value is AgentMode {
