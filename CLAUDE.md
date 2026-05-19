@@ -131,7 +131,7 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 **Prompt text lives in markdown files**, not in TS string literals. `src/agent/systemPrompt.ts` and friends just `fs.readFileSync` a sibling `.md` at module load (helper: `src/agent/prompts/load.ts::loadPrompt`). Layout:
 
 - `src/agent/prompts/base-system.md` — cross-cutting rules (identity, HA error-recovery procedure, composite-intent self-check, style, JSON output shape). Loaded as `BASE_SYSTEM_PROMPT`.
-- `src/agent/prompts/tools/{remember,schedule-action}.md` — descriptions for local tools we control. `memoryTools.ts` / `scheduledActionTools.ts` load these and use them as the tool's `description` field.
+- `src/agent/prompts/tools/{remember,recall,forget,schedule-action,list-scheduled,cancel-scheduled}.md` — descriptions for local tools we control. `memoryTools.ts` / `scheduledActionTools.ts` load these and use them as the tool's `description` field. Add a new file here whenever you add a new local tool.
 - `src/agent/prompts/ha-suffix/<HaToolName>.md` — per-tool suffix appended to upstream HA MCP tool descriptions in `toolBridge.ts::mcpToolsToOpenAi`. Use this to encode conventions HA itself doesn't know about (HVAC mode mapping for `HassClimateSetHvacMode`, grocery emoji formatting for `HassListAddItem`, etc.).
 - `src/cli/prompts/{voice-addendum,silent-confirm-addendum}.md` — channel-specific addenda; `buildSystemPromptFor` concatenates them to the base.
 

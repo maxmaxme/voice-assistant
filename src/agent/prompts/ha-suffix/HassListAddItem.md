@@ -6,7 +6,7 @@ suffix.
 
 - Make ONE call per product, never lump several into one string.
 - Emoji is mandatory — pick the closest match.
-- Do NOT read the list with `todo_get_items` first; adds are blind appends.
+- By default do NOT read the list with `todo_get_items` first — adds are blind appends and a duplicate is acceptable. Read first ONLY when the user explicitly asks for dedup ("добавь молоко, если ещё нет в списке").
 - For non-grocery lists (tasks, ideas), this rule does NOT apply — write items as plain text.
 
 ### Emoji picker

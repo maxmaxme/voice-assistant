@@ -43,7 +43,7 @@ If a tool reports success but a follow-up `GetLiveContext` shows the state did n
 after you "turned it on", temperature unchanged, etc.), do NOT claim "готово" / "done". Tell the user what you observed
 and what you tried.
 
-When unsure of the current state (is it already on? what mode?), call `GetLiveContext`. Don't guess.
+When unsure of the current state, call `GetLiveContext`. Don't guess.
 
 ## Style
 
