@@ -1,8 +1,12 @@
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import WebSocket from 'ws';
 import { StreamingMic } from '../../audio/streamingMic.ts';
 import { SessionSpeaker } from '../../realtime/sessionSpeaker.ts';
+import {
+  RealtimeSession,
+  type RealtimeSocket,
+  type WsFactory,
+} from '../../realtime/realtimeSession.ts';
 import { buildRealtimeTools, dispatchRealtimeTool } from '../../realtime/toolDispatch.ts';
 import type { McpClient } from '../../mcp/types.ts';
 import type { MemoryStore } from '../../memory/types.ts';
@@ -11,9 +15,9 @@ import { createLogger } from '../../utils/logger.ts';
 
 const log = createLogger('voice-realtime');
 
-const MIC_SAMPLE_RATE = 24000;
+const MIC_SAMPLE_RATE = 24_000;
 const MIC_FRAME_LENGTH = 1920; // 80ms @ 24kHz
-const SPEAKER_SAMPLE_RATE = 24000;
+const SPEAKER_SAMPLE_RATE = 24_000;
 const REALTIME_URL_BASE = 'wss://api.openai.com/v1/realtime';
 
 export interface VoiceRealtimeRunnerDeps {
@@ -25,7 +29,7 @@ export interface VoiceRealtimeRunnerDeps {
   telegram: TelegramSender;
   voice?: string;
   /** Override for tests. Default opens a real WS to OpenAI. */
-  wsFactory?: (url: string, apiKey: string) => RealtimeSocket;
+  wsFactory?: WsFactory;
   /** Override for tests. */
   micFactory?: () => MicLike;
   /** Override for tests. */
@@ -34,15 +38,7 @@ export interface VoiceRealtimeRunnerDeps {
   prompt?: (msg: string) => Promise<void>;
 }
 
-/** Minimal contract over `ws.WebSocket` so tests can mock it. */
-export interface RealtimeSocket {
-  send(data: string): void;
-  close(): void;
-  on(event: 'open', cb: () => void): void;
-  on(event: 'message', cb: (data: Buffer | string) => void): void;
-  on(event: 'close', cb: () => void): void;
-  on(event: 'error', cb: (err: Error) => void): void;
-}
+export type { RealtimeSocket };
 
 export interface MicLike {
   start(): void;
@@ -70,58 +66,60 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
     telegram: deps.telegram,
   });
 
-  const url = `${REALTIME_URL_BASE}?model=${encodeURIComponent(deps.model)}`;
-  const ws = (deps.wsFactory ?? defaultWsFactory)(url, deps.apiKey);
   const mic = (deps.micFactory ?? defaultMicFactory)();
   const speaker = (deps.speakerFactory ?? defaultSpeakerFactory)();
-
-  await waitForOpen(ws);
-  log.info({ model: deps.model, tools: tools.length }, 'realtime ws open');
-
-  ws.send(
-    JSON.stringify({
-      type: 'session.update',
-      session: {
-        type: 'realtime',
-        model: deps.model,
-        instructions: deps.systemPrompt,
-        tools,
-        audio: {
-          input: {
-            format: { type: 'audio/pcm', rate: MIC_SAMPLE_RATE },
-            turn_detection: {
-              type: 'server_vad',
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 600,
-              create_response: true,
-              interrupt_response: false,
-            },
-            transcription: { model: 'whisper-1' },
-          },
-          output: {
-            format: { type: 'audio/pcm', rate: SPEAKER_SAMPLE_RATE },
-            voice: deps.voice ?? 'alloy',
-          },
-        },
-      },
-    }),
-  );
-
   speaker.start();
+
   const pendingFunctionCalls = new Map<string, FunctionCallItem>();
   let speechStoppedResolve: (() => void) | null = null;
   let responseDoneResolve: (() => void) | null = null;
 
+  const session = new RealtimeSession({
+    url: `${REALTIME_URL_BASE}?model=${encodeURIComponent(deps.model)}`,
+    apiKey: deps.apiKey,
+    wsFactory: deps.wsFactory,
+    sessionUpdate: () => ({
+      type: 'realtime',
+      model: deps.model,
+      instructions: deps.systemPrompt,
+      tools,
+      audio: {
+        input: {
+          format: { type: 'audio/pcm', rate: MIC_SAMPLE_RATE },
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 600,
+            create_response: true,
+            interrupt_response: false,
+          },
+          // Input audio transcription is billed extra (~$0.006/min via
+          // whisper-1) — only enable it when debugging.
+          ...(isDebug() ? { transcription: { model: 'whisper-1' } } : {}),
+        },
+        output: {
+          format: { type: 'audio/pcm', rate: SPEAKER_SAMPLE_RATE },
+          voice: deps.voice ?? 'alloy',
+        },
+      },
+    }),
+    onEvent: (ev) => {
+      void handleEvent(ev).catch((err) => log.error({ err }, 'event handler threw'));
+    },
+  });
+
   const handleEvent = async (ev: Record<string, unknown>): Promise<void> => {
     const type = typeof ev.type === 'string' ? ev.type : '';
     switch (type) {
+      case '__opened':
+        pendingFunctionCalls.clear();
+        return;
       case 'response.output_audio.delta': {
         const b64 = typeof ev.delta === 'string' ? ev.delta : '';
-        if (!b64) {
-          return;
+        if (b64) {
+          speaker.write(Buffer.from(b64, 'base64'));
         }
-        speaker.write(Buffer.from(b64, 'base64'));
         return;
       }
       case 'response.output_audio_transcript.done': {
@@ -143,10 +141,9 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
         speechStoppedResolve = null;
         return;
       }
-      case 'response.output_item.added':
       case 'response.output_item.done': {
         const item = parseFunctionCallItem(ev.item);
-        if (item && type === 'response.output_item.done') {
+        if (item) {
           pendingFunctionCalls.set(item.call_id, item);
         }
         return;
@@ -170,18 +167,16 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
             { tool: call.name, args, isError: result.isError },
             `${call.name}(${JSON.stringify(args)}) → ${result.output}`,
           );
-          ws.send(
-            JSON.stringify({
-              type: 'conversation.item.create',
-              item: {
-                type: 'function_call_output',
-                call_id: call.call_id,
-                output: result.isError ? `ERROR: ${result.output}` : result.output,
-              },
-            }),
-          );
+          session.send({
+            type: 'conversation.item.create',
+            item: {
+              type: 'function_call_output',
+              call_id: call.call_id,
+              output: result.isError ? `ERROR: ${result.output}` : result.output,
+            },
+          });
         }
-        ws.send(JSON.stringify({ type: 'response.create' }));
+        session.send({ type: 'response.create' });
         return;
       }
       case 'error': {
@@ -191,16 +186,7 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
     }
   };
 
-  ws.on('message', (data) => {
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(typeof data === 'string' ? data : data.toString('utf8'));
-    } catch (err) {
-      log.warn({ err }, 'unparseable ws message');
-      return;
-    }
-    void handleEvent(parsed).catch((err) => log.error({ err }, 'event handler threw'));
-  });
+  log.info({ model: deps.model, tools: tools.length }, 'realtime runner ready');
 
   const rl = readline.createInterface({ input, output });
   const promptOnce = deps.prompt ?? ((m: string): Promise<void> => rl.question(m).then(() => {}));
@@ -209,18 +195,14 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
     'Voice realtime. Press Enter to start talking; the server VAD stops the turn automatically. Ctrl+C to quit.',
   );
 
-  let closed = false;
-  ws.on('close', () => {
-    closed = true;
-    rl.close();
-  });
-  ws.on('error', (err) => log.error({ err }, 'realtime ws error'));
-
   try {
-    while (!closed) {
+    while (true) {
       await promptOnce('Press Enter to talk... ');
-      if (closed) {
-        break;
+      try {
+        await session.ensureOpen();
+      } catch (err) {
+        log.error({ err }, 'failed to open realtime session');
+        continue;
       }
       const speechStopped = new Promise<void>((resolve) => {
         speechStoppedResolve = resolve;
@@ -231,7 +213,7 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
       mic.start();
       const removeListener = mic.onFrame((frame) => {
         const b64 = int16ArrayToBase64(frame);
-        ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: b64 }));
+        session.send({ type: 'input_audio_buffer.append', audio: b64 });
       });
       await speechStopped;
       removeListener();
@@ -242,7 +224,7 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
   } finally {
     rl.close();
     speaker.stop();
-    ws.close();
+    session.close();
   }
 }
 
@@ -282,24 +264,9 @@ function safeParseArgs(raw: string | undefined): Record<string, unknown> {
   }
 }
 
-function waitForOpen(ws: RealtimeSocket): Promise<void> {
-  return new Promise((resolve, reject) => {
-    ws.on('open', () => resolve());
-    ws.on('error', (err) => reject(err));
-  });
-}
-
-function defaultWsFactory(url: string, apiKey: string): RealtimeSocket {
-  const ws = new WebSocket(url, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-  return {
-    send: (data) => ws.send(data),
-    close: () => ws.close(),
-    on: (event, cb) => {
-      ws.on(event, cb);
-    },
-  };
+function isDebug(): boolean {
+  const lvl = (process.env.LOG_LEVEL ?? '').toLowerCase();
+  return lvl === 'debug' || lvl === 'trace';
 }
 
 function defaultMicFactory(): MicLike {

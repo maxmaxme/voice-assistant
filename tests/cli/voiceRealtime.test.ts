@@ -92,6 +92,7 @@ describe('runVoiceRealtimeMode', () => {
     const speaker = new FakeSpeaker();
     let promptCount = 0;
     const promptResolvers: Array<() => void> = [];
+    const promptRejecters: Array<(err: Error) => void> = [];
 
     const runP = runVoiceRealtimeMode({
       apiKey: 'sk-test',
@@ -104,18 +105,21 @@ describe('runVoiceRealtimeMode', () => {
       micFactory: () => mic,
       speakerFactory: () => speaker,
       prompt: () =>
-        new Promise<void>((resolve) => {
+        new Promise<void>((resolve, reject) => {
           promptCount++;
           promptResolvers.push(resolve);
+          promptRejecters.push(reject);
         }),
     });
 
-    // Simulate ws open.
-    setImmediate(() => ws.emit('open'));
-    // Wait until first prompt awaited.
+    // WS is opened lazily on first Enter, so emit `open` after we press Enter.
     await waitFor(() => promptCount === 1);
+    promptResolvers[0]!();
+    setImmediate(() => ws.emit('open'));
+    await waitFor(() => mic.started);
+    expect(mic.listener).toBeTruthy();
 
-    // session.update should have been sent before prompting.
+    // session.update should have been sent on first connect.
     const sessionUpdate = ws.sent.find((s) => JSON.parse(s).type === 'session.update');
     expect(sessionUpdate).toBeDefined();
     const parsed = JSON.parse(sessionUpdate!);
@@ -127,11 +131,6 @@ describe('runVoiceRealtimeMode', () => {
 
     // Server VAD configured — no manual commit/response.create from client.
     expect(parsed.session.audio.input.turn_detection.type).toBe('server_vad');
-
-    // First Enter — start streaming.
-    promptResolvers[0]!();
-    await waitFor(() => mic.started);
-    expect(mic.listener).toBeTruthy();
 
     // Push one mic frame; expect an append event.
     const frame = new Int16Array([1, -1, 2, -2]);
@@ -147,9 +146,9 @@ describe('runVoiceRealtimeMode', () => {
 
     // Now we should be back at the prompt for the next turn.
     await waitFor(() => promptCount === 2);
-    ws.close();
-    promptResolvers[1]!();
-    await runP;
+    // Tear the runner down by rejecting the pending prompt.
+    promptRejecters[1]!(new Error('test-done'));
+    await runP.catch(() => {});
     expect(speaker.stopped).toBe(true);
   });
 
@@ -160,6 +159,7 @@ describe('runVoiceRealtimeMode', () => {
     const mcp = makeMcp();
     let promptCount = 0;
     const promptResolvers: Array<() => void> = [];
+    const promptRejecters: Array<(err: Error) => void> = [];
 
     const runP = runVoiceRealtimeMode({
       apiKey: 'sk-test',
@@ -172,14 +172,17 @@ describe('runVoiceRealtimeMode', () => {
       micFactory: () => mic,
       speakerFactory: () => speaker,
       prompt: () =>
-        new Promise<void>((resolve) => {
+        new Promise<void>((resolve, reject) => {
           promptCount++;
           promptResolvers.push(resolve);
+          promptRejecters.push(reject);
         }),
     });
 
-    setImmediate(() => ws.emit('open'));
     await waitFor(() => promptCount === 1);
+    promptResolvers[0]!();
+    setImmediate(() => ws.emit('open'));
+    await waitFor(() => mic.started);
 
     // Server emits a function-call output item, then response.done.
     ws.emit(
@@ -220,10 +223,12 @@ describe('runVoiceRealtimeMode', () => {
       .find((ev) => ev.type === 'response.create');
     expect(next).toBeDefined();
 
-    // Shutdown.
-    ws.close();
-    promptResolvers[0]!();
-    await runP;
+    // Unblock the runner: signal end of speech + a final empty response.
+    ws.emit('message', JSON.stringify({ type: 'input_audio_buffer.speech_stopped' }));
+    ws.emit('message', JSON.stringify({ type: 'response.done' }));
+    await waitFor(() => promptCount === 2);
+    promptRejecters[1]!(new Error('test-done'));
+    await runP.catch(() => {});
   });
 
   it('decodes response.output_audio.delta into speaker chunks', async () => {
@@ -232,6 +237,7 @@ describe('runVoiceRealtimeMode', () => {
     const speaker = new FakeSpeaker();
     let promptCount = 0;
     const promptResolvers: Array<() => void> = [];
+    const promptRejecters: Array<(err: Error) => void> = [];
 
     const runP = runVoiceRealtimeMode({
       apiKey: 'sk-test',
@@ -244,14 +250,17 @@ describe('runVoiceRealtimeMode', () => {
       micFactory: () => mic,
       speakerFactory: () => speaker,
       prompt: () =>
-        new Promise<void>((resolve) => {
+        new Promise<void>((resolve, reject) => {
           promptCount++;
           promptResolvers.push(resolve);
+          promptRejecters.push(reject);
         }),
     });
 
-    setImmediate(() => ws.emit('open'));
     await waitFor(() => promptCount === 1);
+    promptResolvers[0]!();
+    setImmediate(() => ws.emit('open'));
+    await waitFor(() => mic.started);
 
     const pcm = Buffer.from([0x10, 0x20, 0x30, 0x40]);
     ws.emit(
@@ -262,11 +271,11 @@ describe('runVoiceRealtimeMode', () => {
     await waitFor(() => speaker.chunks.length === 1);
     expect(speaker.chunks[0]!.equals(pcm)).toBe(true);
 
+    ws.emit('message', JSON.stringify({ type: 'input_audio_buffer.speech_stopped' }));
     ws.emit('message', JSON.stringify({ type: 'response.done' }));
-
-    ws.close();
-    promptResolvers[0]!();
-    await runP;
+    await waitFor(() => promptCount === 2);
+    promptRejecters[1]!(new Error('test-done'));
+    await runP.catch(() => {});
   });
 });
 

@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import WebSocket from 'ws';
 import type { Config } from '../../config.ts';
 import { StreamingMic } from '../../audio/streamingMic.ts';
 import { OpenWakeWord } from '../../audio/wakeWord.ts';
 import { SessionSpeaker } from '../../realtime/sessionSpeaker.ts';
+import { RealtimeSession, type WsFactory } from '../../realtime/realtimeSession.ts';
 import { buildRealtimeTools, dispatchRealtimeTool } from '../../realtime/toolDispatch.ts';
 import type { McpClient } from '../../mcp/types.ts';
 import type { MemoryStore } from '../../memory/types.ts';
@@ -27,6 +27,8 @@ export interface WakeRealtimeRunnerDeps {
   memory: MemoryStore;
   telegram: TelegramSender;
   voice?: string;
+  /** Override for tests. */
+  wsFactory?: WsFactory;
 }
 
 interface FunctionCallItem {
@@ -60,55 +62,13 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
     telegram: deps.telegram,
   });
 
-  const url = `${REALTIME_URL_BASE}?model=${encodeURIComponent(deps.model)}`;
-  const ws = new WebSocket(url, {
-    headers: { Authorization: `Bearer ${deps.apiKey}` },
-  });
   const speaker = new SessionSpeaker(REALTIME_SAMPLE_RATE);
-
-  await new Promise<void>((resolve, reject) => {
-    ws.once('open', () => resolve());
-    ws.once('error', (err) => reject(err));
-  });
-  log.info({ model: deps.model, tools: tools.length }, 'realtime ws open');
-
-  ws.send(
-    JSON.stringify({
-      type: 'session.update',
-      session: {
-        type: 'realtime',
-        model: deps.model,
-        instructions: deps.systemPrompt,
-        tools,
-        audio: {
-          input: {
-            format: { type: 'audio/pcm', rate: REALTIME_SAMPLE_RATE },
-            turn_detection: {
-              type: 'server_vad',
-              threshold: 0.5,
-              prefix_padding_ms: 300,
-              silence_duration_ms: 600,
-              create_response: true,
-              interrupt_response: false,
-            },
-            transcription: { model: 'whisper-1' },
-          },
-          output: {
-            format: { type: 'audio/pcm', rate: REALTIME_SAMPLE_RATE },
-            voice: deps.voice ?? 'alloy',
-          },
-        },
-      },
-    }),
-  );
-
   speaker.start();
-  const pendingFunctionCalls = new Map<string, FunctionCallItem>();
 
   // Two mics, used sequentially: wakeMic @ 16kHz feeds the wake-word daemon
   // while idle; realtimeMic @ 24kHz streams to the OpenAI session during a
-  // turn. ALSA on Linux doesn't allow two simultaneous captures of the same
-  // device, so we always stop one before starting the other.
+  // turn. ALSA on Linux can't capture the same device twice simultaneously,
+  // so we always stop one before starting the other.
   const wakeMic = new StreamingMic({
     sampleRate: WAKE_SAMPLE_RATE,
     frameLength: WAKE_FRAME_LENGTH,
@@ -128,8 +88,9 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
 
   type State = 'idle' | 'listening' | 'responding';
   let state: State = 'idle';
-
+  const pendingFunctionCalls = new Map<string, FunctionCallItem>();
   let removeRealtimeListener: (() => void) | null = null;
+
   const stopRealtimeStream = (): void => {
     removeRealtimeListener?.();
     removeRealtimeListener = null;
@@ -141,13 +102,48 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
     wakeMic.start();
   };
 
+  const session = new RealtimeSession({
+    url: `${REALTIME_URL_BASE}?model=${encodeURIComponent(deps.model)}`,
+    apiKey: deps.apiKey,
+    wsFactory: deps.wsFactory,
+    sessionUpdate: () => ({
+      type: 'realtime',
+      model: deps.model,
+      instructions: deps.systemPrompt,
+      tools,
+      audio: {
+        input: {
+          format: { type: 'audio/pcm', rate: REALTIME_SAMPLE_RATE },
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 600,
+            create_response: true,
+            interrupt_response: false,
+          },
+          // Input audio transcription is billed extra (~$0.006/min via
+          // whisper-1) — only enable it when debugging.
+          ...(isDebug() ? { transcription: { model: 'whisper-1' } } : {}),
+        },
+        output: {
+          format: { type: 'audio/pcm', rate: REALTIME_SAMPLE_RATE },
+          voice: deps.voice ?? 'alloy',
+        },
+      },
+    }),
+    onEvent: (ev) => {
+      void handleEvent(ev).catch((err) => log.error({ err }, 'event handler threw'));
+    },
+  });
+
   const enterListening = (): void => {
     state = 'listening';
     wakeMic.stop();
     realtimeMic.start();
     removeRealtimeListener = realtimeMic.onFrame((frame) => {
       const b64 = int16ArrayToBase64(frame);
-      ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: b64 }));
+      session.send({ type: 'input_audio_buffer.append', audio: b64 });
     });
   };
 
@@ -162,12 +158,27 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
       return;
     }
     log.info({ keyword, score }, `wake → ${keyword} (${score.toFixed(2)})`);
-    enterListening();
+    void (async (): Promise<void> => {
+      try {
+        await session.ensureOpen();
+      } catch (err) {
+        log.error({ err }, 'failed to open realtime session on wake');
+        return;
+      }
+      // The wake could have already triggered a state transition in the
+      // meantime; only proceed if still idle.
+      if (state === 'idle') {
+        enterListening();
+      }
+    })();
   });
 
   const handleEvent = async (ev: Record<string, unknown>): Promise<void> => {
     const type = typeof ev.type === 'string' ? ev.type : '';
     switch (type) {
+      case '__opened':
+        pendingFunctionCalls.clear();
+        return;
       case 'response.output_audio.delta': {
         const b64 = typeof ev.delta === 'string' ? ev.delta : '';
         if (b64) {
@@ -223,18 +234,16 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
             { tool: call.name, args, isError: result.isError },
             `${call.name}(${JSON.stringify(args)}) → ${result.output}`,
           );
-          ws.send(
-            JSON.stringify({
-              type: 'conversation.item.create',
-              item: {
-                type: 'function_call_output',
-                call_id: call.call_id,
-                output: result.isError ? `ERROR: ${result.output}` : result.output,
-              },
-            }),
-          );
+          session.send({
+            type: 'conversation.item.create',
+            item: {
+              type: 'function_call_output',
+              call_id: call.call_id,
+              output: result.isError ? `ERROR: ${result.output}` : result.output,
+            },
+          });
         }
-        ws.send(JSON.stringify({ type: 'response.create' }));
+        session.send({ type: 'response.create' });
         return;
       }
       case 'error': {
@@ -244,18 +253,7 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
     }
   };
 
-  ws.on('message', (data: Buffer) => {
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(data.toString('utf8'));
-    } catch (err) {
-      log.warn({ err }, 'unparseable ws message');
-      return;
-    }
-    void handleEvent(parsed).catch((err) => log.error({ err }, 'event handler threw'));
-  });
-
-  ws.on('error', (err) => log.error({ err }, 'realtime ws error'));
+  log.info({ model: deps.model, tools: tools.length }, 'wake-realtime runner ready');
 
   enterIdle();
   console.log(
@@ -263,14 +261,12 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
   );
 
   // Block forever; runtime is event-driven from here.
-  await new Promise<void>((resolve) => {
-    ws.once('close', () => resolve());
-  });
+  await new Promise<void>(() => {});
+}
 
-  stopRealtimeStream();
-  wakeMic.stop();
-  await wake.stop();
-  speaker.stop();
+function isDebug(): boolean {
+  const lvl = (process.env.LOG_LEVEL ?? '').toLowerCase();
+  return lvl === 'debug' || lvl === 'trace';
 }
 
 function int16ArrayToBase64(frame: Int16Array): string {
