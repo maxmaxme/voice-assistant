@@ -2,8 +2,10 @@ import { spawnSync } from 'node:child_process';
 import type { Config } from '../../config.ts';
 import { StreamingMic } from '../../audio/streamingMic.ts';
 import { OpenWakeWord } from '../../audio/wakeWord.ts';
+import { generateListenBlip } from '../../audio/blip.ts';
 import { ResponseSpeaker } from '../../realtime/responseSpeaker.ts';
 import { RealtimeSession, type WsFactory } from '../../realtime/realtimeSession.ts';
+import { playBuffer } from '../../realtime/playBuffer.ts';
 import { buildRealtimeTools, dispatchRealtimeTool } from '../../realtime/toolDispatch.ts';
 import type { McpClient } from '../../mcp/types.ts';
 import type { MemoryStore } from '../../memory/types.ts';
@@ -17,6 +19,11 @@ const WAKE_FRAME_LENGTH = 1280; // 80ms @ 16kHz — fixed by openWakeWord
 const REALTIME_SAMPLE_RATE = 24_000;
 const REALTIME_FRAME_LENGTH = 1920; // 80ms @ 24kHz
 const REALTIME_URL_BASE = 'wss://api.openai.com/v1/realtime';
+/** Window after a response during which we keep the mic open so the user
+ *  can keep talking without re-saying the wake-word. Server VAD picks up
+ *  any new utterance and starts the next turn automatically. */
+const FOLLOWUP_WINDOW_MS = 8_000;
+const LISTEN_BLIP = generateListenBlip(REALTIME_SAMPLE_RATE);
 
 export interface WakeRealtimeRunnerDeps {
   apiKey: string;
@@ -89,6 +96,14 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
   let state: State = 'idle';
   const pendingFunctionCalls = new Map<string, FunctionCallItem>();
   let removeRealtimeListener: (() => void) | null = null;
+  let followUpTimer: NodeJS.Timeout | null = null;
+
+  const clearFollowUpTimer = (): void => {
+    if (followUpTimer) {
+      clearTimeout(followUpTimer);
+      followUpTimer = null;
+    }
+  };
 
   const stopRealtimeStream = (): void => {
     removeRealtimeListener?.();
@@ -97,6 +112,8 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
   };
 
   const enterIdle = (): void => {
+    clearFollowUpTimer();
+    stopRealtimeStream();
     state = 'idle';
     wakeMic.start();
   };
@@ -137,13 +154,39 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
   });
 
   const enterListening = (): void => {
+    clearFollowUpTimer();
     state = 'listening';
     wakeMic.stop();
-    realtimeMic.start();
-    removeRealtimeListener = realtimeMic.onFrame((frame) => {
-      const b64 = int16ArrayToBase64(frame);
-      session.send({ type: 'input_audio_buffer.append', audio: b64 });
-    });
+    if (!removeRealtimeListener) {
+      realtimeMic.start();
+      removeRealtimeListener = realtimeMic.onFrame((frame) => {
+        const b64 = int16ArrayToBase64(frame);
+        session.send({ type: 'input_audio_buffer.append', audio: b64 });
+      });
+    }
+  };
+
+  /** After a response finishes, give the user a window to keep talking
+   *  without re-saying the wake-word. Restart the realtime mic; on first
+   *  speech_started the timer is cleared and we proceed as a normal turn.
+   *  If the window expires in silence, drop back to wake-listening. */
+  const enterFollowUp = (): void => {
+    state = 'listening';
+    wakeMic.stop();
+    if (!removeRealtimeListener) {
+      realtimeMic.start();
+      removeRealtimeListener = realtimeMic.onFrame((frame) => {
+        const b64 = int16ArrayToBase64(frame);
+        session.send({ type: 'input_audio_buffer.append', audio: b64 });
+      });
+    }
+    clearFollowUpTimer();
+    followUpTimer = setTimeout(() => {
+      followUpTimer = null;
+      if (state === 'listening') {
+        enterIdle();
+      }
+    }, FOLLOWUP_WINDOW_MS);
   };
 
   wakeMic.onFrame((frame) => {
@@ -157,15 +200,25 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
       return;
     }
     log.info({ keyword, score }, `wake → ${keyword} (${score.toFixed(2)})`);
+    // Stop the wake mic before playing the blip so its sound doesn't get
+    // re-detected as the wake-word again.
+    wakeMic.stop();
     void (async (): Promise<void> => {
+      // Play LISTEN_BLIP first, then open the session and start the realtime
+      // mic. Playing it first avoids server VAD picking up the chime from
+      // our own speakers as user speech.
+      await playBuffer(LISTEN_BLIP, REALTIME_SAMPLE_RATE);
+      if (state !== 'idle') {
+        return;
+      }
       try {
         await session.ensureOpen();
       } catch (err) {
         log.error({ err }, 'failed to open realtime session on wake');
+        // Restore wake-mic so we don't get stuck.
+        wakeMic.start();
         return;
       }
-      // The wake could have already triggered a state transition in the
-      // meantime; only proceed if still idle.
       if (state === 'idle') {
         enterListening();
       }
@@ -202,6 +255,12 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
         }
         return;
       }
+      case 'input_audio_buffer.speech_started': {
+        // User started talking — kill the follow-up timeout (they're
+        // continuing the conversation, not letting it expire).
+        clearFollowUpTimer();
+        return;
+      }
       case 'input_audio_buffer.speech_stopped': {
         if (state === 'listening') {
           state = 'responding';
@@ -226,7 +285,7 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
             await finishing.done();
           }
           if (state === 'responding') {
-            enterIdle();
+            enterFollowUp();
           }
           return;
         }
