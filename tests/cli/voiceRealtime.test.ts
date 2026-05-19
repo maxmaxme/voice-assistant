@@ -125,6 +125,9 @@ describe('runVoiceRealtimeMode', () => {
     expect(toolNames).toContain('HassTurnOn');
     expect(toolNames).toContain('remember');
 
+    // Server VAD configured — no manual commit/response.create from client.
+    expect(parsed.session.audio.input.turn_detection.type).toBe('server_vad');
+
     // First Enter — start streaming.
     promptResolvers[0]!();
     await waitFor(() => mic.started);
@@ -136,18 +139,16 @@ describe('runVoiceRealtimeMode', () => {
     const appends = ws.sent.filter((s) => JSON.parse(s).type === 'input_audio_buffer.append');
     expect(appends.length).toBe(1);
 
-    // Wait for second prompt, then end it.
-    await waitFor(() => promptCount === 2);
-    promptResolvers[1]!();
+    // Server VAD signals end of speech → runner stops the mic, then awaits
+    // response.done before re-prompting.
+    ws.emit('message', JSON.stringify({ type: 'input_audio_buffer.speech_stopped' }));
     await waitFor(() => mic.stopped);
-    const types = ws.sent.map((s) => JSON.parse(s).type);
-    expect(types).toContain('input_audio_buffer.commit');
-    expect(types).toContain('response.create');
+    ws.emit('message', JSON.stringify({ type: 'response.done' }));
 
-    // Now close the ws so the loop exits.
-    await waitFor(() => promptCount === 3);
+    // Now we should be back at the prompt for the next turn.
+    await waitFor(() => promptCount === 2);
     ws.close();
-    promptResolvers[2]!();
+    promptResolvers[1]!();
     await runP;
     expect(speaker.stopped).toBe(true);
   });

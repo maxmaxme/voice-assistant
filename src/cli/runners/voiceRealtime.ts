@@ -89,7 +89,15 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
         audio: {
           input: {
             format: { type: 'audio/pcm', rate: MIC_SAMPLE_RATE },
-            turn_detection: null,
+            turn_detection: {
+              type: 'server_vad',
+              threshold: 0.5,
+              prefix_padding_ms: 300,
+              silence_duration_ms: 600,
+              create_response: true,
+              interrupt_response: false,
+            },
+            transcription: { model: 'whisper-1' },
           },
           output: {
             format: { type: 'audio/pcm', rate: SPEAKER_SAMPLE_RATE },
@@ -102,6 +110,8 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
 
   speaker.start();
   const pendingFunctionCalls = new Map<string, FunctionCallItem>();
+  let speechStoppedResolve: (() => void) | null = null;
+  let responseDoneResolve: (() => void) | null = null;
 
   const handleEvent = async (ev: Record<string, unknown>): Promise<void> => {
     const type = typeof ev.type === 'string' ? ev.type : '';
@@ -128,6 +138,11 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
         }
         return;
       }
+      case 'input_audio_buffer.speech_stopped': {
+        speechStoppedResolve?.();
+        speechStoppedResolve = null;
+        return;
+      }
       case 'response.output_item.added':
       case 'response.output_item.done': {
         const item = parseFunctionCallItem(ev.item);
@@ -140,6 +155,8 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
         const calls = [...pendingFunctionCalls.values()];
         pendingFunctionCalls.clear();
         if (calls.length === 0) {
+          responseDoneResolve?.();
+          responseDoneResolve = null;
           return;
         }
         for (const call of calls) {
@@ -182,9 +199,6 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
       log.warn({ err }, 'unparseable ws message');
       return;
     }
-    if (typeof parsed.type === 'string' && parsed.type !== 'response.output_audio.delta') {
-      log.debug({ event: parsed.type }, `← ${parsed.type}`);
-    }
     void handleEvent(parsed).catch((err) => log.error({ err }, 'event handler threw'));
   });
 
@@ -192,7 +206,7 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
   const promptOnce = deps.prompt ?? ((m: string): Promise<void> => rl.question(m).then(() => {}));
 
   console.log(
-    'Voice realtime push-to-talk. Press Enter to start streaming, Enter again to stop. Ctrl+C to quit.',
+    'Voice realtime. Press Enter to start talking; the server VAD stops the turn automatically. Ctrl+C to quit.',
   );
 
   let closed = false;
@@ -208,16 +222,22 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
       if (closed) {
         break;
       }
+      const speechStopped = new Promise<void>((resolve) => {
+        speechStoppedResolve = resolve;
+      });
+      const responseDone = new Promise<void>((resolve) => {
+        responseDoneResolve = resolve;
+      });
       mic.start();
       const removeListener = mic.onFrame((frame) => {
         const b64 = int16ArrayToBase64(frame);
         ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: b64 }));
       });
-      await promptOnce('Streaming. Press Enter when done. ');
+      await speechStopped;
       removeListener();
       mic.stop();
-      ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
-      ws.send(JSON.stringify({ type: 'response.create' }));
+      console.log('(processing...)');
+      await responseDone;
     }
   } finally {
     rl.close();
