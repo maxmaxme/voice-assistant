@@ -1,4 +1,10 @@
-**For CLIMATE entities** (`Кондиционер` and similar): this resumes the unit's LAST hvac_mode (could be heat, cool, dry, …). If the user named a specific mode:
+**For CLIMATE entities** (`Кондиционер` and similar): this resumes the unit's LAST `hvac_mode`. In this house there is
+an HA automation that auto-picks cool/heat based on the room-vs-target delta whenever the target temperature is
+changed — so the usual pattern "включи кондей на 22" is:
 
-- If `HassClimateSetHvacMode` is available, use IT instead — it sets the mode and powers on in one call.
-- If not, call `HassTurnOn` AND tell the user honestly that you cannot guarantee the mode matched their request (e.g. "включил кондиционер, но режим могу только тот, что был выставлен в последний раз — проверь, что нужный"). Do NOT claim the mode is what the user asked for without verifying via `GetLiveContext`.
+1. `HassTurnOn` (powers it on, last mode for a moment)
+2. `HassClimateSetTemperature(22)` (target changes → automation switches to cool or heat as appropriate)
+
+Both calls in the same turn. The intermediate "last mode" is short-lived; do NOT warn the user about it.
+
+If the user said "just turn on the AC" with no temperature, just call `HassTurnOn` — last mode is the right default.

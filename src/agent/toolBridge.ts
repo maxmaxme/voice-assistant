@@ -31,7 +31,6 @@ export interface OpenAiFunctionTool {
  */
 const HA_SUFFIX_TOOLS = [
   'HassClimateSetTemperature',
-  'HassClimateSetHvacMode',
   'HassTurnOn',
   'HassListAddItem',
   'GetLiveContext',
