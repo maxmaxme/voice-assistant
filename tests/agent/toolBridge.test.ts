@@ -6,8 +6,8 @@ describe('mcpToolsToOpenAi', () => {
   it('maps name, description, and inputSchema to OpenAI function format', () => {
     const mcp: McpTool[] = [
       {
-        name: 'HassTurnOn',
-        description: 'Turn on a device',
+        name: 'SomeUnrelatedTool',
+        description: 'Does something',
         inputSchema: {
           type: 'object',
           properties: { name: { type: 'string' } },
@@ -19,8 +19,8 @@ describe('mcpToolsToOpenAi', () => {
     expect(out).toEqual([
       {
         type: 'function',
-        name: 'HassTurnOn',
-        description: 'Turn on a device',
+        name: 'SomeUnrelatedTool',
+        description: 'Does something',
         parameters: {
           type: 'object',
           properties: { name: { type: 'string' } },
@@ -29,6 +29,19 @@ describe('mcpToolsToOpenAi', () => {
         strict: false,
       },
     ]);
+  });
+
+  it('appends a behavioural suffix to known HA tool names', () => {
+    const mcp: McpTool[] = [
+      {
+        name: 'HassClimateSetHvacMode',
+        description: 'Set HVAC mode',
+        inputSchema: { type: 'object', properties: {}, required: [] },
+      },
+    ];
+    const [out] = mcpToolsToOpenAi(mcp);
+    expect(out!.description.startsWith('Set HVAC mode')).toBe(true);
+    expect(out!.description).toMatch(/PREFER THIS over `HassTurnOn`/);
   });
 
   it('handles empty list', () => {

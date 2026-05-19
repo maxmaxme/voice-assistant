@@ -2,7 +2,18 @@ import type { ScheduledActionsAdapter } from '../memory/types.ts';
 import { nextFireAt as computeNextFireAt, validateSchedule } from '../scheduling/cron.ts';
 import type { Schedule } from '../scheduling/types.ts';
 import { parseLocalWallClock, toLocalIso } from '../utils/time.ts';
+import { loadPrompt } from './prompts/load.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
+
+const SCHEDULE_ACTION_DESCRIPTION = loadPrompt(
+  './prompts/tools/schedule-action.md',
+  import.meta.url,
+);
+const LIST_SCHEDULED_DESCRIPTION = loadPrompt('./prompts/tools/list-scheduled.md', import.meta.url);
+const CANCEL_SCHEDULED_DESCRIPTION = loadPrompt(
+  './prompts/tools/cancel-scheduled.md',
+  import.meta.url,
+);
 
 export const SCHEDULED_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set([
   'schedule_action',
@@ -15,15 +26,7 @@ export function buildScheduledActionTools(): OpenAiFunctionTool[] {
     {
       type: 'function',
       name: 'schedule_action',
-      description:
-        'Schedule a future natural-language goal for the assistant to carry out at a later time. ' +
-        'REPLACES `add_reminder` and `set_timer` — use this for any future-time goal, one-shot or recurring. ' +
-        'At fire time, `goal` is replayed to the assistant verbatim, so write it as a clear, self-contained instruction ' +
-        '(include any context the assistant will need, e.g. "turn on the kitchen light and send me a good morning message in Telegram"). ' +
-        'For `schedule_kind: "once"`, set `schedule_expr` to a wall-clock time string in the SERVER timezone, ' +
-        'either "YYYY-MM-DD HH:mm" or "YYYY-MM-DD HH:mm:ss" (NO timezone offset). Must be in the future. ' +
-        'For `schedule_kind: "cron"`, set `schedule_expr` to a POSIX 5-field cron expression evaluated in the server timezone. ' +
-        'Examples: "0 8 * * *" (daily at 08:00), "30 7 * * 1-5" (weekdays at 07:30), "*/15 * * * *" (every 15 minutes).',
+      description: SCHEDULE_ACTION_DESCRIPTION,
       parameters: {
         type: 'object',
         properties: {
@@ -52,8 +55,7 @@ export function buildScheduledActionTools(): OpenAiFunctionTool[] {
     {
       type: 'function',
       name: 'list_scheduled',
-      description:
-        'List active scheduled actions sorted by next_fire_at ascending. Includes both one-shot and recurring entries.',
+      description: LIST_SCHEDULED_DESCRIPTION,
       parameters: {
         type: 'object',
         properties: {},
@@ -64,8 +66,7 @@ export function buildScheduledActionTools(): OpenAiFunctionTool[] {
     {
       type: 'function',
       name: 'cancel_scheduled',
-      description:
-        'Cancel an active scheduled action by id. Returns {ok: true} if cancelled, else {ok: false}.',
+      description: CANCEL_SCHEDULED_DESCRIPTION,
       parameters: {
         type: 'object',
         properties: { id: { type: 'integer' } },

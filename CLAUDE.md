@@ -128,7 +128,14 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 
 `memory: MemoryAdapter` is **required** on `OpenAiAgentOptions`. Tests that don't care about persistent state pass `emptyMemory()` (no-op).
 
-The system prompt is shared via `src/agent/systemPrompt.ts` (`BASE_SYSTEM_PROMPT`); voice channels append a one-sentence addendum about TTS-friendly output. Behavioural fixes go in the shared base unless they're truly channel-specific.
+**Prompt text lives in markdown files**, not in TS string literals. `src/agent/systemPrompt.ts` and friends just `fs.readFileSync` a sibling `.md` at module load (helper: `src/agent/prompts/load.ts::loadPrompt`). Layout:
+
+- `src/agent/prompts/base-system.md` — cross-cutting rules (identity, HA error-recovery procedure, composite-intent self-check, style, JSON output shape). Loaded as `BASE_SYSTEM_PROMPT`.
+- `src/agent/prompts/tools/{remember,schedule-action}.md` — descriptions for local tools we control. `memoryTools.ts` / `scheduledActionTools.ts` load these and use them as the tool's `description` field.
+- `src/agent/prompts/ha-suffix/<HaToolName>.md` — per-tool suffix appended to upstream HA MCP tool descriptions in `toolBridge.ts::mcpToolsToOpenAi`. Use this to encode conventions HA itself doesn't know about (HVAC mode mapping for `HassClimateSetHvacMode`, grocery emoji formatting for `HassListAddItem`, etc.).
+- `src/cli/prompts/{voice-addendum,silent-confirm-addendum}.md` — channel-specific addenda; `buildSystemPromptFor` concatenates them to the base.
+
+When adding a new tool with tool-specific rules, put those rules in a sibling `.md` file rather than expanding `base-system.md`. Cross-tool rules (e.g. "after an HA match-failed error, do X") still go in `base-system.md`. The `.md` files ship into the docker image via `COPY src ./src` — no build step.
 
 ### Orchestrator FSM (`src/orchestrator/`)
 

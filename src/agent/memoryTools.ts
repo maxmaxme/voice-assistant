@@ -1,15 +1,19 @@
 import type { MemoryAdapter } from '../memory/types.ts';
+import { loadPrompt } from './prompts/load.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
 
 export const MEMORY_TOOL_NAMES = new Set(['remember', 'recall', 'forget']);
+
+const REMEMBER_DESCRIPTION = loadPrompt('./prompts/tools/remember.md', import.meta.url);
+const RECALL_DESCRIPTION = loadPrompt('./prompts/tools/recall.md', import.meta.url);
+const FORGET_DESCRIPTION = loadPrompt('./prompts/tools/forget.md', import.meta.url);
 
 export function buildMemoryTools(): OpenAiFunctionTool[] {
   return [
     {
       type: 'function',
       name: 'remember',
-      description:
-        'Persist a fact about the user across sessions. Call when the user shares a preference or fact you should remember.',
+      description: REMEMBER_DESCRIPTION,
       parameters: {
         type: 'object',
         properties: {
@@ -31,7 +35,7 @@ export function buildMemoryTools(): OpenAiFunctionTool[] {
     {
       type: 'function',
       name: 'recall',
-      description: 'Read user profile. Pass null for "key" to get the full profile.',
+      description: RECALL_DESCRIPTION,
       parameters: {
         type: 'object',
         properties: {
@@ -47,7 +51,7 @@ export function buildMemoryTools(): OpenAiFunctionTool[] {
     {
       type: 'function',
       name: 'forget',
-      description: 'Delete a profile entry by key.',
+      description: FORGET_DESCRIPTION,
       parameters: {
         type: 'object',
         properties: { key: { type: 'string' } },

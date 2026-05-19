@@ -7,6 +7,7 @@ import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
 import type { MemoryStore } from '../memory/types.ts';
+import { loadPrompt } from '../agent/prompts/load.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
 import { telegramFromConfig, receiverFromConfig } from '../telegram/fromConfig.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
@@ -19,34 +20,8 @@ export type AgentMode = (typeof AGENT_MODES)[number];
 /** "Channel" = a system-prompt flavour. Multiple modes can share a channel. */
 export type PromptChannel = 'chat' | 'voice' | 'wake' | 'telegram' | 'http';
 
-const VOICE_ADDENDUM = `
-
-Voice channel specifics: keep replies under 1 sentence when possible. Avoid
-markdown, lists, code, or punctuation that doesn't read well out loud. Never
-include URLs, links, or web addresses in the reply — they don't read well out
-loud. If a source needs to be shared, send it via send_to_telegram instead.`;
-
-const SILENT_CONFIRM_ADDENDUM = `
-
-SILENT-CONFIRMATION — MANDATORY RULE FOR THIS VOICE CHANNEL:
-
-After any successful device action (lights, switches, scenes, climate, covers),
-set speak to null and choose direction based on the action. Never add words.
-
-  speak: null, direction: "on"      → turned ON, raised, opened, activated
-  speak: null, direction: "off"     → turned OFF, lowered, closed, deactivated
-  speak: null, direction: "neutral" → scene applied, value set, unclear direction
-
-Examples (all use speak: null):
-  "turn on the lights"    → HassTurnOn  → {"speak":null,"direction":"on"}
-  "turn on all lamps"     → HassTurnOn  → {"speak":null,"direction":"on"}   (even 3 lamps)
-  "turn off everything"   → HassTurnOff → {"speak":null,"direction":"off"}  (even many)
-  "dim the lights"        → HassSet     → {"speak":null,"direction":"off"}
-  "raise the volume"      → HassSet     → {"speak":null,"direction":"on"}
-  "activate movie scene"  → activate    → {"speak":null,"direction":"neutral"}
-  "open the blinds"       → HassOpen    → {"speak":null,"direction":"on"}
-
-Use speak with real text ONLY when: tool returned an error, or user asked a question.`;
+const VOICE_ADDENDUM = loadPrompt('./prompts/voice-addendum.md', import.meta.url);
+const SILENT_CONFIRM_ADDENDUM = loadPrompt('./prompts/silent-confirm-addendum.md', import.meta.url);
 
 export function buildSystemPromptFor(channel: PromptChannel): string {
   switch (channel) {
@@ -55,9 +30,9 @@ export function buildSystemPromptFor(channel: PromptChannel): string {
     case 'http':
       return BASE_SYSTEM_PROMPT;
     case 'voice':
-      return `${BASE_SYSTEM_PROMPT}${VOICE_ADDENDUM}`;
+      return `${BASE_SYSTEM_PROMPT}\n\n${VOICE_ADDENDUM}`;
     case 'wake':
-      return `${BASE_SYSTEM_PROMPT}${VOICE_ADDENDUM}${SILENT_CONFIRM_ADDENDUM}`;
+      return `${BASE_SYSTEM_PROMPT}\n\n${VOICE_ADDENDUM}\n\n${SILENT_CONFIRM_ADDENDUM}`;
   }
 }
 
