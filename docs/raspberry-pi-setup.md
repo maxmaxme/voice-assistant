@@ -19,7 +19,7 @@ works but the wake-word daemon is heavier (~10% idle CPU instead of ~3%).
    sudo reboot
    ```
 
-That is the entire host setup. Docker is installed by `deploy/install.sh` —
+That is the entire host setup. Docker is installed by `/opt/home-infra/install.sh` —
 no Node, no Python, no build tools on the host.
 
 ## 2. Audio
@@ -55,8 +55,8 @@ groups pi | grep -q audio || sudo usermod -aG audio pi
 Clone the repo and run the install script:
 
 ```bash
-sudo git clone https://github.com/maxmaxme/voice-assistant.git /opt/voice-assistant
-sudo /opt/voice-assistant/deploy/install.sh
+sudo git clone https://github.com/maxmaxme/home-infra.git /opt/home-infra
+sudo /opt/home-infra/install.sh
 ```
 
 The script installs Docker, adds `pi` to the `docker` group, creates `.env`
@@ -66,7 +66,7 @@ and arms the `voice-assistant-update.timer` for daily 04:00 updates.
 Then fill in secrets:
 
 ```bash
-nano /opt/voice-assistant/.env
+nano /opt/home-infra/.env
 ```
 
 | Variable                                  | Value                                                                   |
@@ -77,7 +77,7 @@ nano /opt/voice-assistant/.env
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | From @BotFather / @userinfobot                                          |
 
 ```bash
-cd /opt/voice-assistant/deploy && sudo -u pi docker compose up -d --force-recreate
+cd /opt/home-infra && sudo -u pi docker compose up -d --force-recreate
 ```
 
 ## 4. Custom wake-word model (optional)
@@ -87,10 +87,10 @@ the Pi and point `.env` at it:
 
 ```bash
 # from the dev machine
-rsync -av models/alisa.onnx pi@raspberrypi.local:/opt/voice-assistant/models/
+rsync -av models/alisa.onnx pi@raspberrypi.local:/opt/home-infra/models/
 ```
 
-In `/opt/voice-assistant/.env`:
+In `/opt/home-infra/.env`:
 
 ```
 WAKE_WORD_KEYWORD=models/alisa.onnx
@@ -102,7 +102,7 @@ Then restart the container.
 ## 5. Observe
 
 ```bash
-cd /opt/voice-assistant/deploy
+cd /opt/home-infra
 sudo -u pi docker compose logs -f
 ```
 
@@ -112,7 +112,7 @@ healthcheck is about to flip to `healthy`.
 
 ## Updating
 
-The `voice-assistant-update.timer` systemd unit fires `deploy/update.sh`
+The `voice-assistant-update.timer` systemd unit fires `update.sh`
 daily at 04:00 (with up to 10 min jitter). The script pulls
 `ghcr.io/maxmaxme/voice-assistant:latest`, restarts the container if the
 digest changed, waits up to 90 s for the healthcheck, and rolls back to
@@ -136,10 +136,10 @@ sudo systemctl start voice-assistant-update.service
 
 The bot's `/update` command triggers an on-demand update by writing to a
 named pipe (FIFO) on the host. A lightweight systemd service reads from it
-and calls `deploy/update.sh`. Install it once after deploying:
+and calls `update.sh`. Install it once after deploying:
 
 ```bash
-sudo cp /opt/voice-assistant/deploy/va-update-listener.service /etc/systemd/system/
+sudo cp /opt/home-infra/va-update-listener.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now va-update-listener.service
 ```
@@ -157,7 +157,7 @@ sudo inside the container is required.
 Manual rollback to the previous image (kept locally as `:rollback` by `update.sh`):
 
 ```bash
-cd /opt/voice-assistant/deploy
+cd /opt/home-infra
 # Override the image for this run only — does not modify docker-compose.yml
 cat > /tmp/rollback-override.yml <<'EOF'
 services:
@@ -175,7 +175,7 @@ Build locally on the Pi (no GHCR roundtrip — useful when iterating
 on a hot-fix):
 
 ```bash
-cd /opt/voice-assistant/deploy
+cd /opt/home-infra
 sudo -u pi docker compose build voice-assistant
 sudo -u pi docker compose up -d voice-assistant
 ```

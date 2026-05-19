@@ -10,8 +10,10 @@ detection.
 ## Status
 
 Iterations 1-4 + Memory Level 1 done. Pi deployment artifacts (Iter 5)
-shipped: `deploy/Dockerfile`, `deploy/docker-compose.yml` (HA bundled),
-`deploy/install.sh`. Live testing on Pi pending.
+live in the separate [`home-infra`](../home-infra) repo
+(`docker-compose.yml`, `install.sh`, systemd units). This repo just
+ships the app + image (`Dockerfile` at the root, published to
+`ghcr.io/maxmaxme/voice-assistant` by CI).
 
 Working features:
 
@@ -38,9 +40,9 @@ Working features:
   ([github.com/maxmaxme/ru-meters-bot](https://github.com/maxmaxme/ru-meters-bot))
   that submits monthly readings to Russian utility portals (ТГК-1,
   pesc.ru) via their JSON REST APIs.
-  Its prebuilt image is wired into `deploy/docker-compose.yml` and runs on
-  the Pi via a host systemd timer (Mon-Fri 12:00 МСК, days 15-21).
-  Voice-assistant does not import from it.
+  Its prebuilt image is wired into `home-infra`'s `docker-compose.yml`
+  and runs on the Pi via a host systemd timer (Mon-Fri 12:00 МСК, days
+  15-21). Voice-assistant does not import from it.
 
 ## Requirements
 
@@ -48,7 +50,8 @@ Working features:
 - macOS or Linux ARM64
 - Python 3.10+ in `.venv` for the wake-word daemon
 - `sox` (mic capture on macOS): `brew install sox`
-- Docker (for Home Assistant in dev / Pi prod)
+- A reachable Home Assistant instance (the Pi prod stack via Tailscale,
+  or a local one you run yourself)
 - OpenAI API key
 
 ## Quick start (macOS dev)
@@ -64,19 +67,14 @@ npm install
 python3 -m venv .venv
 .venv/bin/pip install openwakeword
 
-# 4. Home Assistant in Docker
-docker compose -f docker/docker-compose.yml up -d
-# Then follow docs/home-assistant-setup.md (manual onboarding,
-# create LLAT, expose entities via WebSocket).
-
-# 5. .env
+# 4. .env
 cp .env.example .env
-# Fill HA_URL=http://localhost:8123, HA_TOKEN, OPENAI_API_KEY.
+# Fill HA_URL (e.g. https://va.<tailnet>.ts.net), HA_TOKEN, OPENAI_API_KEY.
 
-# 6. Sanity check — list HA's MCP tools
+# 5. Sanity check — list HA's MCP tools
 npm run mcp:call -- list
 
-# 7. Try the channels
+# 6. Try the channels
 npm run chat              # text REPL (AGENT_MODE=chat)
 npm run voice             # push-to-talk (AGENT_MODE=voice)
 npm run start             # default — all enabled channels at once (AGENT_MODE=both)
@@ -128,16 +126,19 @@ npm run typecheck              # tsc --noEmit
 
 ## Pi deployment
 
+Host-side install (Docker compose stack, systemd units, monitoring) is
+in the separate [`home-infra`](../home-infra) repo. On a fresh Pi:
+
 ```bash
-# On a fresh Pi 5 with Raspberry Pi OS 64-bit:
-sudo deploy/install.sh
-# Edit /opt/voice-assistant/.env (HA_URL=http://home-assistant:8123, OPENAI key, etc.)
-# Then:
-cd /opt/voice-assistant/deploy && docker compose up -d
+sudo git clone https://github.com/maxmaxme/home-infra.git /opt/home-infra
+sudo /opt/home-infra/install.sh
+sudoedit /opt/home-infra/.env       # OPENAI_API_KEY, TELEGRAM_*, HA_TOKEN, etc.
 ```
 
-See [docs/raspberry-pi-setup.md](docs/raspberry-pi-setup.md) for
-hardware notes, audio device selection, and troubleshooting.
+The image built from this repo (`Dockerfile`) is pulled from
+`ghcr.io/maxmaxme/voice-assistant`. See
+[docs/raspberry-pi-setup.md](docs/raspberry-pi-setup.md) for hardware
+notes, audio device selection, and troubleshooting.
 
 ## Docs
 

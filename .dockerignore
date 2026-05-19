@@ -9,4 +9,4 @@ node_modules
 data
 .venv
 docs/superpowers
-docker/homeassistant
+tests

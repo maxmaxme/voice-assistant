@@ -177,8 +177,8 @@ async function handleMessage(
       return;
     }
     await ctx.sender.send('🔄 Starting update...');
-    // Writes to a host-side FIFO; va-update-listener.service picks it up and
-    // runs deploy/update.sh. The script itself posts the result to Telegram.
+    // Writes to a host-side FIFO; va-update-listener.service (in home-infra)
+    // picks it up and runs update.sh. The script itself posts the result to Telegram.
     exec('echo trigger > /tmp/va-update');
     return;
   }

@@ -110,7 +110,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: deploy/Dockerfile
+          file: Dockerfile
           platforms: linux/arm64
           push: true
           tags: |

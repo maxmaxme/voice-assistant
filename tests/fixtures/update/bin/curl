@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-echo "$@" >> "${CURL_LOG:-/dev/null}"
-exit 0

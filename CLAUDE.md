@@ -20,7 +20,6 @@ npm test                           # vitest run, all unit tests
 npm run test:watch                 # vitest watch mode
 npm run lint                       # eslint (flat config: eslint.config.js)
 npm run format                     # prettier --write .
-npm run test:shell                 # bats tests for deploy/update.sh
 npx vitest run path/to/file.test.ts -t "name"   # one test
 RUN_INTEGRATION=1 npm test         # also runs tests gated against a live HA on http://localhost:8123
 
@@ -31,19 +30,15 @@ npm run chat                       # text REPL — type commands, agent calls HA
 npm run voice                      # push-to-talk (Enter to start/stop recording)
 npm run http                       # HTTP server (default port 3000, customizable via HTTP_SERVER_PORT)
 npm run start                      # always-listening daemon (wake-word + VAD + FSM)
-
-# Dev HA in Docker (Mac, colima):
-docker compose -f docker/docker-compose.yml up -d
-
-# Pi prod stack (HA bundled in same compose):
-docker compose -f deploy/docker-compose.yml up -d
 ```
+
+The Pi host stack (docker compose, systemd units, update.sh, monitoring)
+lives in a separate repo: [`home-infra`](../home-infra). The image built
+from this repo (`Dockerfile` at the root) is published to
+`ghcr.io/maxmaxme/voice-assistant` by CI and pulled from there by the Pi.
 
 `WAKE_WORD_DEBUG=1` in `.env` makes the wake-word daemon print per-frame
 max score and RMS to stderr — invaluable when wake doesn't fire.
-
-`npm run test:shell` requires `bats-core`: `brew install bats-core` on
-macOS, `apt-get install bats` on the Pi.
 
 ## Critical conventions (will bite you if ignored)
 
@@ -200,7 +195,8 @@ agent as the `send_to_telegram` tool.
 `OpenAiAgent`, applies the `TELEGRAM_ALLOWED_CHAT_IDS` allow-list, handles
 `/reset` / `/profile` / `/start` / `/update` locally, and forwards everything else.
 `/update` writes a trigger to `/tmp/va-update` (a host-side FIFO); the
-`va-update-listener.service` systemd unit on the Pi reads it and runs `deploy/update.sh`.
+`va-update-listener.service` systemd unit on the Pi (defined in the
+[`home-infra`](../home-infra) repo) reads it and runs `update.sh`.
 
 Voice messages are downloaded via telegraf's `getFileLink` and transcribed
 by OpenAI (`gpt-4o-transcribe`, accepts OGG/OPUS directly). The runner
@@ -226,26 +222,26 @@ Required env vars: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Optional:
 
 Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth against HA's `/api/mcp`. Single replaceable adapter — the `McpClient` interface is the contract used by everything else.
 
-### Deployment & auto-update (`deploy/`)
+### Deployment & auto-update
 
-CI (`.github/workflows/build-image.yml`) cross-builds an arm64 image on every push to `main` and publishes it to `ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via `deploy/update.sh`, run by `voice-assistant-update.timer` at 04:00 daily or manually via `/update` Telegram command. The script bails when the digest hasn't changed, rolls back to the previous image if the existing healthcheck doesn't go green within 90 s, and posts the outcome to Telegram. There is no blue/green: a single ALSA mic forces a serial restart, and 5 s of unavailability at 04:00 is invisible.
+Host-side artifacts (docker compose, systemd units, `update.sh`,
+monitoring) live in a separate repo, [`home-infra`](../home-infra),
+cloned to `/opt/home-infra/` on the Pi. This repo only owns the
+**image build**: CI (`.github/workflows/ci.yml`) cross-builds an arm64
+image on every push to `main` from the root `Dockerfile` and publishes
+it to `ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via
+`/opt/home-infra/update.sh`, run by `voice-assistant-update.timer` at
+04:00 daily or manually via `/update` Telegram command. The script rolls
+back if the healthcheck doesn't go green within 90 s and posts the
+outcome to Telegram.
 
-**External publish via Tailscale Funnel.** Home Assistant and the voice-assistant HTTP API are NOT exposed via port-forwarding on the router. Instead, `tailscaled` runs on the Pi host (not in Docker) and publishes both via Tailscale Funnel: HA on `https://va.<tailnet>.ts.net/` (port 443 → `127.0.0.1:8123`), HTTP API on `https://va.<tailnet>.ts.net:8443/` (port 8443 → `127.0.0.1:3000`). Funnel terminates TLS at the Pi using auto-issued Let's Encrypt certs scoped to the tailnet hostname; setup is `tailscale serve --bg --https=<port> http://127.0.0.1:<svc>` then `tailscale funnel --bg --https=<port> ...`. Custom domains aren't supported by Funnel — the cert is bound to `*.ts.net`. HA needs `http.use_x_forwarded_for: true` and `127.0.0.1` in `trusted_proxies` (otherwise it returns 400 to Funnel-proxied requests). The provider gives a dynamic public IP, so DDNS would also have worked, but Funnel removes the public IP from the equation entirely (zero attack surface on the router). Netdata's external httpcheck (`EXTERNAL_HEALTHCHECK_URL` in `.env`) probes the Funnel URL — there's no hairpin-NAT problem because Funnel traffic physically egresses through Tailscale relays before re-entering.
+**FIFO for `/update`:** the container writes to `/tmp/va-update`, mounted
+from the host. `va-update-listener.service` (in `home-infra`) reads it
+and invokes `update.sh`. No docker socket inside the container.
 
-**Monitoring stack.** Same compose file also runs **Netdata** (metrics + alerts) and **Dozzle** (docker log viewer), both sitting on an internal `monitoring` bridge network with no host ports of their own. A **Caddy** reverse proxy (`monitoring-proxy` service) publishes `:19999` (→ netdata) and `:8888` (→ dozzle); auth is delegated to **tinyauth** via `forward_auth` (Caddyfile snippet `tinyauth_forwarder`). tinyauth itself runs on the same `monitoring` network and is published on host port `:8890` — that's where the browser hits the login page. Credentials live in `.env` as `TINYAUTH_APPURL` (public URL of the tinyauth login page; tinyauth rejects raw IPs and 1-label hosts, so use `va.local` / `home.lan` / `<dashed-ip>.nip.io` etc.) and `TINYAUTH_AUTH_USERS` (`user:bcrypthash[,...]`, generated via `docker run --rm -it ghcr.io/steveiliop56/tinyauth:v5 user create --interactive --docker`; the `--docker` flag escapes `$` to `$$` for compose). These vars are read directly by the container via `env_file: ../.env` — no compose-level `${...}` substitution, so `docker compose up -d` works regardless of the working directory. A single tinyauth cookie covers both Caddy ports because browsers don't isolate cookies by port on the same host. Caddyfile is bind-mounted from `deploy/monitoring/Caddyfile`; tinyauth's own state (cookie secret, rate-limit counters) lives in the `tinyauthdata` named volume. A one-shot `netdata-init` busybox service writes a minimal `health_alarm_notify.conf` into the netdata config volume on every `docker compose up`, wiring Telegram alerts to the same `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` the assistant already uses — no manual setup. Tuning thresholds, credential rotation, and security notes in `docs/monitoring-setup.md`.
-
-**FIFO setup for `/update`:** The container writes to a FIFO mounted from the host. A
-lightweight systemd service on the Pi reads from it and calls `update.sh`. Install once:
-
-```bash
-sudo cp /opt/voice-assistant/deploy/va-update-listener.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now va-update-listener.service
-```
-
-The service creates `/tmp/va-update` on startup if it doesn't exist. The FIFO is
-mounted into the container via `deploy/docker-compose.yml`. No sudo, no docker socket
-inside the container.
+For Tailscale Funnel publishing, monitoring stack (Netdata + Dozzle +
+Caddy + tinyauth), and other host-side topology: see the README and
+`monitoring/` in the `home-infra` repo.
 
 ## ru-meters-bot — external sibling service
 
@@ -254,18 +250,12 @@ Russian utility portals (ТГК-1, pesc.ru) via their JSON REST APIs. Lives in i
 `~/Developer/ru-meters-bot/` (published image: `ghcr.io/maxmaxme/ru-meters-bot:latest`).
 The voice-assistant runtime does NOT import from it.
 
-This repo only references it operationally:
-
-- `deploy/docker-compose.yml` defines the `meters-bot` service, pulling
-  the prebuilt image (no `build:` context). It depends on `sing-box-ru`
-  in the same compose for pesc.ru's RU-only egress, and shares
-  `../.env` and the host's `data/meters/` directory.
-- `deploy/meters-bot.service` / `deploy/meters-bot.timer` — host systemd
-  units that run `docker compose run --rm meters-bot` Mon-Fri 12:00 МСК
-  on calendar days 15-21.
-
-Code changes happen in the standalone repo; deployment of a new version
-is just `docker compose pull meters-bot` from `/opt/voice-assistant/deploy/`.
+This repo doesn't reference it at all — the meters-bot service, its
+systemd timer (Mon-Fri 12:00 МСК on calendar days 15-21), and its
+sing-box egress sidecar all live in the [`home-infra`](../home-infra)
+repo's `docker-compose.yml`. Code changes happen in the standalone
+ru-meters-bot repo; deployment is `docker compose pull meters-bot` from
+`/opt/home-infra/`.
 
 Original design doc: `docs/superpowers/specs/2026-05-16-ru-meters-bot-design.md`
 (written when the service still lived under `services/meters/`).
@@ -274,12 +264,15 @@ Original design doc: `docs/superpowers/specs/2026-05-16-ru-meters-bot-design.md`
 
 The MCP integration only sees entities that are **exposed to Assist**. The UI toggle in HA 2026.x silently desyncs entity-registry from `homeassistant.exposed_entities`. Use the WebSocket service `homeassistant/expose_entity` from `docs/home-assistant-setup.md` — that's the canonical path.
 
-Mock entities for testing live in `docker/homeassistant/configuration.yaml`: real `light.*` / `switch.*` template entities backed by hidden `input_boolean.*_state` helpers. Adding mocks: edit YAML, restart container, expose via WS.
+Mock entities for testing now live in HA itself (the prod instance on the
+Pi). The old `docker/homeassistant/` dev stack was removed when the stack
+moved to the `home-infra` repo — point local dev at the prod HA via
+Tailscale when needed.
 
 ## Project history & where things are decided
 
 - `docs/superpowers/specs/` — design docs (one big up-front, plus per-feature)
-- `docs/superpowers/plans/` — TDD-style implementation plans, one per iteration. Iterations 1-4 + Memory Level 1 are done; Iteration 5 (Pi deployment) was reduced to deployment artifacts in `deploy/`.
+- `docs/superpowers/plans/` — TDD-style implementation plans, one per iteration. Iterations 1-4 + Memory Level 1 are done; Iteration 5 (Pi deployment) was reduced to deployment artifacts now living in the `home-infra` repo.
 - `docs/superpowers/roadmap.md` — backlog of deferred wishes (acoustic echo cancellation, custom Russian wake-word, streaming TTS, episodic memory, etc.). When picking a new feature, start here, then groom into a spec + plan via the `superpowers:brainstorming` and `superpowers:writing-plans` skills.
 
 The codebase was built iteration by iteration through TDD; tests are real and worth running. Don't loosen the conventions above to "make a quick fix work" — they're load-bearing.
