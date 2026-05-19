@@ -66,6 +66,7 @@ describe('dispatch', () => {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
       voiceRealtime: vi.fn(async () => {}),
+      wakeRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
@@ -82,6 +83,7 @@ describe('dispatch', () => {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
       voiceRealtime: vi.fn(async () => {}),
+      wakeRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
@@ -109,6 +111,7 @@ describe('dispatch', () => {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
       voiceRealtime: vi.fn(async () => {}),
+      wakeRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
@@ -142,12 +145,53 @@ describe('dispatch', () => {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
       voiceRealtime: vi.fn(async () => {}),
+      wakeRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
     };
-    await dispatch('wake', deps, runners);
+    const prev = process.env.WAKE_REALTIME;
+    delete process.env.WAKE_REALTIME;
+    try {
+      await dispatch('wake', deps, runners);
+    } finally {
+      if (prev !== undefined) {
+        process.env.WAKE_REALTIME = prev;
+      }
+    }
     expect(runners.wake).toHaveBeenCalledTimes(1);
+    expect(runners.wakeRealtime).not.toHaveBeenCalled();
+  });
+
+  it('wake mode invokes runWakeRealtimeMode when WAKE_REALTIME=1', async () => {
+    const deps = makeDeps();
+    deps.config = {
+      ...deps.config,
+      openai: { apiKey: 'sk-test', model: 'gpt-4o' },
+      wakeWord: { keyword: 'hey_jarvis' },
+    } as unknown as CommonDeps['config'];
+    const runners = {
+      chat: vi.fn(async () => {}),
+      voice: vi.fn(async () => {}),
+      voiceRealtime: vi.fn(async () => {}),
+      wakeRealtime: vi.fn(async () => {}),
+      wake: vi.fn(async () => {}),
+      telegram: vi.fn(async () => {}),
+      http: vi.fn(async () => {}),
+    };
+    const prev = process.env.WAKE_REALTIME;
+    process.env.WAKE_REALTIME = '1';
+    try {
+      await dispatch('wake', deps, runners);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.WAKE_REALTIME;
+      } else {
+        process.env.WAKE_REALTIME = prev;
+      }
+    }
+    expect(runners.wakeRealtime).toHaveBeenCalledTimes(1);
+    expect(runners.wake).not.toHaveBeenCalled();
   });
 
   it('both mode invokes wake, telegram, and http concurrently', async () => {
@@ -159,6 +203,7 @@ describe('dispatch', () => {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
       voiceRealtime: vi.fn(async () => {}),
+      wakeRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {
         wakeStarted();
         await new Promise((r) => setTimeout(r, 5));
@@ -172,7 +217,15 @@ describe('dispatch', () => {
         await new Promise((r) => setTimeout(r, 5));
       }),
     };
-    await dispatch('both', deps, runners);
+    const prevWake = process.env.WAKE_REALTIME;
+    delete process.env.WAKE_REALTIME;
+    try {
+      await dispatch('both', deps, runners);
+    } finally {
+      if (prevWake !== undefined) {
+        process.env.WAKE_REALTIME = prevWake;
+      }
+    }
     expect(wakeStarted).toHaveBeenCalled();
     expect(telegramStarted).toHaveBeenCalled();
     expect(httpStarted).toHaveBeenCalled();
@@ -187,6 +240,7 @@ describe('dispatch', () => {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
       voiceRealtime: vi.fn(async () => {}),
+      wakeRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
@@ -201,11 +255,20 @@ describe('dispatch', () => {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
       voiceRealtime: vi.fn(async () => {}),
+      wakeRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
     };
-    await dispatch('wake', deps, runners);
+    const prev2 = process.env.WAKE_REALTIME;
+    delete process.env.WAKE_REALTIME;
+    try {
+      await dispatch('wake', deps, runners);
+    } finally {
+      if (prev2 !== undefined) {
+        process.env.WAKE_REALTIME = prev2;
+      }
+    }
     expect(deps.buildAgent).toHaveBeenCalledWith('wake');
   });
 
@@ -217,6 +280,7 @@ describe('dispatch', () => {
       chat: vi.fn(async () => {}),
       voice: vi.fn(async () => {}),
       voiceRealtime: vi.fn(async () => {}),
+      wakeRealtime: vi.fn(async () => {}),
       wake: vi.fn(async () => {}),
       telegram: vi.fn(async () => {}),
       http: vi.fn(async () => {}),
