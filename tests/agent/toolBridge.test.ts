@@ -34,14 +34,14 @@ describe('mcpToolsToOpenAi', () => {
   it('appends a behavioural suffix to known HA tool names', () => {
     const mcp: McpTool[] = [
       {
-        name: 'HassClimateSetHvacMode',
-        description: 'Set HVAC mode',
+        name: 'HassClimateSetTemperature',
+        description: 'Set target temperature',
         inputSchema: { type: 'object', properties: {}, required: [] },
       },
     ];
     const [out] = mcpToolsToOpenAi(mcp);
-    expect(out!.description.startsWith('Set HVAC mode')).toBe(true);
-    expect(out!.description).toMatch(/PREFER THIS over `HassTurnOn`/);
+    expect(out!.description.startsWith('Set target temperature')).toBe(true);
+    expect(out!.description).toMatch(/automation/);
   });
 
   it('handles empty list', () => {
