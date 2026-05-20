@@ -127,6 +127,8 @@ export async function runWakeRealtimeMode(deps: WakeRealtimeRunnerDeps): Promise
       model: deps.model,
       instructions: deps.systemPrompt,
       tools,
+      parallel_tool_calls: true,
+      reasoning: { effort: 'low' },
       audio: {
         input: {
           format: { type: 'audio/pcm', rate: REALTIME_SAMPLE_RATE },

@@ -83,6 +83,8 @@ export async function runVoiceRealtimeMode(deps: VoiceRealtimeRunnerDeps): Promi
       model: deps.model,
       instructions: deps.systemPrompt,
       tools,
+      parallel_tool_calls: true,
+      reasoning: { effort: 'low' },
       audio: {
         input: {
           format: { type: 'audio/pcm', rate: MIC_SAMPLE_RATE },
