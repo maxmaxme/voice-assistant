@@ -379,12 +379,12 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
     .get('/health', () => {
       return { status: 'ok' };
     })
-    .get('/sample.flac', () => {
-      // No auth — this is a fixed test asset for verifying thin clients
-      // (Voice PE firmware, mac smoke scripts) can fetch and play audio
-      // from the server. Streams a short TTS phrase as FLAC because
-      // Voice PE's audio_http decoder doesn't include WAV support in its
-      // stock build (gated on USE_AUDIO_WAV_SUPPORT).
+    .get('/sample.flac', async () => {
+      // No auth — fixed test asset for verifying thin clients can fetch
+      // and play audio from the server. Buffers the encoded blob fully so
+      // the response carries a real Content-Length (no chunked TE) and
+      // ships with Connection: close.
+
       if (!tts.streamEncoded) {
         return new Response('TTS adapter has no streamEncoded support', {
           status: 501,
@@ -392,19 +392,25 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         });
       }
       const encoded = tts.streamEncoded('Sample. The voice assistant is reachable.');
-      const stream = new ReadableStream<Uint8Array>({
-        async start(controller) {
-          for await (const chunk of encoded.chunks) {
-            controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
-          }
-          controller.close();
-        },
+      const parts: Buffer[] = [];
+      for await (const chunk of encoded.chunks) {
+        parts.push(chunk);
+      }
+      const blob = Buffer.concat(parts);
+      // Hand h3 the bytes as a single Blob instead of a ReadableStream so
+      // Node serializes the response as one shot rather than driving the
+      // socket via stream backpressure. Tests whether Voice PE's lwIP
+      // race is sensitive to how the TCP segments are laid out.
+      const body = new Blob([new Uint8Array(blob.buffer, blob.byteOffset, blob.byteLength)], {
+        type: encoded.contentType,
       });
-      return new Response(stream, {
+      return new Response(body, {
         status: 200,
         headers: {
           'content-type': encoded.contentType,
+          'content-length': String(blob.length),
           'cache-control': 'no-store',
+          connection: 'close',
         },
       });
     });
