@@ -50,6 +50,34 @@ export async function* streamPcmToWavChunks(
   }
 }
 
+/**
+ * Build a complete WAV containing a sine-wave tone — used by the
+ * `/sample.wav` endpoint as a no-TTS-required smoke test that thin clients
+ * (Voice PE custom firmware, mac scripts) can fetch + play through their
+ * audio pipeline before we wire up the full STT→agent→TTS roundtrip.
+ *
+ * 16 kHz mono PCM matches what i2s_mics on the Voice PE captures; the WAV
+ * is small (~32 KB for 1 second) so easy to log/debug.
+ */
+export function generateToneWav(opts: {
+  frequencyHz: number;
+  durationSeconds: number;
+  sampleRate?: number;
+  amplitude?: number;
+}): Buffer {
+  const sampleRate = opts.sampleRate ?? 16000;
+  const amplitude = opts.amplitude ?? 0.3;
+  const totalSamples = Math.floor(opts.durationSeconds * sampleRate);
+  const pcm = Buffer.alloc(totalSamples * 2);
+  const scale = Math.floor(32767 * amplitude);
+  for (let i = 0; i < totalSamples; i++) {
+    const sample = Math.sin((2 * Math.PI * opts.frequencyHz * i) / sampleRate);
+    pcm.writeInt16LE(Math.round(sample * scale), i * 2);
+  }
+  const header = buildWavHeader({ dataLength: pcm.length, sampleRate });
+  return Buffer.concat([header, pcm]);
+}
+
 interface WavHeaderOpts {
   dataLength: number;
   sampleRate: number;

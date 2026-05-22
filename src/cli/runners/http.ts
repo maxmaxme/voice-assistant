@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { AudioFileStt, Tts } from '../../audio/types.ts';
 import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
-import { streamPcmToWavChunks } from '../../audio/wavWriter.ts';
+import { streamPcmToWavChunks, generateToneWav } from '../../audio/wavWriter.ts';
 import { verifyBearerToken } from '../../utils/apiKeyAuth.ts';
 import { createLogger } from '../../utils/logger.ts';
 import { loggerPlugin } from '../../utils/h3LoggerPlugin.ts';
@@ -361,6 +361,30 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
     })
     .get('/health', () => {
       return { status: 'ok' };
+    })
+    .get('/sample.wav', () => {
+      // No auth — this is a fixed test asset for verifying clients (Voice PE
+      // firmware, mac smoke scripts) can fetch and play audio from the
+      // server. A 1-second 440 Hz tone, 16 kHz mono 16-bit PCM in a RIFF
+      // container — about 32 KB.
+      const wav = generateToneWav({ frequencyHz: 440, durationSeconds: 1.0 });
+      // Wrap the buffer in a single-chunk ReadableStream so the BodyInit
+      // typing is unambiguous (Buffer/Uint8Array aren't recognised as
+      // BodyInit in this project's TS lib).
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(wav.buffer, wav.byteOffset, wav.byteLength));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          'content-type': 'audio/wav',
+          'content-length': String(wav.length),
+          'cache-control': 'no-store',
+        },
+      });
     });
 
   log.info({ port }, `listening on http://localhost:${port}`);
