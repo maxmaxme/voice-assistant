@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { AudioFileStt, Tts } from '../../audio/types.ts';
 import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
-import { streamPcmToWavChunks, generateToneWav } from '../../audio/wavWriter.ts';
+import { streamPcmToWavChunks } from '../../audio/wavWriter.ts';
 import { verifyBearerToken } from '../../utils/apiKeyAuth.ts';
 import { createLogger } from '../../utils/logger.ts';
 import { loggerPlugin } from '../../utils/h3LoggerPlugin.ts';
@@ -252,13 +252,31 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
           // tears down the OpenAI call instead of letting it run to
           // completion (and burn tokens) into a dead socket.
           const aborter = new AbortController();
-          const ttsStream = tts.stream(reply.text, { signal: aborter.signal });
+
+          // Prefer the encoded-bytes path (FLAC/MP3/etc.) when the TTS
+          // adapter supports it — thin clients like Voice PE's audio_http
+          // pipeline decode FLAC natively and choke on WAV (USE_AUDIO_WAV
+          // _SUPPORT is gated out of their build). Fall back to the PCM →
+          // WAV-with-placeholder-length path otherwise.
+          let chunks: AsyncIterable<Buffer>;
+          let contentType: string;
+          if (tts.streamEncoded) {
+            const encoded = tts.streamEncoded(reply.text, { signal: aborter.signal });
+            chunks = encoded.chunks;
+            contentType = encoded.contentType;
+          } else {
+            const ttsStream = tts.stream(reply.text, { signal: aborter.signal });
+            chunks = streamPcmToWavChunks(ttsStream.chunks, ttsStream.sampleRate);
+            contentType = 'audio/wav';
+          }
 
           // Pull `release` into a local binding so the closure below knows
           // it's non-null (TS narrowing across `if (!release)` doesn't carry
           // into nested function expressions).
           const releaseFn: () => void = release;
-          const iter = streamPcmToWavChunks(ttsStream.chunks, ttsStream.sampleRate);
+          const iter = (async function* () {
+            yield* chunks;
+          })();
           let cleaned = false;
           const cleanup = (): void => {
             if (cleaned) {
@@ -296,12 +314,11 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
           return new Response(responseStream, {
             status: 200,
             headers: {
-              'content-type': 'audio/wav',
+              'content-type': contentType,
               'x-transcript': encodeHeader(transcript),
               'x-response': encodeHeader(reply.text),
               // No content-length — implicit chunked transfer encoding,
-              // RIFF/data sizes in the WAV header are placeholders so the
-              // decoder reads until EOF.
+              // streamed in real time as TTS produces frames.
             },
           });
         } catch (err) {
@@ -362,26 +379,31 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
     .get('/health', () => {
       return { status: 'ok' };
     })
-    .get('/sample.wav', () => {
-      // No auth — this is a fixed test asset for verifying clients (Voice PE
-      // firmware, mac smoke scripts) can fetch and play audio from the
-      // server. A 1-second 440 Hz tone, 16 kHz mono 16-bit PCM in a RIFF
-      // container — about 32 KB.
-      const wav = generateToneWav({ frequencyHz: 440, durationSeconds: 1.0 });
-      // Wrap the buffer in a single-chunk ReadableStream so the BodyInit
-      // typing is unambiguous (Buffer/Uint8Array aren't recognised as
-      // BodyInit in this project's TS lib).
+    .get('/sample.flac', () => {
+      // No auth — this is a fixed test asset for verifying thin clients
+      // (Voice PE firmware, mac smoke scripts) can fetch and play audio
+      // from the server. Streams a short TTS phrase as FLAC because
+      // Voice PE's audio_http decoder doesn't include WAV support in its
+      // stock build (gated on USE_AUDIO_WAV_SUPPORT).
+      if (!tts.streamEncoded) {
+        return new Response('TTS adapter has no streamEncoded support', {
+          status: 501,
+          headers: { 'content-type': 'text/plain' },
+        });
+      }
+      const encoded = tts.streamEncoded('Sample. The voice assistant is reachable.');
       const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(new Uint8Array(wav.buffer, wav.byteOffset, wav.byteLength));
+        async start(controller) {
+          for await (const chunk of encoded.chunks) {
+            controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+          }
           controller.close();
         },
       });
       return new Response(stream, {
         status: 200,
         headers: {
-          'content-type': 'audio/wav',
-          'content-length': String(wav.length),
+          'content-type': encoded.contentType,
           'cache-control': 'no-store',
         },
       });
