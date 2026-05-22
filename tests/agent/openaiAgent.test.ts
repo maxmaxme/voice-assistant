@@ -284,6 +284,69 @@ describe('OpenAiAgent', () => {
     memory.close();
   });
 
+  it('ask emitted in parallel with other tools: executes the others, stashes their outputs, replays on next turn', async () => {
+    const mcp = fakeMcp();
+    const llm = fakeLlm([
+      // Turn 1: model emits remember + ask in parallel.
+      {
+        id: 'resp_1',
+        output: [
+          {
+            type: 'function_call',
+            call_id: 'mem_1',
+            name: 'remember',
+            arguments: '{"key":"dog_name","value":"Pizza"}',
+          },
+          {
+            type: 'function_call',
+            call_id: 'ask_1',
+            name: 'ask',
+            arguments: '{"text":"What is your favourite temperature?"}',
+          },
+        ],
+        output_text: '',
+      },
+      // Turn 2: after the user answers, model finalises with text.
+      textResponse('Got it.', 'resp_2'),
+    ]);
+    const profile = new SqliteProfileMemory({ dbPath: ':memory:' });
+    const memory: MemoryStore = {
+      ...emptyMemory(),
+      profile,
+      close: () => profile.close(),
+    };
+    const session = new Session({ idleTimeoutMs: 60_000 });
+    const agent = new OpenAiAgent({
+      mcp,
+      memory,
+      session,
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+    });
+
+    const first = await agent.respond('remember my dog');
+    expect(first.text).toBe('What is your favourite temperature?');
+    expect(first.expectsFollowUp).toBe(true);
+    // Non-ask tool actually executed.
+    expect(memory.profile.recall()).toEqual({ dog_name: 'Pizza' });
+    // Both call_ids are queued on the session.
+    expect(session.pendingAskCallId).toBe('ask_1');
+    expect(session.pendingToolOutputs).toEqual([{ callId: 'mem_1', output: expect.any(String) }]);
+
+    const second = await agent.respond('22 degrees');
+    expect(second.text).toBe('Got it.');
+    // Next API call sent BOTH function_call_outputs.
+    const call = llm.calls[1]!;
+    const callIds = (call.input as Array<{ call_id?: string }>).map((it) => it.call_id);
+    expect(callIds).toEqual(expect.arrayContaining(['mem_1', 'ask_1']));
+    // Session is cleared.
+    expect(session.pendingAskCallId).toBeUndefined();
+    expect(session.pendingToolOutputs).toBeUndefined();
+    memory.close();
+  });
+
   it('ask tool ends the turn and sets expectsFollowUp=true', async () => {
     const mcp = fakeMcp();
     const llm = fakeLlm([

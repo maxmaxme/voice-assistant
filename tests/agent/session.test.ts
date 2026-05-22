@@ -77,7 +77,16 @@ describe('Session', () => {
         },
       });
       s.commit('resp_new');
-      expect(saved).toEqual([[7, { lastResponseId: 'resp_new', pendingAskCallId: undefined }]]);
+      expect(saved).toEqual([
+        [
+          7,
+          {
+            lastResponseId: 'resp_new',
+            pendingAskCallId: undefined,
+            pendingToolOutputs: undefined,
+          },
+        ],
+      ]);
       s.reset();
       expect(deleted).toEqual([7]);
     });

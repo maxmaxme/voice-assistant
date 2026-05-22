@@ -118,28 +118,41 @@ export class OpenAiAgent implements Agent {
     // If the previous turn ended with an `ask` tool call, the API still has
     // an open function_call that needs a function_call_output. Submit the
     // user's answer as that output instead of a plain user message.
+    // When `ask` was emitted in parallel with other tools, those tools were
+    // executed locally last turn and their outputs were stashed on the
+    // session — replay them here too, or OpenAI 400s with "No tool output
+    // found for function call <id>".
     let nextInput: ResponseInputItem[];
     const pendingAskCallId = session.pendingAskCallId;
+    const pendingToolOutputs = session.pendingToolOutputs ?? [];
     if (pendingAskCallId) {
       session.pendingAskCallId = undefined;
+      session.pendingToolOutputs = undefined;
+      const stashed: ResponseInputItem[] = pendingToolOutputs.map((po) => ({
+        type: 'function_call_output',
+        call_id: po.callId,
+        output: po.output,
+      }));
+      let askOutput: ResponseInputItem;
       if (images.length > 0) {
-        // function_call_output.output accepts an array of input parts — text
-        // plus images is fine. Use that to answer an `ask` with a picture.
         const textPart: ResponseInputText = {
           type: 'input_text',
           text: userText && userText.length > 0 ? userText : '(image)',
         };
         const imageParts: ResponseInputImage[] = images.map(toInputImage);
-        nextInput = [
-          {
-            type: 'function_call_output',
-            call_id: pendingAskCallId,
-            output: [textPart, ...imageParts],
-          },
-        ];
+        askOutput = {
+          type: 'function_call_output',
+          call_id: pendingAskCallId,
+          output: [textPart, ...imageParts],
+        };
       } else {
-        nextInput = [{ type: 'function_call_output', call_id: pendingAskCallId, output: userText }];
+        askOutput = {
+          type: 'function_call_output',
+          call_id: pendingAskCallId,
+          output: userText,
+        };
       }
+      nextInput = [...stashed, askOutput];
     } else if (images.length > 0) {
       const textPart: ResponseInputText = {
         type: 'input_text',
@@ -208,19 +221,15 @@ export class OpenAiAgent implements Agent {
       );
 
       if (fnCalls.length > 0) {
-        // Special-case the `ask` tool: it's terminal — calling it ends the
-        // agent turn with the question text as the final reply, signalling
-        // that the orchestrator should reopen capture for the user's answer.
+        // `ask` is terminal: it ends the agent turn with the question text as
+        // the final reply, signalling that the orchestrator should reopen
+        // capture for the user's answer. When the model emits `ask` in
+        // parallel with other tools, we still must execute those other tools
+        // and stash their function_call_outputs on the session — otherwise
+        // the next user turn 400s with "No tool output found for function
+        // call <id>" (the API requires outputs for every emitted call_id).
         const askCall = fnCalls.find((tc) => tc.name === ASK_TOOL_NAME);
-        if (askCall) {
-          const args = this.parseArgs(askCall.arguments);
-          const text = typeof args.text === 'string' ? args.text : '';
-          log.debug({ tool: 'ask', args }, `ask(${JSON.stringify(args)}) → reopen capture`);
-          session.pendingAskCallId = askCall.call_id;
-          session.commit(response.id);
-          toolsUsed.push(ASK_TOOL_NAME);
-          return { text, direction: null, expectsFollowUp: true, toolsUsed };
-        }
+        const nonAskCalls = askCall ? fnCalls.filter((tc) => tc !== askCall) : fnCalls;
 
         for (const tc of fnCalls) {
           toolsUsed.push(tc.name);
@@ -230,7 +239,7 @@ export class OpenAiAgent implements Agent {
         // errors; we use allSettled as defense-in-depth so an unexpected
         // throw in one call can't drop the others' outputs.
         const settled = await Promise.allSettled(
-          fnCalls.map(async (tc) => {
+          nonAskCalls.map(async (tc) => {
             const args = this.parseArgs(tc.arguments);
             const startedAt = Date.now();
             let resultText: string;
@@ -301,7 +310,7 @@ export class OpenAiAgent implements Agent {
           if (res.status === 'fulfilled') {
             return res.value;
           }
-          const tc = fnCalls[idx]!;
+          const tc = nonAskCalls[idx]!;
           const reason = res.reason instanceof Error ? res.reason.message : String(res.reason);
           log.error({ tool: tc.name }, `${tc.name} unexpected throw: ${reason}`);
           return {
@@ -310,6 +319,30 @@ export class OpenAiAgent implements Agent {
             output: `ERROR: ${reason}`,
           };
         });
+
+        if (askCall) {
+          // Stash non-ask outputs alongside the pending ask call_id. The next
+          // user turn replays the stashed outputs together with the user's
+          // answer (which serves as ask's output) — keeping the chain valid.
+          const askArgs = this.parseArgs(askCall.arguments);
+          const askText = typeof askArgs.text === 'string' ? askArgs.text : '';
+          log.debug(
+            { tool: 'ask', args: askArgs },
+            `ask(${JSON.stringify(askArgs)}) → reopen capture`,
+          );
+          session.pendingAskCallId = askCall.call_id;
+          session.pendingToolOutputs = nonAskCalls.map((tc, idx) => {
+            const res = settled[idx]!;
+            const output =
+              res.status === 'fulfilled'
+                ? res.value.output
+                : `ERROR: ${res.reason instanceof Error ? res.reason.message : String(res.reason)}`;
+            return { callId: tc.call_id, output };
+          });
+          session.commit(response.id);
+          return { text: askText, direction: null, expectsFollowUp: true, toolsUsed };
+        }
+
         previousResponseId = response.id;
         nextInput = toolOutputs;
         continue;

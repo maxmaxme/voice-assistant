@@ -117,4 +117,11 @@ export const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO schema_version (version) VALUES (5);
     `,
   },
+  {
+    version: 6,
+    sql: `
+      ALTER TABLE telegram_sessions ADD COLUMN pending_tool_outputs TEXT;
+      INSERT OR IGNORE INTO schema_version (version) VALUES (6);
+    `,
+  },
 ];

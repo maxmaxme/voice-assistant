@@ -20,7 +20,11 @@ export function buildAskTool(): OpenAiFunctionTool {
       'before you can act. Pass the question as `text`. The user will ' +
       'hear it and respond by voice; treat their next utterance as the ' +
       'answer. Prefer this over making up an excuse like "please clarify" ' +
-      'or wrapping a question in plain text.',
+      'or wrapping a question in plain text. ' +
+      'IMPORTANT: call `ask` ALONE — do not emit it in parallel with other ' +
+      'tool calls in the same turn. If you need to remember a fact and then ' +
+      'ask a question, do the remember first, wait for its result, and only ' +
+      'then call `ask` on a subsequent turn.',
     parameters: {
       type: 'object',
       properties: {

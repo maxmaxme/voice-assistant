@@ -42,9 +42,20 @@ export interface ScheduledActionsAdapter {
   get(id: number): ScheduledAction | null;
 }
 
+/** A function_call_output we executed locally but haven't yet sent to the
+ *  model — used when the model emits `ask` in parallel with other tools.
+ *  The ask is terminal (we return to the user), but the other calls still
+ *  need their outputs delivered on the next turn or OpenAI will 400 with
+ *  "No tool output found for function call <id>". */
+export interface PendingToolOutput {
+  callId: string;
+  output: string;
+}
+
 export interface TelegramSessionRecord {
   lastResponseId?: string;
   pendingAskCallId?: string;
+  pendingToolOutputs?: PendingToolOutput[];
 }
 
 export interface TelegramSessionsAdapter {

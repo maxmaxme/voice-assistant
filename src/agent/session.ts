@@ -1,4 +1,4 @@
-import type { TelegramSessionsAdapter } from '../memory/types.ts';
+import type { PendingToolOutput, TelegramSessionsAdapter } from '../memory/types.ts';
 
 /**
  * Lightweight conversation state for the Responses API.
@@ -37,6 +37,10 @@ export class Session {
   private readonly now: () => number;
   /** call_id of a pending `ask` tool call that needs a function_call_output on the next turn. */
   pendingAskCallId?: string;
+  /** Outputs of non-ask tools that were emitted in parallel with an `ask` in
+   *  the previous turn. Must be replayed alongside the ask's output on the
+   *  next user turn — otherwise OpenAI rejects with "No tool output found". */
+  pendingToolOutputs?: PendingToolOutput[];
 
   constructor(opts: SessionOptions = {}) {
     this.idleTimeoutMs = opts.idleTimeoutMs ?? SESSION_IDLE_TIMEOUT_MS;
@@ -47,6 +51,7 @@ export class Session {
       if (snap) {
         this.lastResponseId = snap.lastResponseId;
         this.pendingAskCallId = snap.pendingAskCallId;
+        this.pendingToolOutputs = snap.pendingToolOutputs;
       }
     }
   }
@@ -60,6 +65,7 @@ export class Session {
     if (this.isStale()) {
       this.lastResponseId = undefined;
       this.pendingAskCallId = undefined;
+      this.pendingToolOutputs = undefined;
     }
     this.lastTouch = this.now();
     return this.lastResponseId;
@@ -76,6 +82,7 @@ export class Session {
   reset(): void {
     this.lastResponseId = undefined;
     this.pendingAskCallId = undefined;
+    this.pendingToolOutputs = undefined;
     this.lastTouch = 0;
     if (this.persistence) {
       this.persistence.adapter.delete(this.persistence.chatId);
@@ -101,6 +108,7 @@ export class Session {
     this.persistence.adapter.save(this.persistence.chatId, {
       lastResponseId: this.lastResponseId,
       pendingAskCallId: this.pendingAskCallId,
+      pendingToolOutputs: this.pendingToolOutputs,
     });
   }
 }
