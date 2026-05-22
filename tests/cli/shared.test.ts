@@ -30,7 +30,7 @@ describe('buildSystemPromptFor', () => {
   it('assist channel includes the voice addendum (TTS-friendly output)', () => {
     const prompt = buildSystemPromptFor('assist');
     expect(prompt).toContain('Voice channel');
-    expect(prompt).toContain('Spell everything out');
+    expect(prompt).toContain('HARD RULE — TTS-safe `speak`');
     expect(prompt).toContain('OUTPUT FORMAT');
   });
 
