@@ -65,16 +65,16 @@ Three layers, four entry points.
 
 ### Entry points (`src/cli/`)
 
-| File                          | What                                                                                                                                                                                                |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/cli/mcp-call.ts`         | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.                                                                                                                     |
-| `src/cli/unified.ts`          | **The entry point.** Reads `AGENT_MODE` (chat / voice / wake / telegram / http / both) and runs the matching runner(s). `npm run start` defaults to `both`.                                         |
-| `src/cli/runners/chat.ts`     | Text REPL loop.                                                                                                                                                                                     |
-| `src/cli/runners/voice.ts`    | Push-to-talk: Enter starts/stops recording.                                                                                                                                                         |
-| `src/cli/runners/wake.ts`     | Always-listening: Wake-word → VAD → STT → agent → TTS.                                                                                                                                              |
-| `src/cli/runners/telegram.ts` | Telegram bot loop: receiver → agent → sender.                                                                                                                                                       |
-| `src/cli/runners/http.ts`     | HTTP server using h3 (default port 3000, customizable via `HTTP_SERVER_PORT` env var). Accepts POST `/audio` for voice commands and POST `/text` (JSON `{text}` or `text/plain`) for text commands. |
-| `src/cli/{chat,voice,run}.ts` | Thin shims that set `AGENT_MODE` and re-import `unified.ts`. Kept for backward-compat.                                                                                                              |
+| File                          | What                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/cli/mcp-call.ts`         | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.                                                                                                                                                                                                                                                                                                                              |
+| `src/cli/unified.ts`          | **The entry point.** Reads `AGENT_MODE` (chat / voice / wake / telegram / http / both) and runs the matching runner(s). `npm run start` defaults to `both`.                                                                                                                                                                                                                                                  |
+| `src/cli/runners/chat.ts`     | Text REPL loop.                                                                                                                                                                                                                                                                                                                                                                                              |
+| `src/cli/runners/voice.ts`    | Push-to-talk: Enter starts/stops recording.                                                                                                                                                                                                                                                                                                                                                                  |
+| `src/cli/runners/wake.ts`     | Always-listening: Wake-word → VAD → STT → agent → TTS.                                                                                                                                                                                                                                                                                                                                                       |
+| `src/cli/runners/telegram.ts` | Telegram bot loop: receiver → agent → sender.                                                                                                                                                                                                                                                                                                                                                                |
+| `src/cli/runners/http.ts`     | HTTP server using h3 (default port 3000, customizable via `HTTP_SERVER_PORT`). Three endpoints: POST `/audio` (audio body → JSON `{response, transcript}`, used by iPhone Shortcuts); POST `/text` (JSON `{text}` or raw `text/plain` → JSON `{response}`, used by the HA `voice_assistant_bridge` custom component — see below); GET `/health`. Bearer auth via `HTTP_API_KEYS` env (comma-separated list). |
+| `src/cli/{chat,voice,run}.ts` | Thin shims that set `AGENT_MODE` and re-import `unified.ts`. Kept for backward-compat.                                                                                                                                                                                                                                                                                                                       |
 
 All share the same `OpenAiAgent` core. The voice/wake runners add audio adapters and the orchestrator FSM.
 
@@ -228,6 +228,41 @@ Required env vars: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Optional:
 ### MCP client (`src/mcp/haMcpClient.ts`)
 
 Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth against HA's `/api/mcp`. Single replaceable adapter — the `McpClient` interface is the contract used by everything else.
+
+### HA Voice PE as a voice frontend (cross-repo wiring)
+
+Voice PE doesn't talk to this service directly — it talks to Home Assistant
+over the ESPHome native API as designed by Nabu Casa (one persistent TCP
+connection on port 6053, no HTTP). The bridge into our agent lives in the
+**home-infra** repo as an HA custom_component at
+`home-infra/ha-custom-components/voice_assistant_bridge/`, bind-mounted into
+HA at `/config/custom_components/voice_assistant_bridge/`.
+
+```
+Voice PE                  ──ESPHome native API──▶  HA pipeline
+                                                    ├── STT  (HA's OpenAI integration, gpt-4o-mini-transcribe)
+                                                    ├── Conversation agent ─POST /text─▶  voice-assistant (this repo)
+                                                    └── TTS  (HA's OpenAI integration, gpt-4o-mini-tts)
+```
+
+The bridge component is ~100 lines of Python implementing
+`conversation.AbstractConversationAgent.async_process()`; it forwards the
+post-STT transcript to `POST /text` here with the Bearer key from
+`HTTP_API_KEYS`, reads `response`, and hands it back as
+`IntentResponse.async_set_speech(...)` so HA's TTS slot can read it out.
+
+Implications for changes in this repo:
+
+- `POST /text` is **part of the public contract** between the two repos
+  — keep its shape stable (`{text}` in, `{response}` out). Breaking it
+  means coordinating an upgrade across both repos in lockstep.
+- STT and TTS are HA's problem now; the local `voice` / `wake` runners
+  still use the in-process `OpenAiStt` / `OpenAiTts` adapters for the
+  push-to-talk and always-listening modes, but the Voice PE flow never
+  hits them.
+- All tool-calling (HA MCP, memory, scheduled actions, send_to_telegram)
+  still happens inside `OpenAiAgent.respond()` regardless of which
+  channel called it, so adding a new tool benefits every input route.
 
 ### Deployment & auto-update
 
