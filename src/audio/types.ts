@@ -33,15 +33,4 @@ export interface Tts {
     text: string,
     opts?: { voice?: string; instructions?: string; signal?: AbortSignal },
   ): TtsStream;
-  /**
-   * Optional: stream audio in an already-encoded container (FLAC, MP3 etc.)
-   * for direct HTTP delivery. Used by `/converse` so thin clients (Voice PE
-   * custom firmware, etc.) can decode without us doing PCM → WAV wrapping.
-   * Returns the MIME type alongside the byte stream so the consumer can
-   * set Content-Type correctly.
-   */
-  streamEncoded?(
-    text: string,
-    opts?: { voice?: string; instructions?: string; signal?: AbortSignal },
-  ): { contentType: string; chunks: AsyncIterable<Buffer> };
 }

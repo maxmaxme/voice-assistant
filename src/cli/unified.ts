@@ -163,7 +163,6 @@ export async function dispatch(
       runners.http({
         agent,
         stt: new OpenAiStt({ client: deps.llm }),
-        tts: buildTts(deps.llm),
         port,
         apiKeys: deps.config.http.apiKeys,
       }),
