@@ -18,6 +18,13 @@ import type { PendingToolOutput, TelegramSessionsAdapter } from '../memory/types
  * `previous_response_id`). Use Number.POSITIVE_INFINITY to disable. */
 export const SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 
+/** How long after an `ask` tool call the user's next utterance is still
+ *  treated as the answer. After this window, the ask is closed with a
+ *  placeholder output and the next message is handled as a new request.
+ *  Tuned for voice: the user either replies within a few seconds or
+ *  walks away from the conversation. */
+export const PENDING_ASK_TTL_MS = 30 * 1000;
+
 export interface SessionPersistence {
   adapter: TelegramSessionsAdapter;
   chatId: number;
@@ -37,6 +44,11 @@ export class Session {
   private readonly now: () => number;
   /** call_id of a pending `ask` tool call that needs a function_call_output on the next turn. */
   pendingAskCallId?: string;
+  /** When the pending ask should stop being treated as "the user's next
+   *  utterance answers this question". After this moment, the next user
+   *  message is treated as a fresh request — the ask's call_id is closed
+   *  with a placeholder output so the chain stays valid. Unix ms. */
+  pendingAskExpiresAt?: number;
   /** Outputs of non-ask tools that were emitted in parallel with an `ask` in
    *  the previous turn. Must be replayed alongside the ask's output on the
    *  next user turn — otherwise OpenAI rejects with "No tool output found". */
@@ -65,6 +77,7 @@ export class Session {
     if (this.isStale()) {
       this.lastResponseId = undefined;
       this.pendingAskCallId = undefined;
+      this.pendingAskExpiresAt = undefined;
       this.pendingToolOutputs = undefined;
     }
     this.lastTouch = this.now();

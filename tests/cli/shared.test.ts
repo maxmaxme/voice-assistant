@@ -19,29 +19,23 @@ describe('parseAgentMode', () => {
 });
 
 describe('buildSystemPromptFor', () => {
-  it('chat returns BASE_SYSTEM_PROMPT unchanged', () => {
-    const p = buildSystemPromptFor('chat');
-    expect(p).not.toContain('Voice channel');
-    expect(p).not.toContain('silent-confirmation');
+  it('telegram and http produce the same prompt (both plain text channels)', () => {
+    expect(buildSystemPromptFor('telegram')).toBe(buildSystemPromptFor('http'));
   });
 
-  it('voice adds the short-replies addendum', () => {
-    const p = buildSystemPromptFor('voice');
-    expect(p).toContain('Voice channel');
-    expect(p).toContain('under 1 sentence');
+  it('includes the OUTPUT FORMAT addendum so the model returns JSON', () => {
+    expect(buildSystemPromptFor('telegram')).toContain('OUTPUT FORMAT');
   });
 
-  it('wake adds the silent-confirmation rule', () => {
-    const p = buildSystemPromptFor('wake');
-    expect(p).toContain('SILENT-CONFIRMATION');
-    expect(p).toContain('"direction"');
+  it('assist channel includes the voice addendum (TTS-friendly output)', () => {
+    const prompt = buildSystemPromptFor('assist');
+    expect(prompt).toContain('Voice channel');
+    expect(prompt).toContain('Spell everything out');
+    expect(prompt).toContain('OUTPUT FORMAT');
   });
 
-  it('telegram is identical to chat (no TTS, free-form text)', () => {
-    expect(buildSystemPromptFor('telegram')).toBe(buildSystemPromptFor('chat'));
-  });
-
-  it('http is identical to chat (JSON response carries free-form text)', () => {
-    expect(buildSystemPromptFor('http')).toBe(buildSystemPromptFor('chat'));
+  it('telegram/http do NOT include the voice addendum', () => {
+    expect(buildSystemPromptFor('telegram')).not.toContain('Voice channel');
+    expect(buildSystemPromptFor('http')).not.toContain('Voice channel');
   });
 });

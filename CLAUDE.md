@@ -6,15 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Personal voice assistant for smart-home control. Targets a Raspberry Pi 5
 runtime, dev happens on macOS. Cloud-heavy stack: OpenAI for STT
-(`gpt-4o-transcribe`), LLM (`gpt-4o`), and TTS (`gpt-4o-mini-tts`); Home
-Assistant via the official MCP Server integration for device control;
-local Porcupine-style wake-word via `openwakeword` running as a Python
-subprocess.
+(`gpt-4o-transcribe`) and the LLM (`gpt-4o`); Home Assistant via the
+official MCP Server integration for device control. **Voice I/O is now
+done by Voice PE smart speakers + Home Assistant's Assist pipeline** —
+this service no longer captures audio locally. HA forwards each user
+utterance (after its own STT) to the HTTP `/text` endpoint via a custom
+`voice_assistant_bridge` integration that lives in the sibling
+`home-infra` repo.
 
 ## Commands
 
 ```bash
-npm install                        # also runs (and may fail on) optional `speaker` build — that's expected on Linux
+npm install                        # plain — no native audio modules anymore
 npm run typecheck                  # tsc --noEmit; allowImportingTsExtensions
 npm test                           # vitest run, all unit tests
 npm run test:watch                 # vitest watch mode
@@ -26,19 +29,17 @@ RUN_INTEGRATION=1 npm test         # also runs tests gated against a live HA on 
 npm run mcp:call -- list           # list HA's MCP tools (sanity check)
 npm run mcp:call -- call HassTurnOn '{"name":"Kitchen Light"}'
 
-npm run chat                       # text REPL — type commands, agent calls HA tools
-npm run voice                      # push-to-talk (Enter to start/stop recording)
-npm run http                       # HTTP server (default port 3000, customizable via HTTP_SERVER_PORT)
-npm run start                      # always-listening daemon (wake-word + VAD + FSM)
+npm run start                      # default — telegram + http (AGENT_MODE=both)
+npm run telegram                   # telegram only
+npm run http                       # http only
 ```
 
-The Pi host stack (docker compose, systemd units, update.sh, monitoring)
-lives in a separate host-infra repo, not in this one. The image built
-from this repo (`Dockerfile` at the root) is published to
-`ghcr.io/maxmaxme/voice-assistant` by CI and pulled from there by the Pi.
+`AGENT_MODE` values: `telegram` | `http` | `both`. Default `both`.
 
-`WAKE_WORD_DEBUG=1` in `.env` makes the wake-word daemon print per-frame
-max score and RMS to stderr — invaluable when wake doesn't fire.
+The Pi host stack (docker compose, systemd units, update.sh, monitoring,
+HA bridge component) lives in the separate `home-infra` repo. The image
+built from this repo (`Dockerfile` at the root) is published to
+`ghcr.io/maxmaxme/voice-assistant` by CI and pulled from there by the Pi.
 
 ## Critical conventions (will bite you if ignored)
 
@@ -51,60 +52,45 @@ no `dist/`, no `tsx`. Two consequences:
 
 `tsconfig.json` has `noEmit: true` + `allowImportingTsExtensions: true` to match. `npm run typecheck` is the only thing that touches `tsc`.
 
-**Adapter pattern for every external dependency.** Each external concern lives behind an interface in `*/types.ts`, with a concrete implementation in a sibling file. Replacing OpenAI with a local Whisper, or `aplay` with `speaker`, is one new adapter — never a code-wide refactor. Honour this when adding anything that talks to the outside world.
+**Adapter pattern for every external dependency.** Each external concern lives behind an interface in `*/types.ts`, with a concrete implementation in a sibling file. Replacing OpenAI with a local Whisper is one new adapter — never a code-wide refactor. Honour this when adding anything that talks to the outside world.
 
-**One process, many channels.** `src/cli/unified.ts` is the single entry. Adding a new input channel = adding a runner under `src/cli/runners/` and a case in the `dispatch()` switch — never another top-level entry script. Per-channel system-prompt addenda live in `src/cli/shared.ts::buildSystemPromptFor`.
-
-**`speaker` npm is platform-conditional.** Its bundled mpg123 doesn't compile on Node 24 Linux. `NodeSpeakerOutput` (in `src/audio/speakerOutput.ts`) spawns `aplay` on Linux and dynamic-imports `speaker` on macOS. `speaker` is in `optionalDependencies` so a failed compile in the Pi container doesn't fail `npm ci`.
+**One process, two channels.** `src/cli/unified.ts` is the single entry. The only runners are `telegram` and `http`; `AGENT_MODE=both` runs them concurrently. Adding a new channel = adding a runner under `src/cli/runners/` and a case in the `dispatch()` switch.
 
 **Git hooks via husky.** `pre-commit` runs `lint-staged` (prettier + eslint --fix on staged files only). `pre-push` runs `npm run typecheck && npm test`. Hooks install on `npm install` via the `prepare` script. Don't bypass with `--no-verify` to "make it work" — fix the underlying issue.
 
 ## Architecture
 
-Three layers, four entry points.
+Two channels, one process.
 
 ### Entry points (`src/cli/`)
 
-| File                          | What                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/cli/mcp-call.ts`         | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.                                                                                                                                                                                                                                                                                                                              |
-| `src/cli/unified.ts`          | **The entry point.** Reads `AGENT_MODE` (chat / voice / wake / telegram / http / both) and runs the matching runner(s). `npm run start` defaults to `both`.                                                                                                                                                                                                                                                  |
-| `src/cli/runners/chat.ts`     | Text REPL loop.                                                                                                                                                                                                                                                                                                                                                                                              |
-| `src/cli/runners/voice.ts`    | Push-to-talk: Enter starts/stops recording.                                                                                                                                                                                                                                                                                                                                                                  |
-| `src/cli/runners/wake.ts`     | Always-listening: Wake-word → VAD → STT → agent → TTS.                                                                                                                                                                                                                                                                                                                                                       |
-| `src/cli/runners/telegram.ts` | Telegram bot loop: receiver → agent → sender.                                                                                                                                                                                                                                                                                                                                                                |
-| `src/cli/runners/http.ts`     | HTTP server using h3 (default port 3000, customizable via `HTTP_SERVER_PORT`). Three endpoints: POST `/audio` (audio body → JSON `{response, transcript}`, used by iPhone Shortcuts); POST `/text` (JSON `{text}` or raw `text/plain` → JSON `{response}`, used by the HA `voice_assistant_bridge` custom component — see below); GET `/health`. Bearer auth via `HTTP_API_KEYS` env (comma-separated list). |
-| `src/cli/{chat,voice,run}.ts` | Thin shims that set `AGENT_MODE` and re-import `unified.ts`. Kept for backward-compat.                                                                                                                                                                                                                                                                                                                       |
+| File                          | What                                                                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/cli/mcp-call.ts`         | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.                                                                                    |
+| `src/cli/unified.ts`          | **The entry point.** Reads `AGENT_MODE` and runs the matching runner(s).                                                                                           |
+| `src/cli/runners/telegram.ts` | Telegram bot loop: receiver → agent → sender.                                                                                                                      |
+| `src/cli/runners/http.ts`     | HTTP server using h3 (default port 3000, customizable via `HTTP_SERVER_PORT`). `POST /audio`, `POST /text`, `POST /assist`, `GET /health`. See HTTP section below. |
 
-All share the same `OpenAiAgent` core. The voice/wake runners add audio adapters and the orchestrator FSM.
+All runners share the same `OpenAiAgent` core.
 
 ### Logging (`src/utils/logger.ts`)
 
-`pino` is used for diagnostic/server-side logging — scheduler, agent tool
-calls, HTTP/Telegram runners, startup/shutdown. Each module gets a child
+`pino` is used for diagnostic/server-side logging. Each module gets a child
 logger via `createLogger('scope', { …bindings })`; output is written through
 `process.stderr.write` so existing `stderr`-spy-based tests keep working.
 Level is `info` by default, override via `LOG_LEVEL` env (`debug` / `info` /
 `warn` / `error` / `fatal` / `silent`).
 
 When stderr is a TTY (local dev), output is auto-prettified via
-`pino-pretty` — coloured, human-readable. Otherwise (Pi, Docker, CI) it's
-raw JSON one line per record. Tests run under vitest get raw JSON regardless
-of TTY (we detect `VITEST` and skip pretty), so spy-based assertions on
-`process.stderr.write` see the JSON unchanged.
+`pino-pretty`. Otherwise (Pi, Docker, CI) it's raw JSON one line per record.
+Tests run under vitest get raw JSON regardless of TTY.
 
 Per-request context is added via child loggers, e.g. the Telegram runner
-does `log.child({ chatId, updateId, kind })` for every inbound update, so
-every line emitted while handling that message is automatically tagged.
+does `log.child({ chatId, updateId, kind })` for every inbound update.
 
 In tests, log output is silenced by default (`tests/setup.ts` pins
 `rootLogger.level = 'silent'`). Tests that need to inspect logs use
-`captureLogs()` from `tests/helpers/captureLogs.ts`, which bumps the level
-to `trace` for the duration of the test and spies on `process.stderr.write`.
-
-User-facing terminal UI in `chat.ts`/`voice.ts`/`orchestrator.ts`/
-`mcp-call.ts` (the "User: …", "Assistant: …", REPL prompts) stays on
-`console.log` — it's UX, not logs. Don't migrate that to pino.
+`captureLogs()` from `tests/helpers/captureLogs.ts`.
 
 ### Agent core (`src/agent/`)
 
@@ -113,12 +99,15 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 `OpenAiAgent.respond(userText)` runs the tool-calling loop:
 
 1. `Session.begin()` returns the previous `response_id` to chain from, or `undefined` if the session is fresh / went idle.
-2. On a fresh chain: send `instructions` (system prompt + memory profile) once. On a continuing chain: omit `instructions` — the server still has them.
-3. Build tool list: HA MCP tools + memory tools (`remember`/`recall`/`forget`) + the local `ask` and `send_to_telegram` tools.
+2. On a fresh chain: send `instructions` (system prompt + memory profile) once. On a continuing chain: omit `instructions`.
+3. Build tool list: HA MCP tools + memory tools (`remember`/`recall`/`forget`) + scheduled-action tools + `send_to_telegram` + (for HTTP only) the `ask` tool.
 4. Send `input` (user message on first call, `function_call_output` items on tool-loop iterations) with `previous_response_id` and `store: true`.
 5. Inspect `response.output` for `function_call` items; route by name:
-   - `ask` is **terminal**: returns immediately with `expectsFollowUp: true` so the orchestrator reopens capture.
-   - Memory tools execute locally against the `MemoryAdapter`.
+   - `ask` is **terminal**: returns immediately with `expectsFollowUp: true`. The HTTP runner forwards that as `continue_conversation: true` in the JSON response; the HA bridge sets it on `ConversationResult`, and HA's Assist pipeline reopens the mic.
+     - Disabled on Telegram (the model just asks via `speak` instead — avoids chain-lock if the user walks away).
+     - If the model emits `ask` _in parallel_ with other tools, the other tools are executed and their outputs are stashed on the session; the next user turn replays them along with the user's answer.
+     - `pendingAskCallId` has a TTL (`PENDING_ASK_TTL_MS = 30s`). If the user takes longer than that to reply, the next message is treated as a fresh request — the ask's call_id is closed with a placeholder output to keep the chain valid.
+   - Memory / scheduled-action tools execute locally against the SQLite adapter.
    - `send_to_telegram` goes to the `TelegramSender`.
    - Everything else goes to MCP.
 6. Loop, advancing `previousResponseId` to `response.id` each turn, until plain text comes back or `maxToolIterations` is hit.
@@ -131,62 +120,30 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 **Prompt text lives in markdown files**, not in TS string literals. `src/agent/systemPrompt.ts` and friends just `fs.readFileSync` a sibling `.md` at module load (helper: `src/agent/prompts/load.ts::loadPrompt`). Layout:
 
 - `src/agent/prompts/base-system.md` — cross-cutting rules (identity, HA error-recovery procedure, composite-intent self-check, style, JSON output shape). Loaded as `BASE_SYSTEM_PROMPT`.
-- `src/agent/prompts/tools/{remember,recall,forget,schedule-action,list-scheduled,cancel-scheduled}.md` — descriptions for local tools we control. `memoryTools.ts` / `scheduledActionTools.ts` load these and use them as the tool's `description` field. Add a new file here whenever you add a new local tool.
-- `src/agent/prompts/ha-suffix/<HaToolName>.md` — per-tool suffix appended to upstream HA MCP tool descriptions in `toolBridge.ts::mcpToolsToOpenAi`. Use this to encode conventions HA itself doesn't know about (HVAC mode mapping for `HassClimateSetHvacMode`, grocery emoji formatting for `HassListAddItem`, etc.).
-- `src/cli/prompts/{voice-addendum,silent-confirm-addendum}.md` — channel-specific addenda; `buildSystemPromptFor` concatenates them to the base.
+- `src/agent/prompts/tools/{remember,recall,forget,schedule-action,list-scheduled,cancel-scheduled}.md` — descriptions for local tools we control.
+- `src/agent/prompts/ha-suffix/<HaToolName>.md` — per-tool suffix appended to upstream HA MCP tool descriptions in `toolBridge.ts::mcpToolsToOpenAi`.
+- `src/cli/prompts/text-format-addendum.md` — JSON output contract appended to every channel's system prompt.
 
-When adding a new tool with tool-specific rules, put those rules in a sibling `.md` file rather than expanding `base-system.md`. Cross-tool rules (e.g. "after an HA match-failed error, do X") still go in `base-system.md`. The `.md` files ship into the docker image via `COPY src ./src` — no build step.
-
-### Orchestrator FSM (`src/orchestrator/`)
-
-States: `idle` / `listening` / `thinking` / `speaking`. Pure `transition(state, event, options)` — easy to test, no side effects. Side effects are described as data (`Effect[]`), executed by the runtime.
-
-Key transitions:
-
-- `idle + wake → listening` (start capture, play 🎵 listen-chime)
-- `listening + utteranceEnd → thinking` (transcribe + ask agent)
-- `thinking + agentReplied → speaking` (carries `expectsFollowUp` from agent)
-- `speaking + wake → listening` (**barge-in**: stop TTS, capture)
-- `speaking + speechFinished → idle` (or `→ listening` if `followUp` option set)
-- `speaking + followUpRequested → listening` (always; `ask` tool was called)
-
-Audio chimes:
-
-- 🎵 ascending two-tone on every capture start (LISTEN_BLIP)
-- 🔔 single decaying tone when LLM replies with literal `✓` (CONFIRM_BLIP); see `src/audio/blip.ts`. The `✓` shortcut keeps simple device-action acknowledgments silent.
-
-### Wake-word (`src/audio/wakeWord.ts` + `scripts/wake_word_daemon.py`)
-
-Originally Picovoice Porcupine; switched to **openWakeWord** because Picovoice no longer issues free personal AccessKeys. openWakeWord's pipeline (3 chained ONNX models + sliding window) is messy in pure Node, so the daemon is a tiny Python script we control via stdin/stdout JSON.
-
-- Node spawns `python3 scripts/wake_word_daemon.py --keyword <name>`.
-- 1280-sample (80 ms) frames go in via stdin (raw 16-bit LE PCM, mono, 16 kHz).
-- Daemon emits `{"type":"ready",...}` on startup and `{"type":"wake","keyword":"...","score":...}` on detection.
-- `WAKE_WORD_KEYWORD` accepts a builtin name (`hey_jarvis`, `alexa`, ...) **or** a path to a custom `.onnx` (e.g. `models/alisa.onnx` from the openWakeWord training notebook).
-- `WAKE_WORD_PYTHON` overrides the interpreter path: `.venv/bin/python` locally, `/usr/bin/python3` in the container.
+When adding a new tool with tool-specific rules, put those rules in a sibling `.md` file rather than expanding `base-system.md`. Cross-tool rules (e.g. "after an HA match-failed error, do X") still go in `base-system.md`.
 
 ### Memory (`src/memory/`)
 
-Long-term user profile. SQLite via `better-sqlite3`. `MemoryAdapter` interface; `SqliteProfileMemory` implementation; migrations live as **TS string constants** in `migrations.ts` (not `.sql` files — there's no build step to copy them into a container).
+Long-term user profile. SQLite via `better-sqlite3`. `MemoryAdapter` interface; `SqliteProfileMemory` implementation; migrations live as **TS string constants** in `migrations.ts`. The runner skips migrations whose version is already in `schema_version` so DDL like `ALTER TABLE ADD COLUMN` is safe on repeated opens.
 
 ### Scheduled actions
 
-The agent has a single `schedule_action(goal, schedule_kind, schedule_expr)` tool that replaces the old `add_reminder` + `set_timer`. Two forms:
+The agent has a single `schedule_action(goal, schedule_kind, schedule_expr)` tool. Two forms:
 
 - **One-shot**: `schedule_kind: 'once'` + a wall-clock string in the server timezone (`"2026-04-27 09:00"`).
-- **Recurring**: `schedule_kind: 'cron'` + a POSIX 5-field cron string evaluated in the server timezone (`"0 8 * * *"`, `"*/15 * * * *"`).
+- **Recurring**: `schedule_kind: 'cron'` + a POSIX 5-field cron string evaluated in the server timezone (`"0 8 * * *"`).
 
-The `goal` is the natural-language description of what to do. At fire time the scheduler spawns a fresh `OpenAiAgent.respond()` in **goal mode** (no `ask` tool, fresh `Session`) with the goal as the user message. The agent gets the full tool surface (HA MCP, memory, send_to_telegram, optional `web_search` when `OPENAI_WEB_SEARCH=1`) and decides how to act. This is why goals like "turn on the light and send me a message in Telegram" work — the agent at fire time is the same brain that the user normally talks to.
+At fire time the scheduler spawns a fresh `OpenAiAgent.respond()` in **goal mode** (no `ask` tool, fresh `Session`) with the goal as the user message.
 
-Persistence: SQLite table `scheduled_actions` (migration v4). Cron rows reschedule themselves; once rows transition to `done` (or `error` if the goal threw). The legacy `reminders` / `timers` SQL tables remain (v3 migration unchanged) for one release as a back-fill safety net — but their TypeScript adapters and tools are gone. v4 carried existing rows forward as `kind: 'once'` actions.
+Persistence: SQLite table `scheduled_actions`. Cron rows reschedule themselves; once rows transition to `done` (or `error`).
 
-Server timezone: `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). Always set it in `.env` — inside docker the system TZ is UTC. The `[unified] AGENT_MODE=… TZ=… [WEB_SEARCH=on]` startup line confirms which TZ is active and whether the optional `web_search` hosted tool is enabled.
+Server timezone: `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). The `[unified] AGENT_MODE=… TZ=… [WEB_SEARCH=on]` startup line confirms what's active.
 
 `Scheduler.tick()` runs every 15 s, processes due rows in series, and is re-entrancy-guarded so a slow goal can't cause overlapping fires.
-
-The current profile is injected into the system prompt on every turn via `OpenAiAgent.buildSystemMessage()`.
-
-Out of scope (see `docs/superpowers/roadmap.md`): episodic memory (vector search), procedural memory (learned habits).
 
 ### Telegram (`src/telegram/`)
 
@@ -195,129 +152,84 @@ posts to `https://api.telegram.org/bot<token>/sendMessage`. Wired into the
 agent as the `send_to_telegram` tool.
 
 **Inbound:** `TelegramReceiver` interface, `PollingTelegramReceiver` long-polls
-`getUpdates` (timeout 30s) and emits typed `TelegramMessage` events
-(`text` / `voice` / `photo` / `photo-album-rejected` / `unsupported`). The persisted `update_id` lives in
-`data/telegram-offset.json` so restarts don't replay history. The runner
-`src/cli/runners/telegram.ts` wires the receiver to a per-channel
-`OpenAiAgent`, applies the `TELEGRAM_ALLOWED_CHAT_IDS` allow-list, handles
-`/reset` / `/profile` / `/start` / `/update` locally, and forwards everything else.
-`/update` writes a trigger to `/tmp/va-update` (a host-side FIFO); the
-`va-update-listener.service` systemd unit on the Pi (defined in the
-separate host-infra repo) reads it and runs `update.sh`.
+`getUpdates`. Persisted offset in `data/telegram-offset.json`. Voice messages
+get transcribed via OpenAI; photos are forwarded as multimodal input.
 
-Voice messages are downloaded via telegraf's `getFileLink` and transcribed
-by OpenAI (`gpt-4o-transcribe`, accepts OGG/OPUS directly). The runner
-replies with the transcript plus the agent's text answer. The
-`BotVoiceTranscriber` adapter lives in `src/telegram/voiceTranscriber.ts`
-and is wired in `src/cli/unified.ts`; the runner falls back to a
-"not supported" message when no transcriber is injected (used by tests).
+Each chat has a self-persisting `Session` (SQLite table `telegram_sessions`)
+with `idleTimeoutMs: Infinity` — the chain only resets via `/reset` or when
+OpenAI evicts the `previous_response_id` (then `OpenAiAgent.respond` catches
+the 404 and retries fresh).
 
-Photo messages (`kind: 'photo'`) carry the largest size's `file_id` plus
-optional `caption`. The `BotPhotoLoader` adapter (`src/telegram/photoLoader.ts`)
-downloads the bytes; the runner forwards them to
-`OpenAiAgent.respond(text, { images })`, which embeds them as `input_image`
-data URLs in the user message (multimodal). Albums are NOT supported: the
-receiver detects `media_group_id`, emits `kind: 'photo-album-rejected'` for
-the first update in the group and silently drops the rest. The runner
-replies asking the user to resend photos one-by-one.
+Allow-list via `TELEGRAM_ALLOWED_CHAT_IDS`. Commands: `/start`, `/help`,
+`/reset`, `/profile`, `/update`.
 
-Required env vars: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Optional:
-`TELEGRAM_ALLOWED_CHAT_IDS` (comma list of integer chat ids; defaults to
-`TELEGRAM_CHAT_ID`).
+### HTTP (`src/cli/runners/http.ts`)
+
+h3-based server. Three POST endpoints share auth + rate-limits but split
+on agent flavour and response shape:
+
+- `POST /audio` — raw audio bytes (Content-Type derives the format).
+  Transcribed via `OpenAiStt` then run through the **plain** agent.
+  Returns `{response, transcript}`. Used by Apple Shortcut.
+- `POST /text` — `{text}` JSON or `text/plain`. Run through the **plain**
+  agent. Returns `{response}`. Used by Apple Shortcut / other one-shot
+  clients.
+- `POST /assist` — text in (same shape as `/text`). Run through the
+  **assist** agent: voice-addendum system prompt (TTS-friendly output),
+  `ask` tool enabled. Returns `{response, continue_conversation}`. The
+  HA bridge in `home-infra` reads `continue_conversation` and sets it
+  on the `ConversationResult` so HA's Assist pipeline reopens the mic
+  without a new wake-word. Used exclusively by Voice PE through HA.
+- `GET /health` — `{status: "ok"}`.
+
+The plain vs assist split is enforced by two separate `OpenAiAgent`
+instances passed into the runner — they differ in `enableAsk` and in
+the channel's system prompt (see `buildAgent` / `buildSystemPromptFor`
+in [src/cli/shared.ts](src/cli/shared.ts)).
+
+Auth: `Authorization: Bearer <key>` against `HTTP_API_KEYS`. Two
+rate-limit layers: per-IP for failed auths (10 / 5 min) and per-token
+(30 / min). `/audio` also has a concurrency semaphore (2) to bound
+Whisper spend on a Pi.
 
 ### MCP client (`src/mcp/haMcpClient.ts`)
 
 Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth against HA's `/api/mcp`. Single replaceable adapter — the `McpClient` interface is the contract used by everything else.
 
-### HA Voice PE as a voice frontend (cross-repo wiring)
-
-Voice PE doesn't talk to this service directly — it talks to Home Assistant
-over the ESPHome native API as designed by Nabu Casa (one persistent TCP
-connection on port 6053, no HTTP). The bridge into our agent lives in the
-**home-infra** repo as an HA custom_component at
-`home-infra/ha-custom-components/voice_assistant_bridge/`, bind-mounted into
-HA at `/config/custom_components/voice_assistant_bridge/`.
-
-```
-Voice PE                  ──ESPHome native API──▶  HA pipeline
-                                                    ├── STT  (HA's OpenAI integration, gpt-4o-mini-transcribe)
-                                                    ├── Conversation agent ─POST /text─▶  voice-assistant (this repo)
-                                                    └── TTS  (HA's OpenAI integration, gpt-4o-mini-tts)
-```
-
-The bridge component is ~100 lines of Python implementing
-`conversation.AbstractConversationAgent.async_process()`; it forwards the
-post-STT transcript to `POST /text` here with the Bearer key from
-`HTTP_API_KEYS`, reads `response`, and hands it back as
-`IntentResponse.async_set_speech(...)` so HA's TTS slot can read it out.
-
-Implications for changes in this repo:
-
-- `POST /text` is **part of the public contract** between the two repos
-  — keep its shape stable (`{text}` in, `{response}` out). Breaking it
-  means coordinating an upgrade across both repos in lockstep.
-- STT and TTS are HA's problem now; the local `voice` / `wake` runners
-  still use the in-process `OpenAiStt` / `OpenAiTts` adapters for the
-  push-to-talk and always-listening modes, but the Voice PE flow never
-  hits them.
-- All tool-calling (HA MCP, memory, scheduled actions, send_to_telegram)
-  still happens inside `OpenAiAgent.respond()` regardless of which
-  channel called it, so adding a new tool benefits every input route.
-
 ### Deployment & auto-update
 
 Host-side artifacts (docker compose, systemd units, `update.sh`,
-monitoring) live in a separate host-infra repo, cloned to
-`/opt/home-infra/` on the Pi. This repo only owns the **image build**:
-CI (`.github/workflows/ci.yml`) cross-builds an arm64 image on every
-push to `main` from the root `Dockerfile` and publishes it to
+monitoring, HA bridge component) live in the separate `home-infra`
+repo, cloned to `/opt/home-infra/` on the Pi. This repo only owns the
+**image build**: CI cross-builds an arm64 image on every push to `main`
+from the root `Dockerfile` and publishes it to
 `ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via
 `/opt/home-infra/update.sh`, run by `voice-assistant-update.timer` at
-04:00 daily or manually via `/update` Telegram command. The script rolls
-back if the healthcheck doesn't go green within 90 s and posts the
-outcome to Telegram.
+04:00 daily or manually via `/update` Telegram command.
 
 **FIFO for `/update`:** the container writes to `/tmp/va-update`, mounted
 from the host. The host-side `va-update-listener.service` reads it and
 invokes `update.sh`. No docker socket inside the container.
 
-Tailscale Funnel publishing, the monitoring stack (Netdata + Dozzle +
-Caddy + tinyauth), and the rest of the host-side topology are
-documented inside the host-infra repo itself.
-
 ## ru-meters-bot — external sibling service
 
 A separate one-shot Node service that submits monthly meter readings to
-Russian utility portals (ТГК-1, pesc.ru) via their JSON REST APIs. Lives in its own repo at
-`~/Developer/ru-meters-bot/` (published image: `ghcr.io/maxmaxme/ru-meters-bot:latest`).
-The voice-assistant runtime does NOT import from it.
-
-This repo doesn't reference it at all — the meters-bot service, its
-systemd timer (Mon-Fri 12:00 МСК on calendar days 15-21), and its
-sing-box egress sidecar all live in the separate host-infra repo's
-`docker-compose.yml`. Code changes happen in the standalone
-ru-meters-bot repo; deployment is `docker compose pull meters-bot` from
-`/opt/home-infra/`.
-
-Original design doc: `docs/superpowers/specs/2026-05-16-ru-meters-bot-design.md`
-(written when the service still lived under `services/meters/`).
+Russian utility portals via their JSON REST APIs. Lives in its own repo
+at `~/Developer/ru-meters-bot/`. The voice-assistant runtime does NOT
+import from it. Its docker-compose entry + systemd timer live in the
+`home-infra` repo.
 
 ## Home Assistant — gotchas
 
-The MCP integration only sees entities that are **exposed to Assist**. The UI toggle in HA 2026.x silently desyncs entity-registry from `homeassistant.exposed_entities`. Use the WebSocket service `homeassistant/expose_entity` from `docs/home-assistant-setup.md` — that's the canonical path.
-
-Mock entities for testing now live in HA itself (the prod instance on the
-Pi). The old `docker/homeassistant/` dev stack was removed when the
-host-side stack moved to a separate repo — point local dev at the prod
-HA via Tailscale when needed.
+The MCP integration only sees entities that are **exposed to Assist**. The UI toggle in HA 2026.x silently desyncs entity-registry from `homeassistant.exposed_entities`. Use the WebSocket service `homeassistant/expose_entity` from `docs/home-assistant-setup.md`.
 
 ## Project history & where things are decided
 
-- `docs/superpowers/specs/` — design docs (one big up-front, plus per-feature)
-- `docs/superpowers/plans/` — TDD-style implementation plans, one per iteration. Iterations 1-4 + Memory Level 1 are done; Iteration 5 (Pi deployment) was reduced to deployment artifacts now living in a separate host-infra repo.
-- `docs/superpowers/roadmap.md` — backlog of deferred wishes (acoustic echo cancellation, custom Russian wake-word, streaming TTS, episodic memory, etc.). When picking a new feature, start here, then groom into a spec + plan via the `superpowers:brainstorming` and `superpowers:writing-plans` skills.
-
-The codebase was built iteration by iteration through TDD; tests are real and worth running. Don't loosen the conventions above to "make a quick fix work" — they're load-bearing.
+- `docs/superpowers/specs/` — design docs
+- `docs/superpowers/plans/` — TDD-style implementation plans
+- `docs/superpowers/roadmap.md` — backlog. Iteration history reflects the
+  prior wake-word / FSM / local-mic generation; the current generation is
+  Voice PE + HA bridge + HTTP.
 
 ## Keep this file up to date
 
@@ -325,25 +237,6 @@ This file is an onboarding shortcut for the next Claude (or human)
 touching the repo. It rots fast if no one tends it. **When you make a
 change that invalidates anything above, update this file in the same
 commit** — don't punt to "later".
-
-Specifically watch for:
-
-- New conventions or constraints (e.g. a new build/runtime quirk, a
-  new lint rule, a banned syntax form). The "Critical conventions"
-  section is for these.
-- New entry points, new top-level directories, or removal of existing
-  ones. Update the architecture map.
-- Shifts in adapter responsibilities (e.g. swapping `aplay` for
-  `pulseaudio`, replacing OpenAI STT with Whisper). The behaviour of
-  `OpenAiAgent.respond()`, the FSM transitions, and the wake-word
-  daemon protocol are all called out — keep those descriptions
-  honest.
-- Iteration / roadmap status. When an iteration lands or a roadmap
-  item gets implemented, reflect it in `README.md`'s Status section
-  AND remove it from `docs/superpowers/roadmap.md`.
-- Changes to the Telegram message types (`TelegramMessage` union) — keep
-  the runner's switch exhaustive, and update the test that exercises each
-  branch.
 
 A useful rule of thumb: if you changed `package.json`, `tsconfig.json`,
 the shape of any `*/types.ts`, or a CLI entry point, re-skim this

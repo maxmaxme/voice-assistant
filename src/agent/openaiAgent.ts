@@ -9,7 +9,7 @@ import type {
 import type { Agent, AgentImage, AgentResponse, AgentRespondOptions } from './types.ts';
 import type { McpClient } from '../mcp/types.ts';
 import type { MemoryStore } from '../memory/types.ts';
-import { Session } from './session.ts';
+import { PENDING_ASK_TTL_MS, Session } from './session.ts';
 import { mcpToolsToOpenAi } from './toolBridge.ts';
 import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
 import {
@@ -37,9 +37,10 @@ export interface OpenAiAgentOptions {
   maxToolIterations?: number;
   llmClient: OpenAI;
   telegram: TelegramSender;
-  /** Structured-output format for the final agent reply. Use VOICE_TEXT_FORMAT
-   * for voice/wake channels (speak nullable + direction), CHAT_TEXT_FORMAT for
-   * chat/telegram (speak always required, no direction). */
+  /** Structured-output format for the final agent reply. CHAT_TEXT_FORMAT
+   * (speak required, no direction) is the default for the active channels
+   * (Telegram, HTTP). VOICE_TEXT_FORMAT is kept around for parity with the
+   * realtime channel shape (speak nullable + direction). */
   textFormat?: typeof VOICE_TEXT_FORMAT | typeof CHAT_TEXT_FORMAT;
   /** When 'goal', the agent runs in scheduled-fire mode:
    *   - The system message is replaced by a directive to execute the
@@ -48,6 +49,13 @@ export interface OpenAiAgentOptions {
    *   - Each call uses a fresh chain (Session is reset before begin()).
    *   Default: 'chat' */
   mode?: 'chat' | 'goal';
+  /** Whether to expose the `ask` tool to the model. Useful only on channels
+   * where a positive `expectsFollowUp` signal actually reopens the mic for
+   * the user — currently only HTTP (Voice PE via HA bridge reads
+   * continue_conversation from the /text response and reopens the
+   * pipeline). On Telegram the model just asks inside `speak`, so leaving
+   * `ask` off avoids chain-lock risks. Default: true. */
+  enableAsk?: boolean;
 }
 
 export class OpenAiAgent implements Agent {
@@ -91,11 +99,16 @@ export class OpenAiAgent implements Agent {
     let instructions: string | undefined =
       previousResponseId === undefined ? buildInstructions() : undefined;
 
+    // `ask` only makes sense where a positive `expectsFollowUp` actually
+    // reopens the mic for the user: HTTP (Voice PE via HA bridge, which
+    // forwards continue_conversation). On Telegram the model just asks
+    // inside `speak`. Goal-fire mode never has a user.
+    const askEnabled = this.mode !== 'goal' && (this.opts.enableAsk ?? true);
     const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
     const localTools = [
       ...buildMemoryTools(),
       ...buildScheduledActionTools(),
-      ...(this.mode === 'goal' ? [] : [buildAskTool()]),
+      ...(askEnabled ? [buildAskTool()] : []),
       buildTelegramTool(),
     ];
     // Our function-tool shape (`OpenAiFunctionTool`-derived) matches the
@@ -124,9 +137,21 @@ export class OpenAiAgent implements Agent {
     // found for function call <id>".
     let nextInput: ResponseInputItem[];
     const pendingAskCallId = session.pendingAskCallId;
+    const pendingAskExpiresAt = session.pendingAskExpiresAt;
     const pendingToolOutputs = session.pendingToolOutputs ?? [];
-    if (pendingAskCallId) {
+    // The pending ask is "live" only briefly: if the user takes too long
+    // to reply, their next utterance is much more likely a new request
+    // than a delayed answer. After the TTL we still must close the ask's
+    // call_id (the API requires an output for every emitted function_call)
+    // but we do it with a placeholder and send the user's message as a
+    // normal user-turn instead of stuffing it into the ask's output.
+    const pendingAskExpired =
+      pendingAskCallId !== undefined &&
+      pendingAskExpiresAt !== undefined &&
+      Date.now() > pendingAskExpiresAt;
+    if (pendingAskCallId && !pendingAskExpired) {
       session.pendingAskCallId = undefined;
+      session.pendingAskExpiresAt = undefined;
       session.pendingToolOutputs = undefined;
       const stashed: ResponseInputItem[] = pendingToolOutputs.map((po) => ({
         type: 'function_call_output',
@@ -153,6 +178,36 @@ export class OpenAiAgent implements Agent {
         };
       }
       nextInput = [...stashed, askOutput];
+    } else if (pendingAskCallId && pendingAskExpired) {
+      // Close the stale ask + replay any stashed sibling outputs, then send
+      // the user's message as a fresh user-turn rather than as the ask's
+      // answer.
+      session.pendingAskCallId = undefined;
+      session.pendingAskExpiresAt = undefined;
+      session.pendingToolOutputs = undefined;
+      const stashed: ResponseInputItem[] = pendingToolOutputs.map((po) => ({
+        type: 'function_call_output',
+        call_id: po.callId,
+        output: po.output,
+      }));
+      const askPlaceholder: ResponseInputItem = {
+        type: 'function_call_output',
+        call_id: pendingAskCallId,
+        output:
+          '(no response — too much time passed; the user is starting a new request, not answering this question)',
+      };
+      let userTurn: ResponseInputItem;
+      if (images.length > 0) {
+        const textPart: ResponseInputText = {
+          type: 'input_text',
+          text: userText && userText.length > 0 ? userText : '(image)',
+        };
+        const imageParts: ResponseInputImage[] = images.map(toInputImage);
+        userTurn = { role: 'user', content: [textPart, ...imageParts] };
+      } else {
+        userTurn = { role: 'user', content: userText };
+      }
+      nextInput = [...stashed, askPlaceholder, userTurn];
     } else if (images.length > 0) {
       const textPart: ResponseInputText = {
         type: 'input_text',
@@ -331,6 +386,7 @@ export class OpenAiAgent implements Agent {
             `ask(${JSON.stringify(askArgs)}) → reopen capture`,
           );
           session.pendingAskCallId = askCall.call_id;
+          session.pendingAskExpiresAt = Date.now() + PENDING_ASK_TTL_MS;
           session.pendingToolOutputs = nonAskCalls.map((tc, idx) => {
             const res = settled[idx]!;
             const output =

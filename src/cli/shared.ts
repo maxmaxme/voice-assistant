@@ -11,33 +11,34 @@ import { loadPrompt } from '../agent/prompts/load.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
 import { telegramFromConfig, receiverFromConfig } from '../telegram/fromConfig.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
-import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from '../agent/agentOutput.ts';
+import { CHAT_TEXT_FORMAT } from '../agent/agentOutput.ts';
 import { buildGoalRunner, type GoalRunner } from '../scheduling/goalRunner.ts';
 
-export const AGENT_MODES = ['chat', 'voice', 'wake', 'telegram', 'http', 'both'] as const;
+export const AGENT_MODES = ['telegram', 'http', 'both'] as const;
 export type AgentMode = (typeof AGENT_MODES)[number];
 
-/** "Channel" = a system-prompt flavour. Multiple modes can share a channel. */
-export type PromptChannel = 'chat' | 'voice' | 'wake' | 'telegram' | 'http' | 'voice-realtime';
+/** "Channel" = a system-prompt flavour. Multiple modes can share a channel.
+ *
+ *  - `telegram`    — Telegram bot. Plain text. `ask` off.
+ *  - `http`        — HTTP `/text` and `/audio` (Apple Shortcut etc). Plain
+ *                    text. `ask` off.
+ *  - `assist`      — HTTP `/assist` (HA bridge → Voice PE TTS). Output is
+ *                    spoken aloud by Home Assistant, so the voice-addendum
+ *                    rules apply (spell out units, no markdown/URLs/etc).
+ *                    `ask` on — `expectsFollowUp` is forwarded as
+ *                    `continue_conversation` so HA reopens the mic.
+ */
+export type PromptChannel = 'telegram' | 'http' | 'assist';
 
-const VOICE_ADDENDUM = loadPrompt('./prompts/voice-addendum.md', import.meta.url);
-const SILENT_CONFIRM_ADDENDUM = loadPrompt('./prompts/silent-confirm-addendum.md', import.meta.url);
 const TEXT_FORMAT_ADDENDUM = loadPrompt('./prompts/text-format-addendum.md', import.meta.url);
+const VOICE_ADDENDUM = loadPrompt('./prompts/voice-addendum.md', import.meta.url);
 
 export function buildSystemPromptFor(channel: PromptChannel): string {
   const parts: string[] = [BASE_SYSTEM_PROMPT];
-  if (channel === 'voice' || channel === 'wake' || channel === 'voice-realtime') {
+  if (channel === 'assist') {
     parts.push(VOICE_ADDENDUM);
   }
-  if (channel === 'wake') {
-    parts.push(SILENT_CONFIRM_ADDENDUM);
-  }
-  // voice-realtime is the only channel that doesn't consume the reply as
-  // structured JSON — the Realtime API synthesises speech itself, so the
-  // JSON-format contract is irrelevant.
-  if (channel !== 'voice-realtime') {
-    parts.push(TEXT_FORMAT_ADDENDUM);
-  }
+  parts.push(TEXT_FORMAT_ADDENDUM);
   return parts.join('\n\n');
 }
 
@@ -108,10 +109,14 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       model: config.openai.model,
       llmClient: llm,
       telegram,
-      textFormat:
-        channel === 'chat' || channel === 'telegram' || channel === 'http'
-          ? CHAT_TEXT_FORMAT
-          : VOICE_TEXT_FORMAT,
+      textFormat: CHAT_TEXT_FORMAT,
+      // `ask` is only worth exposing where a positive expectsFollowUp
+      // actually reopens the mic for the user. The `assist` channel sits
+      // behind HA bridge / Voice PE which reads continue_conversation from
+      // the /assist response. Plain HTTP `/text` and `/audio` are
+      // Apple-Shortcut-style one-shot calls — no follow-up plumbing — and
+      // Telegram just lets the model ask inside `speak`.
+      enableAsk: channel === 'assist',
     });
 
   let activeReceiver: TelegramReceiver | null = null;

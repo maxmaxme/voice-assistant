@@ -13,7 +13,13 @@ import { createRateLimiter, createSemaphore } from '../../utils/rateLimiter.ts';
 const log = createLogger('http');
 
 export interface HttpRunnerDeps {
+  /** Agent for `/text` (Apple Shortcut etc.) and `/audio`. No `ask` tool,
+   *  no `continue_conversation` in the response — these endpoints are one-shot. */
   agent: OpenAiAgent;
+  /** Agent for `/assist` — used by the HA bridge driving Voice PE. Has the
+   *  `ask` tool and the voice-addendum prompt; response includes
+   *  `continue_conversation` so HA can reopen the mic. */
+  assistAgent: OpenAiAgent;
   stt: AudioFileStt;
   port: number;
   apiKeys: string[];
@@ -48,7 +54,7 @@ function tokenKey(authHeader: string | null | undefined): string {
 }
 
 export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
-  const { agent, stt, port, apiKeys } = deps;
+  const { agent, assistAgent, stt, port, apiKeys } = deps;
 
   if (apiKeys.length === 0) {
     throw new Error('HTTP runner requires at least one API key (HTTP_API_KEYS)');
@@ -150,7 +156,10 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
 
           const reply = await agent.respond(transcript);
 
-          return { response: reply.text, transcript };
+          return {
+            response: reply.text,
+            transcript,
+          };
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           log.error({ err }, `audio handling failed: ${message}`);
@@ -162,6 +171,11 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       }
     })
     .post('/text', async (event: H3Event) => {
+      // Apple Shortcut "Get contents of URL" with Request Body=Form sends
+      // application/x-www-form-urlencoded with the keys as fields. We
+      // extract `text` from that. No other body shape is accepted —
+      // misconfigured clients get a clear 400 instead of silently
+      // injecting `text=...` strings into the agent.
       const denied = checkAuthAndRate(event);
       if (denied) {
         return denied;
@@ -174,22 +188,17 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       }
 
       const contentType = parseContentType(event.req.headers.get('content-type'));
-      let text: string;
-      if (contentType.startsWith('application/json')) {
-        const raw: unknown = await event.req.json().catch(() => null);
-        const parsed = TextBodySchema.safeParse(raw);
-        if (!parsed.success) {
-          event.res.status = 400;
-          return { error: 'Expected JSON body with string "text" field' };
-        }
-        text = parsed.data.text;
-      } else {
-        text = await event.req.text();
+      if (!contentType.startsWith('application/x-www-form-urlencoded')) {
+        event.res.status = 415;
+        return {
+          error: 'Expected Content-Type: application/x-www-form-urlencoded with a "text" field',
+        };
       }
-      text = text.trim();
+      const body = await event.req.text();
+      const text = new URLSearchParams(body).get('text')?.trim() ?? '';
       if (!text) {
         event.res.status = 400;
-        return { error: 'No text provided' };
+        return { error: 'Missing or empty "text" form field' };
       }
 
       log.debug({ contentType, bytes: text.length }, `text payload ${text.length} chars`);
@@ -204,12 +213,64 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         return { error: message };
       }
     })
+    .post('/assist', async (event: H3Event) => {
+      // HA bridge (voice_assistant_bridge custom component, lives in the
+      // home-infra repo) → Voice PE. The bridge always sends
+      // application/json {text: "..."} — no other shape is accepted. The
+      // reply gets spoken aloud, so the voice-addendum prompt rules
+      // apply. We also forward `expectsFollowUp` as `continue_conversation`
+      // so HA's Assist pipeline reopens the mic without a fresh wake-word.
+      const denied = checkAuthAndRate(event);
+      if (denied) {
+        return denied;
+      }
+      try {
+        await assertBodySize(event, MAX_BODY_BYTES);
+      } catch {
+        event.res.status = 413;
+        return { error: `Text exceeds ${MAX_BODY_BYTES} bytes` };
+      }
+
+      const contentType = parseContentType(event.req.headers.get('content-type'));
+      if (!contentType.startsWith('application/json')) {
+        event.res.status = 415;
+        return { error: 'Expected Content-Type: application/json with a "text" field' };
+      }
+      const raw: unknown = await event.req.json().catch(() => null);
+      const parsed = TextBodySchema.safeParse(raw);
+      if (!parsed.success) {
+        event.res.status = 400;
+        return { error: 'Expected JSON body with string "text" field' };
+      }
+      const text = parsed.data.text.trim();
+      if (!text) {
+        event.res.status = 400;
+        return { error: 'Empty "text" field' };
+      }
+
+      log.debug({ contentType, bytes: text.length }, `assist payload ${text.length} chars`);
+
+      try {
+        const reply = await assistAgent.respond(text);
+        return {
+          response: reply.text,
+          continue_conversation: reply.expectsFollowUp ?? false,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err }, `assist handling failed: ${message}`);
+        event.res.status = 500;
+        return { error: message };
+      }
+    })
     .get('/health', () => {
       return { status: 'ok' };
     });
 
   log.info({ port }, `listening on http://localhost:${port}`);
-  log.info('POST /audio for audio, POST /text for text, GET /health for healthcheck');
+  log.info(
+    'POST /audio (audio bytes), POST /text (plain text), POST /assist (HA bridge / Voice PE), GET /health',
+  );
 
   // silent: skip srvx's "➜ Listening on …" / "Server closed successfully."
   // chatter; we already log startup ourselves.

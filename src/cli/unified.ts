@@ -3,22 +3,13 @@ import 'dotenv/config';
 import {
   initializeCommonDependencies,
   parseAgentMode,
-  buildSystemPromptFor,
   type AgentMode,
   type CommonDeps,
 } from './shared.ts';
-import { runChatMode, type ChatRunnerDeps } from './runners/chat.ts';
-import { runVoiceMode, type VoiceRunnerDeps } from './runners/voice.ts';
-import { runVoiceRealtimeMode, type VoiceRealtimeRunnerDeps } from './runners/voiceRealtime.ts';
-import { runWakeRealtimeMode, type WakeRealtimeRunnerDeps } from './runners/wakeRealtime.ts';
-import { runWakeMode, type WakeRunnerDeps } from './runners/wake.ts';
 import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runners/telegram.ts';
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
 import { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
-import { OpenAiTts } from '../audio/openaiTts.ts';
-import { ElevenLabsTts } from '../audio/elevenlabsTts.ts';
-import type { Tts } from '../audio/types.ts';
 import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
 import { BotPhotoLoader } from '../telegram/photoLoader.ts';
 import { Scheduler } from '../scheduling/scheduler.ts';
@@ -28,27 +19,8 @@ import { createLogger } from '../utils/logger.ts';
 const log = createLogger('unified');
 
 export interface RunnerSet {
-  chat: (deps: ChatRunnerDeps) => Promise<void>;
-  voice: (deps: VoiceRunnerDeps) => Promise<void>;
-  voiceRealtime: (deps: VoiceRealtimeRunnerDeps) => Promise<void>;
-  wake: (deps: WakeRunnerDeps) => Promise<void>;
-  wakeRealtime: (deps: WakeRealtimeRunnerDeps) => Promise<void>;
   telegram: (deps: TelegramRunnerDeps) => Promise<void>;
   http: (deps: HttpRunnerDeps) => Promise<void>;
-}
-
-function buildTts(llm: import('openai').default): Tts {
-  if (process.env.TTS_PROVIDER === 'elevenlabs') {
-    const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey) {
-      throw new Error('TTS_PROVIDER=elevenlabs but ELEVENLABS_API_KEY is not set');
-    }
-    return new ElevenLabsTts({
-      apiKey,
-      voiceId: process.env.ELEVENLABS_VOICE_ID,
-    });
-  }
-  return new OpenAiTts({ client: llm });
 }
 
 /** Dispatch logic, exported for tests. Does NOT call initializeCommonDependencies
@@ -59,64 +31,6 @@ export async function dispatch(
   runners: RunnerSet,
 ): Promise<void> {
   const tasks: Promise<void>[] = [];
-
-  if (mode === 'chat') {
-    const agent = deps.buildAgent('chat');
-    tasks.push(
-      runners.chat({
-        agent,
-        session: agent.session,
-        memory: deps.memory,
-      }),
-    );
-  }
-
-  if (mode === 'voice') {
-    if (process.env.VOICE_REALTIME === '1') {
-      tasks.push(
-        runners.voiceRealtime({
-          apiKey: deps.config.openai.apiKey,
-          model: process.env.OPENAI_REALTIME_MODEL ?? 'gpt-realtime',
-          systemPrompt: buildSystemPromptFor('voice-realtime'),
-          mcp: deps.mcp,
-          memory: deps.memory,
-          telegram: deps.telegram,
-          voice: process.env.OPENAI_REALTIME_VOICE,
-        }),
-      );
-    } else {
-      const agent = deps.buildAgent('voice');
-      tasks.push(
-        runners.voice({
-          agent,
-          stt: new OpenAiStt({ client: deps.llm }),
-          tts: buildTts(deps.llm),
-        }),
-      );
-    }
-  }
-
-  if (mode === 'wake' || mode === 'both') {
-    if (process.env.WAKE_REALTIME === '1') {
-      tasks.push(
-        runners.wakeRealtime({
-          apiKey: deps.config.openai.apiKey,
-          model: process.env.OPENAI_REALTIME_MODEL ?? 'gpt-realtime',
-          systemPrompt: buildSystemPromptFor('voice-realtime'),
-          config: deps.config,
-          mcp: deps.mcp,
-          memory: deps.memory,
-          telegram: deps.telegram,
-          voice: process.env.OPENAI_REALTIME_VOICE,
-        }),
-      );
-    } else {
-      const agent = deps.buildAgent('wake');
-      tasks.push(
-        runners.wake({ agent, llm: deps.llm, config: deps.config, tts: buildTts(deps.llm) }),
-      );
-    }
-  }
 
   if (mode === 'telegram' || mode === 'both') {
     const agent = deps.buildAgent('telegram');
@@ -158,10 +72,12 @@ export async function dispatch(
 
   if (mode === 'http' || mode === 'both') {
     const agent = deps.buildAgent('http');
+    const assistAgent = deps.buildAgent('assist');
     const port = parseInt(process.env.HTTP_SERVER_PORT ?? '3000', 10);
     tasks.push(
       runners.http({
         agent,
+        assistAgent,
         stt: new OpenAiStt({ client: deps.llm }),
         port,
         apiKeys: deps.config.http.apiKeys,
@@ -206,11 +122,6 @@ export async function main(): Promise<void> {
 
   try {
     await dispatch(mode, deps, {
-      chat: runChatMode,
-      voice: runVoiceMode,
-      voiceRealtime: runVoiceRealtimeMode,
-      wake: runWakeMode,
-      wakeRealtime: runWakeRealtimeMode,
       telegram: runTelegramMode,
       http: runHttpMode,
     });

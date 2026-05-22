@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type OpenAI from 'openai';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
-import { Session } from '../../src/agent/session.ts';
+import { PENDING_ASK_TTL_MS, Session } from '../../src/agent/session.ts';
+import { CHAT_TEXT_FORMAT } from '../../src/agent/agentOutput.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
 import type { MemoryStore } from '../../src/memory/types.ts';
@@ -61,6 +62,7 @@ interface CreateArgs {
   instructions?: string;
   previous_response_id?: string;
   input: Array<Record<string, unknown>>;
+  tools?: Array<Record<string, unknown>>;
 }
 
 function fakeLlm(scripted: Array<unknown>) {
@@ -282,6 +284,89 @@ describe('OpenAiAgent', () => {
     expect(profile.recall()).toEqual({ name: 'Maxim' });
     expect(mcp.callTool).not.toHaveBeenCalled();
     memory.close();
+  });
+
+  it('omits the ask tool when enableAsk=false (Telegram / chat REPL channels)', async () => {
+    const llm = fakeLlm([textResponse('Hi', 'resp_1')]);
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+      textFormat: CHAT_TEXT_FORMAT,
+      enableAsk: false,
+    });
+    await agent.respond('hello');
+    const tools = llm.calls[0]!.tools ?? [];
+    expect(tools.find((t) => t.name === 'ask')).toBeUndefined();
+  });
+
+  it('keeps the ask tool when enableAsk=true on a CHAT_TEXT_FORMAT channel (HTTP / Voice PE bridge)', async () => {
+    const llm = fakeLlm([textResponse('Hi', 'resp_1')]);
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+      textFormat: CHAT_TEXT_FORMAT,
+      enableAsk: true,
+    });
+    await agent.respond('hello');
+    const tools = llm.calls[0]!.tools ?? [];
+    expect(tools.find((t) => t.name === 'ask')).toBeDefined();
+  });
+
+  it('treats a pending ask as expired after PENDING_ASK_TTL_MS — closes call_id with placeholder and sends user message as new turn', async () => {
+    const session = new Session({ idleTimeoutMs: 60_000 });
+    // Stash a stale ask manually — simulates a previous turn that called
+    // ask but the user took too long to reply.
+    session.commit('resp_old');
+    session.pendingAskCallId = 'ask_stale';
+    session.pendingAskExpiresAt = Date.now() - 1_000;
+    const llm = fakeLlm([textResponse('Sure, will do.', 'resp_new')]);
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session,
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+    });
+    await agent.respond('turn off the light');
+    const input = llm.calls[0]!.input as Array<Record<string, unknown>>;
+    // Two items: the placeholder closing the stale ask, then the user's
+    // new request as a normal role:user message.
+    expect(input).toHaveLength(2);
+    expect(input[0]).toMatchObject({ type: 'function_call_output', call_id: 'ask_stale' });
+    expect(input[0]!.output as string).toMatch(/no response/i);
+    expect(input[1]).toMatchObject({ role: 'user', content: 'turn off the light' });
+    expect(session.pendingAskCallId).toBeUndefined();
+    expect(session.pendingAskExpiresAt).toBeUndefined();
+  });
+
+  it('sets pendingAskExpiresAt when ask fires', async () => {
+    const llm = fakeLlm([fnCallResponse('ask', '{"text":"Where?"}', 'ask_x', 'resp_x')]);
+    const session = new Session({ idleTimeoutMs: 60_000 });
+    const before = Date.now();
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session,
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+    });
+    await agent.respond('turn it on');
+    expect(session.pendingAskExpiresAt).toBeGreaterThanOrEqual(before + PENDING_ASK_TTL_MS);
+    expect(session.pendingAskExpiresAt).toBeLessThanOrEqual(Date.now() + PENDING_ASK_TTL_MS);
   });
 
   it('ask emitted in parallel with other tools: executes the others, stashes their outputs, replays on next turn', async () => {

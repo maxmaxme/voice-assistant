@@ -59,155 +59,38 @@ function makeDeps(): CommonDeps {
   };
 }
 
+function makeRunners(): {
+  telegram: ReturnType<typeof vi.fn>;
+  http: ReturnType<typeof vi.fn>;
+} {
+  return {
+    telegram: vi.fn(async () => {}),
+    http: vi.fn(async () => {}),
+  };
+}
+
 describe('dispatch', () => {
-  it('chat mode invokes runChatMode once', async () => {
+  it('telegram mode invokes runTelegramMode only', async () => {
     const deps = makeDeps();
-    const runners = {
-      chat: vi.fn(async () => {}),
-      voice: vi.fn(async () => {}),
-      voiceRealtime: vi.fn(async () => {}),
-      wakeRealtime: vi.fn(async () => {}),
-      wake: vi.fn(async () => {}),
-      telegram: vi.fn(async () => {}),
-      http: vi.fn(async () => {}),
-    };
-    await dispatch('chat', deps, runners);
-    expect(runners.chat).toHaveBeenCalledTimes(1);
-    expect(runners.voice).not.toHaveBeenCalled();
-    expect(runners.wake).not.toHaveBeenCalled();
+    const runners = makeRunners();
+    await dispatch('telegram', deps, runners as never);
+    expect(runners.telegram).toHaveBeenCalledTimes(1);
+    expect(runners.http).not.toHaveBeenCalled();
   });
 
-  it('voice mode invokes runVoiceMode only', async () => {
+  it('http mode invokes runHttpMode only', async () => {
     const deps = makeDeps();
-    const runners = {
-      chat: vi.fn(async () => {}),
-      voice: vi.fn(async () => {}),
-      voiceRealtime: vi.fn(async () => {}),
-      wakeRealtime: vi.fn(async () => {}),
-      wake: vi.fn(async () => {}),
-      telegram: vi.fn(async () => {}),
-      http: vi.fn(async () => {}),
-    };
-    const prev = process.env.VOICE_REALTIME;
-    delete process.env.VOICE_REALTIME;
-    try {
-      await dispatch('voice', deps, runners);
-    } finally {
-      if (prev !== undefined) {
-        process.env.VOICE_REALTIME = prev;
-      }
-    }
-    expect(runners.voice).toHaveBeenCalledTimes(1);
-    expect(runners.voiceRealtime).not.toHaveBeenCalled();
+    const runners = makeRunners();
+    await dispatch('http', deps, runners as never);
+    expect(runners.http).toHaveBeenCalledTimes(1);
+    expect(runners.telegram).not.toHaveBeenCalled();
   });
 
-  it('voice mode invokes runVoiceRealtimeMode when VOICE_REALTIME=1', async () => {
+  it('both mode invokes telegram and http concurrently', async () => {
     const deps = makeDeps();
-    deps.config = {
-      ...deps.config,
-      openai: { apiKey: 'sk-test', model: 'gpt-4o' },
-    } as unknown as CommonDeps['config'];
-    const runners = {
-      chat: vi.fn(async () => {}),
-      voice: vi.fn(async () => {}),
-      voiceRealtime: vi.fn(async () => {}),
-      wakeRealtime: vi.fn(async () => {}),
-      wake: vi.fn(async () => {}),
-      telegram: vi.fn(async () => {}),
-      http: vi.fn(async () => {}),
-    };
-    const prev = process.env.VOICE_REALTIME;
-    process.env.VOICE_REALTIME = '1';
-    try {
-      await dispatch('voice', deps, runners);
-    } finally {
-      if (prev === undefined) {
-        delete process.env.VOICE_REALTIME;
-      } else {
-        process.env.VOICE_REALTIME = prev;
-      }
-    }
-    expect(runners.voiceRealtime).toHaveBeenCalledTimes(1);
-    expect(runners.voice).not.toHaveBeenCalled();
-    const call = (
-      runners.voiceRealtime.mock.calls as unknown as Array<
-        [{ apiKey: string; model: string; systemPrompt: string }]
-      >
-    )[0]?.[0];
-    expect(call?.apiKey).toBe('sk-test');
-    expect(call?.model).toBeTruthy();
-    expect(call?.systemPrompt).toContain('You are');
-  });
-
-  it('wake mode invokes runWakeMode only', async () => {
-    const deps = makeDeps();
-    const runners = {
-      chat: vi.fn(async () => {}),
-      voice: vi.fn(async () => {}),
-      voiceRealtime: vi.fn(async () => {}),
-      wakeRealtime: vi.fn(async () => {}),
-      wake: vi.fn(async () => {}),
-      telegram: vi.fn(async () => {}),
-      http: vi.fn(async () => {}),
-    };
-    const prev = process.env.WAKE_REALTIME;
-    delete process.env.WAKE_REALTIME;
-    try {
-      await dispatch('wake', deps, runners);
-    } finally {
-      if (prev !== undefined) {
-        process.env.WAKE_REALTIME = prev;
-      }
-    }
-    expect(runners.wake).toHaveBeenCalledTimes(1);
-    expect(runners.wakeRealtime).not.toHaveBeenCalled();
-  });
-
-  it('wake mode invokes runWakeRealtimeMode when WAKE_REALTIME=1', async () => {
-    const deps = makeDeps();
-    deps.config = {
-      ...deps.config,
-      openai: { apiKey: 'sk-test', model: 'gpt-4o' },
-      wakeWord: { keyword: 'hey_jarvis' },
-    } as unknown as CommonDeps['config'];
-    const runners = {
-      chat: vi.fn(async () => {}),
-      voice: vi.fn(async () => {}),
-      voiceRealtime: vi.fn(async () => {}),
-      wakeRealtime: vi.fn(async () => {}),
-      wake: vi.fn(async () => {}),
-      telegram: vi.fn(async () => {}),
-      http: vi.fn(async () => {}),
-    };
-    const prev = process.env.WAKE_REALTIME;
-    process.env.WAKE_REALTIME = '1';
-    try {
-      await dispatch('wake', deps, runners);
-    } finally {
-      if (prev === undefined) {
-        delete process.env.WAKE_REALTIME;
-      } else {
-        process.env.WAKE_REALTIME = prev;
-      }
-    }
-    expect(runners.wakeRealtime).toHaveBeenCalledTimes(1);
-    expect(runners.wake).not.toHaveBeenCalled();
-  });
-
-  it('both mode invokes wake, telegram, and http concurrently', async () => {
-    const deps = makeDeps();
-    const wakeStarted = vi.fn();
     const telegramStarted = vi.fn();
     const httpStarted = vi.fn();
     const runners = {
-      chat: vi.fn(async () => {}),
-      voice: vi.fn(async () => {}),
-      voiceRealtime: vi.fn(async () => {}),
-      wakeRealtime: vi.fn(async () => {}),
-      wake: vi.fn(async () => {
-        wakeStarted();
-        await new Promise((r) => setTimeout(r, 5));
-      }),
       telegram: vi.fn(async () => {
         telegramStarted();
         await new Promise((r) => setTimeout(r, 5));
@@ -217,75 +100,19 @@ describe('dispatch', () => {
         await new Promise((r) => setTimeout(r, 5));
       }),
     };
-    const prevWake = process.env.WAKE_REALTIME;
-    delete process.env.WAKE_REALTIME;
-    try {
-      await dispatch('both', deps, runners);
-    } finally {
-      if (prevWake !== undefined) {
-        process.env.WAKE_REALTIME = prevWake;
-      }
-    }
-    expect(wakeStarted).toHaveBeenCalled();
+    await dispatch('both', deps, runners as never);
     expect(telegramStarted).toHaveBeenCalled();
     expect(httpStarted).toHaveBeenCalled();
-    expect(deps.buildAgent).toHaveBeenCalledWith('wake');
     expect(deps.buildAgent).toHaveBeenCalledWith('telegram');
     expect(deps.buildAgent).toHaveBeenCalledWith('http');
-  });
-
-  it('telegram mode invokes runTelegramMode only', async () => {
-    const deps = makeDeps();
-    const runners = {
-      chat: vi.fn(async () => {}),
-      voice: vi.fn(async () => {}),
-      voiceRealtime: vi.fn(async () => {}),
-      wakeRealtime: vi.fn(async () => {}),
-      wake: vi.fn(async () => {}),
-      telegram: vi.fn(async () => {}),
-      http: vi.fn(async () => {}),
-    };
-    await dispatch('telegram', deps, runners);
-    expect(runners.telegram).toHaveBeenCalledTimes(1);
-  });
-
-  it('builds a separate agent per active channel', async () => {
-    const deps = makeDeps();
-    const runners = {
-      chat: vi.fn(async () => {}),
-      voice: vi.fn(async () => {}),
-      voiceRealtime: vi.fn(async () => {}),
-      wakeRealtime: vi.fn(async () => {}),
-      wake: vi.fn(async () => {}),
-      telegram: vi.fn(async () => {}),
-      http: vi.fn(async () => {}),
-    };
-    const prev2 = process.env.WAKE_REALTIME;
-    delete process.env.WAKE_REALTIME;
-    try {
-      await dispatch('wake', deps, runners);
-    } finally {
-      if (prev2 !== undefined) {
-        process.env.WAKE_REALTIME = prev2;
-      }
-    }
-    expect(deps.buildAgent).toHaveBeenCalledWith('wake');
   });
 
   it('starts and stops the scheduler around runners', async () => {
     const deps = makeDeps();
     const startSpy = vi.spyOn(Scheduler.prototype, 'start');
     const stopSpy = vi.spyOn(Scheduler.prototype, 'stop');
-    const runners = {
-      chat: vi.fn(async () => {}),
-      voice: vi.fn(async () => {}),
-      voiceRealtime: vi.fn(async () => {}),
-      wakeRealtime: vi.fn(async () => {}),
-      wake: vi.fn(async () => {}),
-      telegram: vi.fn(async () => {}),
-      http: vi.fn(async () => {}),
-    };
-    await dispatch('chat', deps, runners);
+    const runners = makeRunners();
+    await dispatch('telegram', deps, runners as never);
     expect(startSpy).toHaveBeenCalledTimes(1);
     expect(stopSpy).toHaveBeenCalledTimes(1);
     startSpy.mockRestore();

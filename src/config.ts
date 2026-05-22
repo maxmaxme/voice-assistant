@@ -21,20 +21,6 @@ const ConfigSchema = z.object({
   http: z.object({
     apiKeys: z.array(z.string()).min(1),
   }),
-  wakeWord: z.object({
-    pythonPath: z.string().default('.venv/bin/python'),
-    scriptPath: z.string().default('scripts/wake_word_daemon.py'),
-    keyword: z.string().default('hey_jarvis'),
-    threshold: z.coerce.number().min(0).max(1).default(0.5),
-    debug: z
-      .union([z.string(), z.boolean()])
-      .default(false)
-      .transform((v) => v === true || v === '1' || v === 'true'),
-    followUp: z
-      .union([z.string(), z.boolean()])
-      .default(false)
-      .transform((v) => v === true || v === '1' || v === 'true'),
-  }),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -49,10 +35,6 @@ const PATH_TO_ENV: Record<string, string> = {
   'telegram.chatId': 'TELEGRAM_CHAT_ID',
   'telegram.allowedChatIds': 'TELEGRAM_ALLOWED_CHAT_IDS',
   'http.apiKeys': 'HTTP_API_KEYS',
-  'wakeWord.pythonPath': 'WAKE_WORD_PYTHON',
-  'wakeWord.scriptPath': 'WAKE_WORD_SCRIPT',
-  'wakeWord.keyword': 'WAKE_WORD_KEYWORD',
-  'wakeWord.threshold': 'WAKE_WORD_THRESHOLD',
 };
 
 export function loadConfig(): Config {
@@ -94,14 +76,6 @@ export function loadConfig(): Config {
     },
     http: {
       apiKeys,
-    },
-    wakeWord: {
-      pythonPath: process.env.WAKE_WORD_PYTHON,
-      scriptPath: process.env.WAKE_WORD_SCRIPT,
-      keyword: process.env.WAKE_WORD_KEYWORD,
-      threshold: process.env.WAKE_WORD_THRESHOLD,
-      debug: process.env.WAKE_WORD_DEBUG,
-      followUp: process.env.WAKE_WORD_FOLLOWUP,
     },
   };
   const parsed = ConfigSchema.safeParse(raw);
