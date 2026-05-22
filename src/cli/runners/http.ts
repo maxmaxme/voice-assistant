@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { AudioFileStt, Tts } from '../../audio/types.ts';
 import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
-import { streamPcmToWav } from '../../audio/wavWriter.ts';
+import { streamPcmToWavChunks } from '../../audio/wavWriter.ts';
 import { verifyBearerToken } from '../../utils/apiKeyAuth.ts';
 import { createLogger } from '../../utils/logger.ts';
 import { loggerPlugin } from '../../utils/h3LoggerPlugin.ts';
@@ -186,6 +186,13 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       // playable WAV with the agent's spoken reply. Unlike `/audio` which
       // returns JSON, this endpoint does the full STT → agent → TTS pipeline
       // server-side so the device only has to play bytes.
+      //
+      // The reply is *streamed*: the WAV header goes out the moment TTS
+      // emits its first PCM chunk, and subsequent chunks are forwarded
+      // verbatim. Decoders that respect EOF (afplay, ffmpeg, ESPHome's
+      // media_player) start playback while OpenAI is still synthesising the
+      // tail of the utterance — cuts ~1 sec off perceived latency on a
+      // 3-4 sec reply versus the buffer-then-send variant.
       const denied = checkAuthAndRate(event);
       if (denied) {
         return denied;
@@ -199,6 +206,9 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         return { error: 'Server busy, retry shortly' };
       }
 
+      // The stream takes over `release()` once we hand back the Response —
+      // anything before that point releases on the `finally` below.
+      let streamOwnsRelease = false;
       try {
         try {
           await assertBodySize(event, MAX_BODY_BYTES);
@@ -238,17 +248,62 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
             return null;
           }
 
-          const ttsStream = tts.stream(reply.text);
-          const wav = await streamPcmToWav(ttsStream.chunks, ttsStream.sampleRate);
+          // Tie TTS to an AbortController so a client disconnect mid-stream
+          // tears down the OpenAI call instead of letting it run to
+          // completion (and burn tokens) into a dead socket.
+          const aborter = new AbortController();
+          const ttsStream = tts.stream(reply.text, { signal: aborter.signal });
 
-          // Surface STT/agent results to debug clients via headers so the
-          // body can stay pure audio. ESPHome HTTP request component ignores
-          // these; mac scripts and curl callers can read them.
-          event.res.headers.set('x-transcript', encodeHeader(transcript));
-          event.res.headers.set('x-response', encodeHeader(reply.text));
-          event.res.headers.set('content-type', 'audio/wav');
-          event.res.headers.set('content-length', String(wav.length));
-          return wav;
+          // Pull `release` into a local binding so the closure below knows
+          // it's non-null (TS narrowing across `if (!release)` doesn't carry
+          // into nested function expressions).
+          const releaseFn: () => void = release;
+          const iter = streamPcmToWavChunks(ttsStream.chunks, ttsStream.sampleRate);
+          let cleaned = false;
+          const cleanup = (): void => {
+            if (cleaned) {
+              return;
+            }
+            cleaned = true;
+            aborter.abort();
+            releaseFn();
+          };
+
+          const responseStream = new ReadableStream<Uint8Array>({
+            async pull(controller) {
+              try {
+                const { value, done } = await iter.next();
+                if (done) {
+                  controller.close();
+                  cleanup();
+                } else {
+                  controller.enqueue(value);
+                }
+              } catch (err) {
+                controller.error(err);
+                cleanup();
+              }
+            },
+            cancel() {
+              // Client disconnected mid-stream. Drop the OpenAI call and
+              // release the concurrency gate immediately.
+              cleanup();
+              void iter.return?.(undefined);
+            },
+          });
+
+          streamOwnsRelease = true;
+          return new Response(responseStream, {
+            status: 200,
+            headers: {
+              'content-type': 'audio/wav',
+              'x-transcript': encodeHeader(transcript),
+              'x-response': encodeHeader(reply.text),
+              // No content-length — implicit chunked transfer encoding,
+              // RIFF/data sizes in the WAV header are placeholders so the
+              // decoder reads until EOF.
+            },
+          });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           log.error({ err }, `converse handling failed: ${message}`);
@@ -256,7 +311,9 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
           return { error: message };
         }
       } finally {
-        release();
+        if (!streamOwnsRelease) {
+          release();
+        }
       }
     })
     .post('/text', async (event: H3Event) => {
