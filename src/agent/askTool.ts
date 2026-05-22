@@ -16,11 +16,16 @@ export function buildAskTool(): OpenAiFunctionTool {
     type: 'function',
     name: ASK_TOOL_NAME,
     description:
-      'Use this when you need the user to answer a clarifying question ' +
-      'before you can act. Pass the question as `text`. The user will ' +
-      'hear it and respond by voice; treat their next utterance as the ' +
-      'answer. Prefer this over making up an excuse like "please clarify" ' +
-      'or wrapping a question in plain text. ' +
+      'Use this whenever your reply ends with a question and you expect ' +
+      'the user to answer by voice. Pass the question as `text`. Calling ' +
+      '`ask` keeps the microphone open so the user can reply immediately; ' +
+      'putting a question in plain `speak` text closes the mic and forces ' +
+      'them to say the wake word again. ' +
+      'This applies to BOTH cases: (a) clarifying questions you need ' +
+      'answered before you can act, AND (b) any other question — including ' +
+      'ones the user explicitly invited (e.g. "ask me something", ' +
+      '"quiz me", small talk). If the turn ends in a `?` aimed at the user, ' +
+      'it belongs in `ask`, not in `speak`. ' +
       'IMPORTANT: call `ask` ALONE — do not emit it in parallel with other ' +
       'tool calls in the same turn. If you need to remember a fact and then ' +
       'ask a question, do the remember first, wait for its result, and only ' +
