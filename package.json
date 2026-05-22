@@ -12,6 +12,7 @@
     "chat": "AGENT_MODE=chat node src/cli/unified.ts",
     "voice": "AGENT_MODE=voice node src/cli/unified.ts",
     "http": "AGENT_MODE=http node src/cli/unified.ts",
+    "converse-test": "node scripts/converse-test.ts",
     "start": "node src/cli/unified.ts",
     "start:wake": "AGENT_MODE=wake node src/cli/unified.ts",
     "start:both": "AGENT_MODE=both node src/cli/unified.ts",
