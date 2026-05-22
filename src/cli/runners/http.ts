@@ -3,6 +3,7 @@ import { H3, serve, assertBodySize, getRequestIP } from 'h3';
 import type { H3Event } from 'h3';
 import { z } from 'zod';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
+import type { Session } from '../../agent/session.ts';
 import type { AudioFileStt } from '../../audio/types.ts';
 import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
 import { verifyBearerToken } from '../../utils/apiKeyAuth.ts';
@@ -20,6 +21,12 @@ export interface HttpRunnerDeps {
    *  `ask` tool and the voice-addendum prompt; response includes
    *  `continue_conversation` so HA can reopen the mic. */
   assistAgent: OpenAiAgent;
+  /** Per-conversation Session lookup for `/assist`. Keyed by the
+   *  `conversation_id` HA's Assist pipeline mints for each user dialog —
+   *  callers without one share a single fallback session. Sessions expire
+   *  after a short idle window so the chain doesn't leak between unrelated
+   *  utterances on the same Voice PE device. */
+  assistSessionFor: (conversationId: string) => Session;
   stt: AudioFileStt;
   port: number;
   apiKeys: string[];
@@ -40,7 +47,10 @@ const TOKEN_RATE_MAX = 30;
 /** Whisper + LLM round-trips are heavy on a Pi; cap concurrent /audio work. */
 const AUDIO_CONCURRENCY = 2;
 
-const TextBodySchema = z.object({ text: z.string() });
+const AssistBodySchema = z.object({
+  text: z.string(),
+  conversation_id: z.string().optional(),
+});
 
 function clientIp(event: H3Event): string {
   return getRequestIP(event, { xForwardedFor: true }) ?? 'unknown';
@@ -54,7 +64,7 @@ function tokenKey(authHeader: string | null | undefined): string {
 }
 
 export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
-  const { agent, assistAgent, stt, port, apiKeys } = deps;
+  const { agent, assistAgent, assistSessionFor, stt, port, apiKeys } = deps;
 
   if (apiKeys.length === 0) {
     throw new Error('HTTP runner requires at least one API key (HTTP_API_KEYS)');
@@ -237,7 +247,7 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         return { error: 'Expected Content-Type: application/json with a "text" field' };
       }
       const raw: unknown = await event.req.json().catch(() => null);
-      const parsed = TextBodySchema.safeParse(raw);
+      const parsed = AssistBodySchema.safeParse(raw);
       if (!parsed.success) {
         event.res.status = 400;
         return { error: 'Expected JSON body with string "text" field' };
@@ -247,11 +257,22 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         event.res.status = 400;
         return { error: 'Empty "text" field' };
       }
+      // HA's Assist pipeline mints a `conversation_id` per dialog and reuses
+      // it across follow-up turns (continue_conversation). When the bridge
+      // forwards it we get proper per-dialog isolation; legacy bridges that
+      // don't send it collapse to a single shared chain — better than no
+      // chain at all for follow-ups, and still bounded by the 60s idle
+      // timeout on the session itself.
+      const conversationId = parsed.data.conversation_id ?? 'default';
+      const session = assistSessionFor(conversationId);
 
-      log.debug({ contentType, bytes: text.length }, `assist payload ${text.length} chars`);
+      log.debug(
+        { contentType, bytes: text.length, conversationId },
+        `assist payload ${text.length} chars`,
+      );
 
       try {
-        const reply = await assistAgent.respond(text);
+        const reply = await assistAgent.respond(text, { session });
         return {
           response: reply.text,
           continue_conversation: reply.expectsFollowUp ?? false,

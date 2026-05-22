@@ -73,11 +73,40 @@ export async function dispatch(
   if (mode === 'http' || mode === 'both') {
     const agent = deps.buildAgent('http');
     const assistAgent = deps.buildAgent('assist');
+    // Per-conversation Sessions for `/assist`. 60s idle is short enough
+    // that an unrelated utterance after a pause starts a fresh chain
+    // (avoiding the "still thinks we're talking about X" leak), and long
+    // enough that natural follow-ups inside a single dialog still chain.
+    // In-memory only: 60s is far shorter than any restart cadence, so
+    // SQLite persistence would buy nothing.
+    const ASSIST_SESSION_IDLE_MS = 60 * 1000;
+    type Entry = { session: Session; lastTouch: number };
+    const assistSessions = new Map<string, Entry>();
+    const assistSessionFor = (conversationId: string): Session => {
+      const now = Date.now();
+      for (const [key, entry] of assistSessions) {
+        if (now - entry.lastTouch >= ASSIST_SESSION_IDLE_MS) {
+          assistSessions.delete(key);
+        }
+      }
+      let entry = assistSessions.get(conversationId);
+      if (!entry) {
+        entry = {
+          session: new Session({ idleTimeoutMs: ASSIST_SESSION_IDLE_MS }),
+          lastTouch: now,
+        };
+        assistSessions.set(conversationId, entry);
+      } else {
+        entry.lastTouch = now;
+      }
+      return entry.session;
+    };
     const port = parseInt(process.env.HTTP_SERVER_PORT ?? '3000', 10);
     tasks.push(
       runners.http({
         agent,
         assistAgent,
+        assistSessionFor,
         stt: new OpenAiStt({ client: deps.llm }),
         port,
         apiKeys: deps.config.http.apiKeys,
