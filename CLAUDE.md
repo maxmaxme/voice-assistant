@@ -113,6 +113,8 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 6. Loop, advancing `previousResponseId` to `response.id` each turn, until plain text comes back or `maxToolIterations` is hit.
 7. On success → `Session.commit(response.id)`. On thrown error → no commit, so the next turn naturally starts fresh from the last successful chain point.
 
+**Reasoning effort.** For reasoning-capable models (gpt-5 family, o-series), `OpenAiAgent` passes `reasoning.effort` from `config.openai.reasoningEffort` (env `OPENAI_REASONING_EFFORT`, default `low`). Non-reasoning models ignore the field server-side. Bump to `medium`/`high` for puzzle-heavy workloads; `low` is enough for tool routing and typical household requests.
+
 **Tool schemas:** local tools (memory/ask/telegram) are strict-by-default (Responses default `strict: true`) and include `additionalProperties: false`. HA MCP tools come from upstream and don't satisfy strict-mode requirements, so `mcpToolsToOpenAi` sets `strict: false` for them.
 
 `memory: MemoryAdapter` is **required** on `OpenAiAgentOptions`. Tests that don't care about persistent state pass `emptyMemory()` (no-op).

@@ -9,6 +9,7 @@ const ConfigSchema = z.object({
   openai: z.object({
     apiKey: z.string().min(1),
     model: z.string().default('gpt-4o'),
+    reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).default('low'),
   }),
   memory: z.object({
     dbPath: z.string().default('data/assistant.db'),
@@ -30,6 +31,7 @@ const PATH_TO_ENV: Record<string, string> = {
   'ha.token': 'HA_TOKEN',
   'openai.apiKey': 'OPENAI_API_KEY',
   'openai.model': 'OPENAI_MODEL',
+  'openai.reasoningEffort': 'OPENAI_REASONING_EFFORT',
   'memory.dbPath': 'MEMORY_DB_PATH',
   'telegram.botToken': 'TELEGRAM_BOT_TOKEN',
   'telegram.chatId': 'TELEGRAM_CHAT_ID',
@@ -65,6 +67,7 @@ export function loadConfig(): Config {
     openai: {
       apiKey: process.env.OPENAI_API_KEY,
       model: process.env.OPENAI_MODEL,
+      reasoningEffort: process.env.OPENAI_REASONING_EFFORT,
     },
     memory: {
       dbPath: process.env.MEMORY_DB_PATH,

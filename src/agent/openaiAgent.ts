@@ -56,6 +56,11 @@ export interface OpenAiAgentOptions {
    * pipeline). On Telegram the model just asks inside `speak`, so leaving
    * `ask` off avoids chain-lock risks. Default: true. */
   enableAsk?: boolean;
+  /** Reasoning effort for reasoning-capable models (gpt-5 family, o-series).
+   * Ignored by the API for non-reasoning models. Default 'low' — enough for
+   * tool routing and most household requests, keeps reasoning-token spend
+   * bounded. Bump to 'medium'/'high' for puzzle-heavy workloads. */
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
 }
 
 export class OpenAiAgent implements Agent {
@@ -240,6 +245,7 @@ export class OpenAiAgent implements Agent {
           text: {
             format: this.opts.textFormat ?? VOICE_TEXT_FORMAT,
           },
+          reasoning: { effort: this.opts.reasoningEffort ?? 'low' },
         });
       } catch (err) {
         // OpenAI evicts `previous_response_id` after ~30 days (the Responses
