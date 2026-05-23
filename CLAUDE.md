@@ -10,9 +10,10 @@ runtime, dev happens on macOS. Cloud-heavy stack: OpenAI for STT
 official MCP Server integration for device control. **Voice I/O is now
 done by Voice PE smart speakers + Home Assistant's Assist pipeline** —
 this service no longer captures audio locally. HA forwards each user
-utterance (after its own STT) to the HTTP `/text` endpoint via a custom
-`voice_assistant_bridge` integration that lives in the sibling
-`home-infra` repo.
+utterance (after its own STT) to the HTTP `/assist` endpoint via the
+generic `http_conversation_agent` integration that lives in the sibling
+[`ha-http-conversation-agent`](https://github.com/maxmaxme/ha-http-conversation-agent)
+repo.
 
 ## Commands
 
@@ -36,9 +37,11 @@ npm run http                       # http only
 
 `AGENT_MODE` values: `telegram` | `http` | `both`. Default `both`.
 
-The Pi host stack (docker compose, systemd units, update.sh, monitoring,
-HA bridge component) lives in the separate `home-infra` repo. The image
-built from this repo (`Dockerfile` at the root) is published to
+The Pi host stack (docker compose, systemd units, update.sh,
+monitoring) lives in the separate `home-infra` repo. The HA-side
+conversation agent (`http_conversation_agent`) lives in
+`ha-http-conversation-agent`. The image built from this repo
+(`Dockerfile` at the root) is published to
 `ghcr.io/maxmaxme/voice-assistant` by CI and pulled from there by the Pi.
 
 ## Critical conventions (will bite you if ignored)
@@ -173,15 +176,20 @@ on agent flavour and response shape:
 - `POST /audio` — raw audio bytes (Content-Type derives the format).
   Transcribed via `OpenAiStt` then run through the **plain** agent.
   Returns `{response, transcript}`. Used by Apple Shortcut.
-- `POST /text` — `{text}` JSON or `text/plain`. Run through the **plain**
-  agent. Returns `{response}`. Used by Apple Shortcut / other one-shot
-  clients.
-- `POST /assist` — text in (same shape as `/text`). Run through the
-  **assist** agent: voice-addendum system prompt (TTS-friendly output),
-  `ask` tool enabled. Returns `{response, continue_conversation}`. The
-  HA bridge in `home-infra` reads `continue_conversation` and sets it
-  on the `ConversationResult` so HA's Assist pipeline reopens the mic
-  without a new wake-word. Used exclusively by Voice PE through HA.
+- `POST /text` — `application/x-www-form-urlencoded`, `text` form field.
+  Run through the **plain** agent. Returns `{response}`. Minimal
+  generic contract — any HTTP client (Apple Shortcut, curl, third-party
+  bridges) can hit it.
+- `POST /assist` — `application/json`, `{"text": "...",
+"conversation_id"?: "..."}`. Run through the **assist** agent:
+  voice-addendum system prompt (TTS-friendly output), `ask` tool
+  enabled, per-`conversation_id` server-side session. Returns
+  `{response, continue_conversation}`. The HA-side
+  `http_conversation_agent` integration (in `ha-http-conversation-agent`)
+  reads `continue_conversation` and sets it on the `ConversationResult`
+  so HA's Assist pipeline reopens the mic without a new wake-word.
+  Any non-HA client that wants HA-style sessions can use this endpoint
+  too.
 - `GET /health` — `{status: "ok"}`.
 
 The plain vs assist split is enforced by two separate `OpenAiAgent`
@@ -201,9 +209,10 @@ Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth aga
 ### Deployment & auto-update
 
 Host-side artifacts (docker compose, systemd units, `update.sh`,
-monitoring, HA bridge component) live in the separate `home-infra`
-repo, cloned to `/opt/home-infra/` on the Pi. This repo only owns the
-**image build**: CI cross-builds an arm64 image on every push to `main`
+monitoring) live in the separate `home-infra` repo, cloned to
+`/opt/home-infra/` on the Pi. The HA-side conversation agent
+(`http_conversation_agent`) lives in `ha-http-conversation-agent` and is
+installed into HA via HACS. This repo only owns the **image build**: CI cross-builds an arm64 image on every push to `main`
 from the root `Dockerfile` and publishes it to
 `ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via
 `/opt/home-infra/update.sh`, run by `voice-assistant-update.timer` at

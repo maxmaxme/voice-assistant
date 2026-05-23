@@ -224,12 +224,14 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       }
     })
     .post('/assist', async (event: H3Event) => {
-      // HA bridge (voice_assistant_bridge custom component, lives in the
-      // home-infra repo) → Voice PE. The bridge always sends
-      // application/json {text: "..."} — no other shape is accepted. The
-      // reply gets spoken aloud, so the voice-addendum prompt rules
-      // apply. We also forward `expectsFollowUp` as `continue_conversation`
-      // so HA's Assist pipeline reopens the mic without a fresh wake-word.
+      // HA-style contract. Used by the http_conversation_agent HA
+      // integration (sibling ha-http-conversation-agent repo) → Voice PE,
+      // and available to any other client that wants per-conversation
+      // server-side sessions. Always JSON {text: "...",
+      // conversation_id?: "..."} — no other shape is accepted. The
+      // reply gets spoken aloud (under voice-addendum prompt rules) and
+      // `expectsFollowUp` is forwarded as `continue_conversation` so
+      // HA's Assist pipeline reopens the mic without a fresh wake-word.
       const denied = checkAuthAndRate(event);
       if (denied) {
         return denied;

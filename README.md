@@ -7,8 +7,9 @@ on the smart-speaker side); Home Assistant via the official MCP Server
 integration.
 
 Voice input arrives via the Voice PE smart speaker → Home Assistant
-Assist pipeline → custom HA bridge component (in the separate `home-infra`
-repo) → this service's HTTP `/text` endpoint. Telegram is the secondary
+Assist pipeline → the generic `http_conversation_agent` HA integration
+(in the sibling [`ha-http-conversation-agent`](https://github.com/maxmaxme/ha-http-conversation-agent)
+repo) → this service's HTTP `/assist` endpoint. Telegram is the secondary
 channel.
 
 ## Status
@@ -24,7 +25,7 @@ Working features:
 - HA control via natural language over Telegram + HTTP (Voice PE)
 - Long-term user profile in SQLite via `remember`/`recall`/`forget`
 - `ask` tool — clarifying questions surface as `continue_conversation`
-  in the HTTP `/text` response, which the HA bridge forwards into the
+  in the HTTP `/assist` response, which the HA bridge forwards into the
   Assist pipeline to reopen the mic without a new wake-word
 - Auto-update on the Pi via GitHub Actions + GHCR: `main` builds an
   arm64 image, a daily systemd timer pulls and restarts with
@@ -100,19 +101,21 @@ Commands: `/start`, `/help`, `/reset`, `/profile`, `/update`.
 
 The HTTP server exposes:
 
-- `POST /text` — Apple Shortcut style. `Content-Type:
-application/x-www-form-urlencoded`, form field `text`. Returns
-  `{response}`. One-shot, no follow-up handling.
+- `POST /text` — generic one-shot text channel. Apple Shortcut style:
+  `Content-Type: application/x-www-form-urlencoded`, form field `text`.
+  Returns `{response}`. No session, no follow-up handling — this is
+  the minimal contract any HTTP client can hit.
 - `POST /audio` — raw audio bytes (Content-Type derives the format).
   Used by Apple Shortcut. Transcribes via OpenAI then runs the agent.
   Returns `{response, transcript}`.
-- `POST /assist` — HA Assist / Voice PE via the
-  `voice_assistant_bridge` integration (in `home-infra`).
-  `Content-Type: application/json`, body `{"text": "..."}`. The agent
-  uses the voice-addendum system prompt (TTS-friendly output) and
-  `expectsFollowUp` is forwarded as `continue_conversation` so HA
-  reopens the mic without a wake-word. Returns
-  `{response, continue_conversation}`.
+- `POST /assist` — HA Assist / Voice PE contract. `Content-Type:
+application/json`, body `{"text": "...", "conversation_id"?: "..."}`.
+  Used by the [`http_conversation_agent`](https://github.com/maxmaxme/ha-http-conversation-agent)
+  HA integration, but any client that wants HA-style per-dialog
+  sessions can use it too. The agent uses the voice-addendum system
+  prompt (TTS-friendly output) and `expectsFollowUp` is forwarded as
+  `continue_conversation` so HA reopens the mic without a wake-word.
+  Returns `{response, continue_conversation}`.
 - `GET /health` — `{status: "ok"}` for healthchecks.
 
 All non-health endpoints require `Authorization: Bearer <key>` against
