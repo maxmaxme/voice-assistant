@@ -7,13 +7,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Personal voice assistant for smart-home control. Targets a Raspberry Pi 5
 runtime, dev happens on macOS. Cloud-heavy stack: OpenAI for STT
 (`gpt-4o-transcribe`) and the LLM (`gpt-4o`); Home Assistant via the
-official MCP Server integration for device control. **Voice I/O is now
-done by Voice PE smart speakers + Home Assistant's Assist pipeline** —
-this service no longer captures audio locally. HA forwards each user
-utterance (after its own STT) to the HTTP `/assist` endpoint via the
-generic `http_conversation_agent` integration that lives in the sibling
-[`ha-http-conversation-agent`](https://github.com/maxmaxme/ha-http-conversation-agent)
-repo.
+official MCP Server integration for device control. Voice I/O is done
+upstream by Voice PE + HA's Assist pipeline, which forwards utterances
+to this service's `POST /assist`. Telegram is the other channel into
+the same agent core.
+
+This repo only owns the **server-side app** (Node/TS) and the image
+build. Deployment (compose, systemd, healthchecks, rollback) lives
+outside this repo and is none of this codebase's concern.
 
 ## Commands
 
@@ -37,12 +38,10 @@ npm run http                       # http only
 
 `AGENT_MODE` values: `telegram` | `http` | `both`. Default `both`.
 
-The Pi host stack (docker compose, systemd units, update.sh,
-monitoring) lives in the separate `home-infra` repo. The HA-side
-conversation agent (`http_conversation_agent`) lives in
-`ha-http-conversation-agent`. The image built from this repo
-(`Dockerfile` at the root) is published to
-`ghcr.io/maxmaxme/voice-assistant` by CI and pulled from there by the Pi.
+CI builds the root `Dockerfile` and publishes
+`ghcr.io/maxmaxme/voice-assistant:latest` on every push to `main`.
+Anything past the registry push (pull, restart, rollback, monitoring)
+is not this repo's concern.
 
 ## Critical conventions (will bite you if ignored)
 
@@ -206,29 +205,14 @@ Whisper spend on a Pi.
 
 Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth against HA's `/api/mcp`. Single replaceable adapter — the `McpClient` interface is the contract used by everything else.
 
-### Deployment & auto-update
+### `/update` Telegram command — host contract
 
-Host-side artifacts (docker compose, systemd units, `update.sh`,
-monitoring) live in the separate `home-infra` repo, cloned to
-`/opt/home-infra/` on the Pi. The HA-side conversation agent
-(`http_conversation_agent`) lives in `ha-http-conversation-agent` and is
-installed into HA via HACS. This repo only owns the **image build**: CI cross-builds an arm64 image on every push to `main`
-from the root `Dockerfile` and publishes it to
-`ghcr.io/maxmaxme/voice-assistant`. The Pi pulls via
-`/opt/home-infra/update.sh`, run by `voice-assistant-update.timer` at
-04:00 daily or manually via `/update` Telegram command.
-
-**FIFO for `/update`:** the container writes to `/tmp/va-update`, mounted
-from the host. The host-side `va-update-listener.service` reads it and
-invokes `update.sh`. No docker socket inside the container.
-
-## ru-meters-bot — external sibling service
-
-A separate one-shot Node service that submits monthly meter readings to
-Russian utility portals via their JSON REST APIs. Lives in its own repo
-at `~/Developer/ru-meters-bot/`. The voice-assistant runtime does NOT
-import from it. Its docker-compose entry + systemd timer live in the
-`home-infra` repo.
+The `/update` command writes the string `trigger\n` to `/tmp/va-update`
+(expected to be a host-mounted FIFO; falls back to a no-op if the path
+isn't writable). Whoever deploys this container is responsible for
+creating the FIFO and running something that reads it and performs the
+actual update — this codebase only signals intent. Changing the path
+or write semantics is a breaking change for every deployment.
 
 ## Home Assistant — gotchas
 
