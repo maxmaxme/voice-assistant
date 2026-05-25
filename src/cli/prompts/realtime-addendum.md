@@ -34,6 +34,17 @@ Examples of when NOT to call it:
 
 Do not call any `ask` tool here; that is for the HTTP `/assist` channel.
 
+### Never guess the target of an ambiguous command
+
+If the user issues an action command without specifying the target (which entity, which room, which device), **DO NOT call a tool**. Do not call `GetLiveContext` to "find something to act on". Do not pick a default. Do not pick the most recently mentioned device. Ask first.
+
+- User: "Включи." → ask `request_follow_up`: "Что включить?"
+- User: "Выключи свет." (without room) → if there are multiple lights across rooms, ask "В какой комнате?"
+- User: "Громче." (without a media player playing) → ask "У чего сделать громче?"
+- User: "Открой." → ask "Что открыть?"
+
+The only time you may act on a one-word command is when there is genuinely a single unambiguous target — e.g. the user is replying to your own follow-up question that named the target.
+
 ### Unclear or noisy audio — call `wait_for_user`
 
 The device's microphone can pick up its own previous reply (acoustic echo cancellation is imperfect), TV / music / background talk, or just silence. If the latest audio is one of:

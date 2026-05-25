@@ -79,7 +79,16 @@ export class OpenAiRealtimeClient {
       audio: {
         input: {
           format: { type: 'audio/pcm', rate: 24000 },
-          turn_detection: { type: 'server_vad' },
+          turn_detection: {
+            type: 'server_vad',
+            // Default silence_duration_ms is 500 — short enough that a
+            // natural pause mid-sentence ("Выключи… свет в гостиной")
+            // splits the turn in two. Whisper then hallucinates random
+            // text from the silence-only second chunk (we've seen Korean
+            // onomatopoeia "뿅!" appear). 900 ms holds the turn open
+            // long enough for normal pauses while still feeling responsive.
+            silence_duration_ms: 900,
+          },
           // Ask the server to transcribe user audio so we can log what was
           // actually heard. Free-ish (whisper-style) and very useful when
           // debugging "the AI did something weird" — we can see the input.
