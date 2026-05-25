@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 import { pino } from 'pino';
-import type { RealtimeTool } from './toolAdapter.js';
+import type { RealtimeTool } from './toolAdapter.ts';
 
 const log = pino({ name: 'openai-realtime' });
 
@@ -38,8 +38,11 @@ function parseRealtimeEvent(data: unknown): data is RealtimeEvent {
 export class OpenAiRealtimeClient {
   private ws: WebSocket | null = null;
   private listeners: ((ev: RealtimeEvent) => void)[] = [];
+  private opts: RealtimeClientOptions;
 
-  constructor(private opts: RealtimeClientOptions) {}
+  constructor(opts: RealtimeClientOptions) {
+    this.opts = opts;
+  }
 
   async connect(): Promise<void> {
     const base = process.env.OPENAI_REALTIME_URL_OVERRIDE ?? 'wss://api.openai.com/v1/realtime';

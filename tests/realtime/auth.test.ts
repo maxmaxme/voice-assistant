@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { verifyBearer } from '../../src/realtime/auth.js';
+import { verifyBearer } from '../../src/realtime/auth.ts';
 
 describe('verifyBearer', () => {
   it('accepts correct token', () => {

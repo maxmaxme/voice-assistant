@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resamplePcm16 } from '../../src/realtime/audio/resample.js';
+import { resamplePcm16 } from '../../src/realtime/audio/resample.ts';
 
 function makeTone(freq: number, sampleRate: number, durationMs: number): Buffer {
   const n = Math.round((sampleRate * durationMs) / 1000);

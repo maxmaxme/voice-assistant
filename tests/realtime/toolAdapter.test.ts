@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mcpToolsToRealtime } from '../../src/realtime/toolAdapter.js';
+import { mcpToolsToRealtime } from '../../src/realtime/toolAdapter.ts';
 
 describe('mcpToolsToRealtime', () => {
   it('converts MCP tool to Realtime tool definition', () => {

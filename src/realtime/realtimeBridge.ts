@@ -1,11 +1,11 @@
 import type WebSocket from 'ws';
 import { pino } from 'pino';
-import { OpenAiRealtimeClient, type RealtimeEvent } from './openaiRealtimeClient.js';
-import { resamplePcm16 } from './audio/resample.js';
-import { pcm16ToBase64, base64ToPcm16 } from './audio/format.js';
-import { encodeServerMessage, parseDeviceMessage, type ServerMessage } from './protocol.js';
-import { LatencyTracker } from './metrics.js';
-import type { RealtimeTool } from './toolAdapter.js';
+import { OpenAiRealtimeClient, type RealtimeEvent } from './openaiRealtimeClient.ts';
+import { resamplePcm16 } from './audio/resample.ts';
+import { pcm16ToBase64, base64ToPcm16 } from './audio/format.ts';
+import { encodeServerMessage, parseDeviceMessage, type ServerMessage } from './protocol.ts';
+import { LatencyTracker } from './metrics.ts';
+import type { RealtimeTool } from './toolAdapter.ts';
 
 const log = pino({ name: 'realtime-bridge' });
 
@@ -22,11 +22,12 @@ export class RealtimeBridge {
   private openai: OpenAiRealtimeClient;
   private metrics = new LatencyTracker();
   private sessionId = Math.random().toString(36).slice(2, 10);
+  private deviceWs: WebSocket;
+  private deps: BridgeDeps;
 
-  constructor(
-    private deviceWs: WebSocket,
-    private deps: BridgeDeps,
-  ) {
+  constructor(deviceWs: WebSocket, deps: BridgeDeps) {
+    this.deviceWs = deviceWs;
+    this.deps = deps;
     this.openai = new OpenAiRealtimeClient({
       apiKey: deps.apiKey,
       model: deps.model,

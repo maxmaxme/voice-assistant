@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LatencyTracker } from '../../src/realtime/metrics.js';
+import { LatencyTracker } from '../../src/realtime/metrics.ts';
 
 describe('LatencyTracker', () => {
   it('reports deltas between markers', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pcm16ToBase64, base64ToPcm16 } from '../../src/realtime/audio/format.js';
+import { pcm16ToBase64, base64ToPcm16 } from '../../src/realtime/audio/format.ts';
 
 describe('pcm16 helpers', () => {
   it('round-trips a buffer', () => {

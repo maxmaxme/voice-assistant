@@ -5,8 +5,11 @@ const log = pino({ name: 'realtime-metrics' });
 export class LatencyTracker {
   private marks: Map<string, number> = new Map();
   private order: string[] = [];
+  private now: () => number;
 
-  constructor(private now: () => number = () => Date.now()) {}
+  constructor(now: () => number = () => Date.now()) {
+    this.now = now;
+  }
 
   mark(name: string): void {
     if (this.marks.has(name)) {

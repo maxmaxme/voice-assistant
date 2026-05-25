@@ -3,7 +3,7 @@ import {
   parseDeviceMessage,
   encodeServerMessage,
   type ServerMessage,
-} from '../../src/realtime/protocol.js';
+} from '../../src/realtime/protocol.ts';
 
 describe('protocol', () => {
   it('parses a valid start message', () => {
