@@ -38,17 +38,24 @@ export type PromptChannel = 'telegram' | 'http' | 'assist' | 'realtime';
 
 const TEXT_FORMAT_ADDENDUM = loadPrompt('./prompts/text-format-addendum.md', import.meta.url);
 const VOICE_ADDENDUM = loadPrompt('./prompts/voice-addendum.md', import.meta.url);
+const REALTIME_ADDENDUM = loadPrompt('./prompts/realtime-addendum.md', import.meta.url);
 
 export function buildSystemPromptFor(channel: PromptChannel): string {
   const parts: string[] = [BASE_SYSTEM_PROMPT];
-  if (channel === 'assist' || channel === 'realtime') {
+  if (channel === 'assist') {
     parts.push(VOICE_ADDENDUM);
-  }
-  // Realtime output is spoken audio directly, not parsed JSON — skip the
-  // text-format contract for this channel.
-  if (channel !== 'realtime') {
     parts.push(TEXT_FORMAT_ADDENDUM);
+    return parts.join('\n\n');
   }
+  if (channel === 'realtime') {
+    // Realtime emits audio directly — no JSON `speak` field, so the
+    // text-format addendum and the JSON-flavoured voice rules in
+    // `voice-addendum.md` would just confuse the model. Use a lean,
+    // audio-only addendum and stop here.
+    parts.push(REALTIME_ADDENDUM);
+    return parts.join('\n\n');
+  }
+  parts.push(TEXT_FORMAT_ADDENDUM);
   return parts.join('\n\n');
 }
 
