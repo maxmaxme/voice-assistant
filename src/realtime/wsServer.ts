@@ -1,10 +1,10 @@
 import { createServer, type Server } from 'node:http';
 import { WebSocketServer } from 'ws';
-import { pino } from 'pino';
+import { createLogger } from '../utils/logger.ts';
 import { verifyBearer } from './auth.ts';
 import { RealtimeBridge, type BridgeDeps } from './realtimeBridge.ts';
 
-const log = pino({ name: 'realtime-ws-server' });
+const log = createLogger('realtime-ws-server');
 
 export interface StartOptions {
   port: number;

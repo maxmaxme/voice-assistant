@@ -1,8 +1,8 @@
 import WebSocket from 'ws';
-import { pino } from 'pino';
+import { createLogger } from '../utils/logger.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
 
-const log = pino({ name: 'openai-realtime' });
+const log = createLogger('openai-realtime');
 
 export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 

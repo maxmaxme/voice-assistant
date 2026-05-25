@@ -1,6 +1,6 @@
-import { pino } from 'pino';
+import { createLogger } from '../utils/logger.ts';
 
-const log = pino({ name: 'realtime-metrics' });
+const log = createLogger('realtime-metrics');
 
 export class LatencyTracker {
   private marks: Map<string, number> = new Map();

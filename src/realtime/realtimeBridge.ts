@@ -1,5 +1,5 @@
 import type WebSocket from 'ws';
-import { pino } from 'pino';
+import { createLogger } from '../utils/logger.ts';
 import {
   OpenAiRealtimeClient,
   type RealtimeEvent,
@@ -11,7 +11,7 @@ import { encodeServerMessage, parseDeviceMessage, type ServerMessage } from './p
 import { LatencyTracker } from './metrics.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
 
-const log = pino({ name: 'realtime-bridge' });
+const log = createLogger('realtime-bridge');
 
 export interface BridgeDeps {
   apiKey: string;
