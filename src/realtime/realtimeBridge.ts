@@ -48,10 +48,14 @@ export class RealtimeBridge {
   constructor(deviceWs: WebSocket, deps: BridgeDeps) {
     this.deviceWs = deviceWs;
     this.deps = deps;
-    // Inject the built-in `wait_for_user` tool ahead of MCP tools. The
-    // model is instructed to call it whenever incoming audio is silence,
-    // noise, or speech not addressed to the assistant; we treat it as a
-    // "stay silent" signal and don't trigger a follow-up response.
+    // Inject two built-in flow-control tools ahead of MCP tools:
+    //   - wait_for_user: incoming audio is silence/noise/echo; stay silent.
+    //   - request_follow_up: model asked the user a clarifying question and
+    //     wants them to answer without saying a wake word again. The bridge
+    //     opens a follow-up mic window on the device.
+    // By default the device closes the mic after every reply (XMOS AEC is
+    // too leaky to hold the window open speculatively), so request_follow_up
+    // is the *only* way to chain a turn without a wake word.
     const toolsWithWait: RealtimeTool[] = [
       {
         type: 'function',
@@ -61,6 +65,18 @@ export class RealtimeBridge {
           'silence, background noise, the device hearing its own previous reply, ' +
           'side conversation, or speech not addressed to the assistant. Use it ' +
           'instead of saying "I did not catch that".',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+      {
+        type: 'function',
+        name: 'request_follow_up',
+        description:
+          'Call this immediately after speaking a question or clarification ' +
+          'request to the user, so they can answer without saying a wake word ' +
+          'again. The device will keep its microphone open for a few seconds ' +
+          'after your reply. Only call this when you actually expect the user ' +
+          'to respond; never call it after a statement that does not invite a ' +
+          'reply.',
         parameters: { type: 'object', properties: {}, required: [] },
       },
       ...deps.tools,
@@ -233,6 +249,16 @@ export class RealtimeBridge {
     if (name === 'wait_for_user') {
       log.info('wait_for_user — staying silent, no response triggered');
       this.openai.submitToolResult(callId, '{}', /* triggerResponse */ false);
+      this.setPhase('idle');
+      return;
+    }
+    // Built-in request_follow_up: model asked a question and wants the user
+    // to answer without saying a wake word. Tell the device to open its
+    // follow-up mic window, then close out the LED phase cleanly.
+    if (name === 'request_follow_up') {
+      log.info('request_follow_up — opening device follow-up mic window');
+      this.openai.submitToolResult(callId, '{}', /* triggerResponse */ false);
+      this.sendDevice({ type: 'request_follow_up' });
       this.setPhase('idle');
       return;
     }

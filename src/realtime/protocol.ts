@@ -14,7 +14,10 @@ export type ServerMessage =
   | { type: 'phase'; value: Phase }
   | { type: 'error'; message: string }
   | { type: 'pong' }
-  | { type: 'hello'; audioOut: 'pcm' | 'opus' };
+  | { type: 'hello'; audioOut: 'pcm' | 'opus' }
+  // Model explicitly requested that the user be allowed to answer without
+  // a new wake word — open the follow-up mic window on the device.
+  | { type: 'request_follow_up' };
 
 export function parseDeviceMessage(raw: string): DeviceMessage {
   const json = JSON.parse(raw);
