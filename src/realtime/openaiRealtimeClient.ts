@@ -119,7 +119,7 @@ export class OpenAiRealtimeClient {
     this.send({ type: 'input_audio_buffer.clear' });
   }
 
-  submitToolResult(callId: string, output: string): void {
+  submitToolResult(callId: string, output: string, triggerResponse = true): void {
     this.send({
       type: 'conversation.item.create',
       item: {
@@ -128,7 +128,9 @@ export class OpenAiRealtimeClient {
         output,
       },
     });
-    this.send({ type: 'response.create' });
+    if (triggerResponse) {
+      this.send({ type: 'response.create' });
+    }
   }
 
   close(): void {

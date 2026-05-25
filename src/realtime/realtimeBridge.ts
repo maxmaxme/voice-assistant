@@ -48,12 +48,29 @@ export class RealtimeBridge {
   constructor(deviceWs: WebSocket, deps: BridgeDeps) {
     this.deviceWs = deviceWs;
     this.deps = deps;
+    // Inject the built-in `wait_for_user` tool ahead of MCP tools. The
+    // model is instructed to call it whenever incoming audio is silence,
+    // noise, or speech not addressed to the assistant; we treat it as a
+    // "stay silent" signal and don't trigger a follow-up response.
+    const toolsWithWait: RealtimeTool[] = [
+      {
+        type: 'function',
+        name: 'wait_for_user',
+        description:
+          'Call this when the latest audio does not need a spoken response: ' +
+          'silence, background noise, the device hearing its own previous reply, ' +
+          'side conversation, or speech not addressed to the assistant. Use it ' +
+          'instead of saying "I did not catch that".',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+      ...deps.tools,
+    ];
     this.openai = new OpenAiRealtimeClient({
       apiKey: deps.apiKey,
       model: deps.model,
       instructions: deps.instructions,
       voice: deps.voice,
-      tools: deps.tools,
+      tools: toolsWithWait,
       reasoningEffort: deps.reasoningEffort,
     });
   }
@@ -208,6 +225,17 @@ export class RealtimeBridge {
   }
 
   private async handleToolCall(callId: string, name: string, argsJson: string): Promise<void> {
+    // Built-in wait_for_user: model decided the audio doesn't warrant a
+    // spoken reply. Acknowledge the tool call so the conversation state
+    // stays valid, but DO NOT request a new response — the device should
+    // just keep listening. End the LED replying/thinking phase manually
+    // because the server isn't going to emit a clean response.done.
+    if (name === 'wait_for_user') {
+      log.info('wait_for_user — staying silent, no response triggered');
+      this.openai.submitToolResult(callId, '{}', /* triggerResponse */ false);
+      this.setPhase('idle');
+      return;
+    }
     const t0 = Date.now();
     let args: unknown;
     try {
