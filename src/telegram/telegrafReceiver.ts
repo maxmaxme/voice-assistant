@@ -1,5 +1,8 @@
 import { Telegraf, type Context } from 'telegraf';
 import type { TelegramReceiver, TelegramMessage } from './types.ts';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('telegram-receiver');
 
 export interface TelegrafReceiverOptions {
   botToken: string;
@@ -51,8 +54,20 @@ export class TelegrafReceiver implements TelegramReceiver {
   async *messages(): AsyncIterable<TelegramMessage> {
     // launch() starts long-polling. It returns a promise that resolves when
     // the bot is stopped. We don't await it here so the iterator can run.
-    this.bot.launch({ dropPendingUpdates: false }).catch(() => {
-      // Errors during graceful stop are expected — swallow them.
+    // launch() resolves when the bot stops; rejects on polling failure
+    // (network outage, 409 Conflict from a duplicate poller, invalid token).
+    // We can't await it here without blocking the iterator, but we MUST NOT
+    // swallow rejections — a dead polling loop with no log line means the
+    // container looks healthy while Telegram messages pile up unread.
+    this.bot.launch({ dropPendingUpdates: false }).catch((err: unknown) => {
+      if (this.stopped) {
+        // Expected during graceful shutdown.
+        return;
+      }
+      log.fatal({ err }, 'telegram long-polling failed — exiting so the container restarts');
+      // Crash hard: the container's restart policy will bring us back, and
+      // any orchestrator healthcheck on process liveness will notice.
+      process.exit(1);
     });
 
     while (!this.stopped) {
