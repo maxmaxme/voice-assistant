@@ -13,6 +13,20 @@ import type { RealtimeTool } from './toolAdapter.ts';
 
 const log = createLogger('realtime-bridge');
 
+function truncatePreview(value: unknown): string {
+  let s: string;
+  if (typeof value === 'string') {
+    s = value;
+  } else {
+    try {
+      s = JSON.stringify(value);
+    } catch {
+      s = String(value);
+    }
+  }
+  return s.length > 200 ? s.slice(0, 200) + '…' : s;
+}
+
 export interface BridgeDeps {
   apiKey: string;
   model: string;
@@ -105,6 +119,18 @@ export class RealtimeBridge {
         this.metrics.mark('thinking_started');
         this.setPhase('thinking');
         break;
+      case 'conversation.item.input_audio_transcription.completed': {
+        const transcript =
+          'transcript' in ev && typeof ev.transcript === 'string' ? ev.transcript : '';
+        log.info({ transcript }, `user → ${transcript}`);
+        break;
+      }
+      case 'response.output_audio_transcript.done': {
+        const transcript =
+          'transcript' in ev && typeof ev.transcript === 'string' ? ev.transcript : '';
+        log.info({ transcript }, `assistant → ${transcript}`);
+        break;
+      }
       case 'response.output_audio.delta': {
         this.metrics.mark('first_audio_out');
         if (typeof ev.delta === 'string') {
@@ -168,13 +194,29 @@ export class RealtimeBridge {
   }
 
   private async handleToolCall(callId: string, name: string, argsJson: string): Promise<void> {
-    log.info({ name, callId }, 'tool call');
+    const t0 = Date.now();
+    let args: unknown;
     try {
-      const args: unknown = JSON.parse(argsJson);
+      args = JSON.parse(argsJson);
+    } catch {
+      args = argsJson;
+    }
+    try {
       const result = await this.deps.runTool(name, args);
+      const durationMs = Date.now() - t0;
+      const truncatedResult = result.length > 500 ? result.slice(0, 500) + '…' : result;
+      log.info(
+        { name, callId, args, durationMs },
+        `${name}(${truncatePreview(args)}) → ${truncatedResult} (${durationMs}ms)`,
+      );
       this.openai.submitToolResult(callId, result);
     } catch (err) {
+      const durationMs = Date.now() - t0;
       const errorMsg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { name, callId, args, durationMs, err },
+        `${name}(${truncatePreview(args)}) FAILED in ${durationMs}ms: ${errorMsg}`,
+      );
       this.openai.submitToolResult(callId, JSON.stringify({ error: errorMsg }));
     }
   }

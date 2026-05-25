@@ -80,6 +80,10 @@ export class OpenAiRealtimeClient {
         input: {
           format: { type: 'audio/pcm', rate: 24000 },
           turn_detection: { type: 'server_vad' },
+          // Ask the server to transcribe user audio so we can log what was
+          // actually heard. Free-ish (whisper-style) and very useful when
+          // debugging "the AI did something weird" — we can see the input.
+          transcription: { model: 'whisper-1' },
         },
         output: {
           format: { type: 'audio/pcm', rate: 24000 },
