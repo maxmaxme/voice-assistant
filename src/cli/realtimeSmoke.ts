@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   let closed = false;
   const QUIET_AFTER_AUDIO_MS = 1000; // close 1s after last audio chunk
 
-  const cleanup = (): void => {
+  const cleanup = (): Promise<void> => {
     if (audioSendInterval) {
       clearInterval(audioSendInterval);
       audioSendInterval = null;
@@ -82,7 +82,9 @@ async function main(): Promise<void> {
       ws.close();
       ws = null;
     }
-    outStream.end();
+    return new Promise<void>((resolve) => {
+      outStream.end(() => resolve());
+    });
   };
 
   const scheduleEndOfTurn = (): void => {
@@ -98,8 +100,11 @@ async function main(): Promise<void> {
   const exit = (code: number): void => {
     if (!closed) {
       closed = true;
-      cleanup();
-      process.exit(code);
+      void cleanup().then(() => {
+        const bytes = outStream.bytesWritten;
+        log.info({ bytes, path: 'out.pcm' }, 'wrote pcm');
+        process.exit(code);
+      });
     }
   };
 
