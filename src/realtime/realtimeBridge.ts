@@ -1,0 +1,149 @@
+import type WebSocket from 'ws';
+import { pino } from 'pino';
+import { OpenAiRealtimeClient, type RealtimeEvent } from './openaiRealtimeClient.js';
+import { resamplePcm16 } from './audio/resample.js';
+import { pcm16ToBase64, base64ToPcm16 } from './audio/format.js';
+import { encodeServerMessage, parseDeviceMessage, type ServerMessage } from './protocol.js';
+import { LatencyTracker } from './metrics.js';
+import type { RealtimeTool } from './toolAdapter.js';
+
+const log = pino({ name: 'realtime-bridge' });
+
+export interface BridgeDeps {
+  apiKey: string;
+  model: string;
+  instructions: string;
+  voice: string;
+  tools: RealtimeTool[];
+  runTool: (name: string, args: unknown) => Promise<string>;
+}
+
+export class RealtimeBridge {
+  private openai: OpenAiRealtimeClient;
+  private metrics = new LatencyTracker();
+  private sessionId = Math.random().toString(36).slice(2, 10);
+
+  constructor(
+    private deviceWs: WebSocket,
+    private deps: BridgeDeps,
+  ) {
+    this.openai = new OpenAiRealtimeClient({
+      apiKey: deps.apiKey,
+      model: deps.model,
+      instructions: deps.instructions,
+      voice: deps.voice,
+      tools: deps.tools,
+    });
+  }
+
+  async start(): Promise<void> {
+    this.metrics.mark('bridge_start');
+    await this.openai.connect();
+    this.metrics.mark('openai_connected');
+
+    this.openai.on((ev) => this.handleOpenAi(ev));
+
+    this.deviceWs.on('message', (data, isBinary) => this.handleDevice(data, isBinary));
+    this.deviceWs.on('close', () => {
+      log.info({ sessionId: this.sessionId }, 'device closed');
+      this.metrics.log(this.sessionId);
+      this.openai.close();
+    });
+
+    this.sendDevice({ type: 'hello', audioOut: 'pcm' });
+    this.sendDevice({ type: 'phase', value: 'idle' });
+  }
+
+  private handleDevice(data: WebSocket.RawData, isBinary: boolean): void {
+    if (isBinary) {
+      this.metrics.mark('first_audio_in');
+      // Device sends PCM16 16kHz; OpenAI Realtime expects PCM16 24kHz.
+      let pcm16k: Buffer;
+      if (Buffer.isBuffer(data)) {
+        pcm16k = data;
+      } else if (data instanceof ArrayBuffer) {
+        pcm16k = Buffer.from(data);
+      } else {
+        // data is Buffer[] - concatenate them
+        pcm16k = Buffer.concat(data);
+      }
+      const pcm24k = resamplePcm16(pcm16k, 16000, 24000);
+      this.openai.appendAudioPcm16Base64(pcm16ToBase64(pcm24k));
+      return;
+    }
+    try {
+      const msg = parseDeviceMessage(data.toString());
+      log.debug({ msg }, 'device control msg');
+      if (msg.type === 'interrupt') {
+        this.openai.cancelResponse();
+        this.sendDevice({ type: 'phase', value: 'listening' });
+      } else if (msg.type === 'ping') {
+        this.sendDevice({ type: 'pong' });
+      }
+    } catch (err) {
+      log.warn({ err }, 'bad device control message');
+    }
+  }
+
+  private handleOpenAi(ev: RealtimeEvent): void {
+    switch (ev.type) {
+      case 'input_audio_buffer.speech_started':
+        this.sendDevice({ type: 'phase', value: 'listening' });
+        break;
+      case 'response.created':
+        this.metrics.mark('thinking_started');
+        this.sendDevice({ type: 'phase', value: 'thinking' });
+        break;
+      case 'response.audio.delta': {
+        this.metrics.mark('first_audio_out');
+        if (typeof ev.delta === 'string') {
+          const pcm24k = base64ToPcm16(ev.delta);
+          this.deviceWs.send(pcm24k, { binary: true });
+          this.sendDevice({ type: 'phase', value: 'replying' });
+        }
+        break;
+      }
+      case 'response.function_call_arguments.done': {
+        if (
+          typeof ev.call_id === 'string' &&
+          typeof ev.name === 'string' &&
+          typeof ev.arguments === 'string'
+        ) {
+          void this.handleToolCall(ev.call_id, ev.name, ev.arguments);
+        }
+        break;
+      }
+      case 'response.done':
+        this.sendDevice({ type: 'phase', value: 'idle' });
+        break;
+      case 'error': {
+        log.error({ ev }, 'openai realtime error');
+        let message = 'unknown';
+        if (typeof ev.error === 'object' && ev.error !== null && 'message' in ev.error) {
+          const msg = ev.error['message'];
+          if (typeof msg === 'string') {
+            message = msg;
+          }
+        }
+        this.sendDevice({ type: 'error', message });
+        break;
+      }
+    }
+  }
+
+  private async handleToolCall(callId: string, name: string, argsJson: string): Promise<void> {
+    log.info({ name, callId }, 'tool call');
+    try {
+      const args: unknown = JSON.parse(argsJson);
+      const result = await this.deps.runTool(name, args);
+      this.openai.submitToolResult(callId, result);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      this.openai.submitToolResult(callId, JSON.stringify({ error: errorMsg }));
+    }
+  }
+
+  private sendDevice(msg: ServerMessage): void {
+    this.deviceWs.send(encodeServerMessage(msg));
+  }
+}
