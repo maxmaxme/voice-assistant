@@ -33,3 +33,7 @@ ha-data/
 # Matter fabric controller data (deploy/docker-compose.yml mounts ../matter-data)
 matter-data/
 .worktrees/
+
+# Realtime smoke test artifacts
+*.pcm
+*.wav
