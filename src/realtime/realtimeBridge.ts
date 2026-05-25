@@ -125,9 +125,14 @@ export class RealtimeBridge {
         break;
       }
       case 'response.done': {
-        // A response.done whose output is purely function_call wrappers
-        // is just the pre-tool turn boundary — we'll get another response
-        // after submitToolResult. Don't drop back to idle in that case.
+        // If this response.done contains ANY function_call output, the model
+        // is going to need our tool result and then emit another response.
+        // Don't drop to idle yet — the device would close its replying phase,
+        // open the follow-up mic window, and pick up the next TTS chunks as
+        // "user speech" through the imperfect AEC. This covers both cases:
+        //  1) Pure tool-call response (no audio) — original concern.
+        //  2) Mixed response where the model speaks then calls a tool, e.g.
+        //     "Okay, turning off the kitchen light" followed by HassTurnOff.
         const response: unknown = 'response' in ev ? ev.response : undefined;
         const output =
           typeof response === 'object' &&
@@ -136,15 +141,13 @@ export class RealtimeBridge {
           Array.isArray(response.output)
             ? response.output
             : [];
-        const onlyToolCalls =
-          output.length > 0 &&
-          output.every((item: unknown) => {
-            if (typeof item !== 'object' || item === null || !('type' in item)) {
-              return false;
-            }
-            return item.type === 'function_call';
-          });
-        if (!onlyToolCalls) {
+        const hasToolCall = output.some((item: unknown) => {
+          if (typeof item !== 'object' || item === null || !('type' in item)) {
+            return false;
+          }
+          return item.type === 'function_call';
+        });
+        if (!hasToolCall) {
           this.setPhase('idle');
         }
         break;
