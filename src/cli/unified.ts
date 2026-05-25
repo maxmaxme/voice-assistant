@@ -3,11 +3,14 @@ import 'dotenv/config';
 import {
   initializeCommonDependencies,
   parseAgentMode,
+  buildSystemPromptFor,
   type AgentMode,
   type CommonDeps,
 } from './shared.ts';
 import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runners/telegram.ts';
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
+import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
+import { mcpToolsToRealtime } from '../realtime/toolAdapter.ts';
 import { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
@@ -141,8 +144,36 @@ export async function main(): Promise<void> {
 
   const deps = await initializeCommonDependencies();
 
+  let realtimeServer: RealtimeServer | null = null;
+  if (deps.config.realtime.enabled) {
+    realtimeServer = await startRealtimeServer({
+      port: deps.config.realtime.port,
+      token: deps.config.realtime.token,
+      buildBridgeDeps: async () => ({
+        apiKey: deps.config.openai.apiKey,
+        model: deps.config.realtime.model,
+        voice: deps.config.realtime.voice,
+        reasoningEffort: deps.config.realtime.reasoningEffort,
+        instructions: buildSystemPromptFor('assist'),
+        tools: mcpToolsToRealtime(await deps.mcp.listTools()),
+        runTool: async (name, args) => {
+          const safeArgs: Record<string, unknown> = {};
+          if (args && typeof args === 'object') {
+            Object.assign(safeArgs, args);
+          }
+          const result = await deps.mcp.callTool(name, safeArgs);
+          return JSON.stringify(result);
+        },
+      }),
+    });
+    log.info({ port: realtimeServer.port }, 'realtime server listening');
+  }
+
   const onShutdown = async (signal: string): Promise<void> => {
     log.info({ signal }, `received ${signal}, shutting down`);
+    if (realtimeServer) {
+      await realtimeServer.close().catch(() => {});
+    }
     await deps.dispose();
     process.exit(0);
   };
@@ -155,6 +186,9 @@ export async function main(): Promise<void> {
       http: runHttpMode,
     });
   } finally {
+    if (realtimeServer) {
+      await realtimeServer.close().catch(() => {});
+    }
     await deps.dispose();
   }
 }
