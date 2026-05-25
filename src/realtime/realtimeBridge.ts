@@ -29,6 +29,7 @@ export class RealtimeBridge {
   private sessionId = Math.random().toString(36).slice(2, 10);
   private deviceWs: WebSocket;
   private deps: BridgeDeps;
+  private currentPhase: 'idle' | 'listening' | 'thinking' | 'replying' = 'idle';
 
   constructor(deviceWs: WebSocket, deps: BridgeDeps) {
     this.deviceWs = deviceWs;
@@ -58,7 +59,7 @@ export class RealtimeBridge {
     });
 
     this.sendDevice({ type: 'hello', audioOut: 'pcm' });
-    this.sendDevice({ type: 'phase', value: 'idle' });
+    this.setPhase('idle', { force: true });
   }
 
   private handleDevice(data: WebSocket.RawData, isBinary: boolean): void {
@@ -83,7 +84,7 @@ export class RealtimeBridge {
       log.debug({ msg }, 'device control msg');
       if (msg.type === 'interrupt') {
         this.openai.cancelResponse();
-        this.sendDevice({ type: 'phase', value: 'listening' });
+        this.setPhase('listening');
       } else if (msg.type === 'ping') {
         this.sendDevice({ type: 'pong' });
       }
@@ -95,18 +96,21 @@ export class RealtimeBridge {
   private handleOpenAi(ev: RealtimeEvent): void {
     switch (ev.type) {
       case 'input_audio_buffer.speech_started':
-        this.sendDevice({ type: 'phase', value: 'listening' });
+        this.setPhase('listening');
         break;
-      case 'response.created':
+      case 'input_audio_buffer.speech_stopped':
+        // Server VAD detected end-of-speech. Eagerly enter "thinking"
+        // before response.created so the LED reflects intent without a
+        // gap. We stay in this phase through any tool-call cycles.
         this.metrics.mark('thinking_started');
-        this.sendDevice({ type: 'phase', value: 'thinking' });
+        this.setPhase('thinking');
         break;
       case 'response.output_audio.delta': {
         this.metrics.mark('first_audio_out');
         if (typeof ev.delta === 'string') {
           const pcm24k = base64ToPcm16(ev.delta);
           this.deviceWs.send(pcm24k, { binary: true });
-          this.sendDevice({ type: 'phase', value: 'replying' });
+          this.setPhase('replying');
         }
         break;
       }
@@ -120,9 +124,31 @@ export class RealtimeBridge {
         }
         break;
       }
-      case 'response.done':
-        this.sendDevice({ type: 'phase', value: 'idle' });
+      case 'response.done': {
+        // A response.done whose output is purely function_call wrappers
+        // is just the pre-tool turn boundary — we'll get another response
+        // after submitToolResult. Don't drop back to idle in that case.
+        const response: unknown = 'response' in ev ? ev.response : undefined;
+        const output =
+          typeof response === 'object' &&
+          response !== null &&
+          'output' in response &&
+          Array.isArray(response.output)
+            ? response.output
+            : [];
+        const onlyToolCalls =
+          output.length > 0 &&
+          output.every((item: unknown) => {
+            if (typeof item !== 'object' || item === null || !('type' in item)) {
+              return false;
+            }
+            return item.type === 'function_call';
+          });
+        if (!onlyToolCalls) {
+          this.setPhase('idle');
+        }
         break;
+      }
       case 'error': {
         log.error({ ev }, 'openai realtime error');
         let message = 'unknown';
@@ -152,5 +178,20 @@ export class RealtimeBridge {
 
   private sendDevice(msg: ServerMessage): void {
     this.deviceWs.send(encodeServerMessage(msg));
+  }
+
+  /** Update the phase LED on the device. Dedupes — repeated same-phase
+   * messages are suppressed so the device doesn't flicker. Pass
+   * `force: true` for the initial hello to make sure the device sees the
+   * starting state even if we haven't transitioned yet. */
+  private setPhase(
+    next: 'idle' | 'listening' | 'thinking' | 'replying',
+    opts: { force?: boolean } = {},
+  ): void {
+    if (!opts.force && this.currentPhase === next) {
+      return;
+    }
+    this.currentPhase = next;
+    this.sendDevice({ type: 'phase', value: next });
   }
 }
