@@ -63,7 +63,10 @@ async function main(): Promise<void> {
   let endOfTurnTimer: NodeJS.Timeout | null = null;
   let ws: WebSocket | null = null;
   let closed = false;
-  const QUIET_AFTER_AUDIO_MS = 1000; // close 1s after last audio chunk
+  // Reset the end-of-turn timer on ANY frame (audio or control). 3 s of
+  // silence covers the time the server spends on tool round-trips (preamble
+  // audio → tool call → MCP roundtrip → final answer audio).
+  const QUIET_AFTER_ANY_MS = 3000;
 
   const cleanup = (): Promise<void> => {
     if (audioSendInterval) {
@@ -92,9 +95,9 @@ async function main(): Promise<void> {
       clearTimeout(endOfTurnTimer);
     }
     endOfTurnTimer = setTimeout(() => {
-      log.info(`no audio for ${QUIET_AFTER_AUDIO_MS}ms after reply — closing`);
+      log.info(`${QUIET_AFTER_ANY_MS}ms of silence — closing`);
       exit(0);
-    }, QUIET_AFTER_AUDIO_MS);
+    }, QUIET_AFTER_ANY_MS);
   };
 
   const exit = (code: number): void => {
@@ -151,15 +154,17 @@ async function main(): Promise<void> {
   ws.on('message', (data: WebSocket.RawData, isBinary: boolean) => {
     // The `ws` library always delivers a Buffer in Node; the second arg is
     // the only reliable way to tell text frames from binary ones.
+    // Reset the end-of-turn timer on every frame — server may have more work
+    // queued (tool round-trips, multi-stage responses).
+    scheduleEndOfTurn();
+
     if (isBinary && Buffer.isBuffer(data)) {
-      // Binary frame — PCM audio
       if (firstAudioOutTs === null) {
         firstAudioOutTs = Date.now();
         const latencyMs = firstAudioOutTs - connectTs;
         log.info(`first audio out: ${latencyMs}ms`);
       }
       outStream.write(data);
-      scheduleEndOfTurn();
       return;
     }
     // Text frame — control message
