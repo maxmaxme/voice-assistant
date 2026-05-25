@@ -123,6 +123,20 @@ export class RealtimeBridge {
         const transcript =
           'transcript' in ev && typeof ev.transcript === 'string' ? ev.transcript : '';
         log.info({ transcript }, `user → ${transcript}`);
+        // Empty / near-empty transcript means whisper heard noise or the
+        // device's own TTS tail. Realtime fires a response in parallel
+        // with transcription, so by the time we know it's empty the model
+        // is already saying "I didn't catch that". Cancel it to keep the
+        // device quiet rather than spawning a useless turn.
+        const cleaned = transcript.trim();
+        if (cleaned.length === 0 || cleaned === '.' || cleaned === '…') {
+          log.info('user transcript is empty — cancelling in-flight response');
+          try {
+            this.openai.cancelResponse();
+          } catch (err) {
+            log.warn({ err }, 'failed to cancel empty-input response');
+          }
+        }
         break;
       }
       case 'response.output_audio_transcript.done': {
