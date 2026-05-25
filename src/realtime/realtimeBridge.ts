@@ -122,7 +122,7 @@ export class RealtimeBridge {
       case 'conversation.item.input_audio_transcription.completed': {
         const transcript =
           'transcript' in ev && typeof ev.transcript === 'string' ? ev.transcript : '';
-        log.info({ transcript }, `user → ${transcript}`);
+        log.info(`user → ${transcript}`);
         // Empty / near-empty transcript means whisper heard noise or the
         // device's own TTS tail. Realtime fires a response in parallel
         // with transcription, so by the time we know it's empty the model
@@ -142,7 +142,7 @@ export class RealtimeBridge {
       case 'response.output_audio_transcript.done': {
         const transcript =
           'transcript' in ev && typeof ev.transcript === 'string' ? ev.transcript : '';
-        log.info({ transcript }, `assistant → ${transcript}`);
+        log.info(`assistant → ${transcript}`);
         break;
       }
       case 'response.output_audio.delta': {
