@@ -148,9 +148,10 @@ async function main(): Promise<void> {
     }, 20);
   });
 
-  ws.on('message', (data: WebSocket.RawData) => {
-    // Handle binary and text messages
-    if (Buffer.isBuffer(data)) {
+  ws.on('message', (data: WebSocket.RawData, isBinary: boolean) => {
+    // The `ws` library always delivers a Buffer in Node; the second arg is
+    // the only reliable way to tell text frames from binary ones.
+    if (isBinary && Buffer.isBuffer(data)) {
       // Binary frame — PCM audio
       if (firstAudioOutTs === null) {
         firstAudioOutTs = Date.now();
@@ -159,16 +160,15 @@ async function main(): Promise<void> {
       }
       outStream.write(data);
       scheduleEndOfTurn();
-    } else {
-      // Text frame — control message
-      try {
-        const text = typeof data === 'string' ? data : data.toString();
-        const parsed = JSON.parse(text);
-        log.info({ control: parsed }, 'control');
-      } catch {
-        // Couldn't parse JSON, just log raw
-        log.info({ raw: data }, 'control (unparsed)');
-      }
+      return;
+    }
+    // Text frame — control message
+    try {
+      const text = Buffer.isBuffer(data) ? data.toString() : String(data);
+      const parsed: unknown = JSON.parse(text);
+      log.info({ control: parsed }, 'control');
+    } catch {
+      log.info({ raw: data }, 'control (unparsed)');
     }
   });
 
