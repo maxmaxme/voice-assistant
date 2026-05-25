@@ -162,8 +162,16 @@ export class RealtimeBridge {
         // is already saying "I didn't catch that". Cancel it to keep the
         // device quiet rather than spawning a useless turn.
         const cleaned = transcript.trim();
-        if (cleaned.length === 0 || cleaned === '.' || cleaned === '…') {
-          log.info('user transcript is empty — cancelling in-flight response');
+        // Empty / single-non-letter transcripts are whisper hallucinating
+        // from a brief noise burst (speaker-amp click, knob click, a stray
+        // glottal sound). We've seen "뿅!", "...", single punctuation, etc.
+        // Treat anything without at least one letter/digit character as noise.
+        const hasLetterOrDigit = /\p{L}|\p{N}/u.test(cleaned);
+        if (cleaned.length === 0 || !hasLetterOrDigit) {
+          log.info(
+            { transcript },
+            'user transcript looks like noise — cancelling in-flight response',
+          );
           try {
             this.openai.cancelResponse();
           } catch (err) {
