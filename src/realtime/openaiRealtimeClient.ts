@@ -82,7 +82,7 @@ export class OpenAiRealtimeClient {
           turn_detection: { type: 'server_vad' },
         },
         output: {
-          format: { type: 'audio/pcm' },
+          format: { type: 'audio/pcm', rate: 24000 },
           voice: this.opts.voice,
         },
       },
