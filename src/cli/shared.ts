@@ -27,18 +27,28 @@ export type AgentMode = (typeof AGENT_MODES)[number];
  *                    rules apply (spell out units, no markdown/URLs/etc).
  *                    `ask` on — `expectsFollowUp` is forwarded as
  *                    `continue_conversation` so HA reopens the mic.
+ *  - `realtime`    — Direct WS to Voice PE via OpenAI Realtime. Output is
+ *                    spoken DIRECTLY by the Realtime model — no JSON parsing
+ *                    layer, so the text-format addendum (which mandates
+ *                    `{"speak": ..., "direction": ...}`) must NOT apply,
+ *                    otherwise the model proudly pronounces the JSON keys.
+ *                    Same voice rules as `assist`.
  */
-export type PromptChannel = 'telegram' | 'http' | 'assist';
+export type PromptChannel = 'telegram' | 'http' | 'assist' | 'realtime';
 
 const TEXT_FORMAT_ADDENDUM = loadPrompt('./prompts/text-format-addendum.md', import.meta.url);
 const VOICE_ADDENDUM = loadPrompt('./prompts/voice-addendum.md', import.meta.url);
 
 export function buildSystemPromptFor(channel: PromptChannel): string {
   const parts: string[] = [BASE_SYSTEM_PROMPT];
-  if (channel === 'assist') {
+  if (channel === 'assist' || channel === 'realtime') {
     parts.push(VOICE_ADDENDUM);
   }
-  parts.push(TEXT_FORMAT_ADDENDUM);
+  // Realtime output is spoken audio directly, not parsed JSON — skip the
+  // text-format contract for this channel.
+  if (channel !== 'realtime') {
+    parts.push(TEXT_FORMAT_ADDENDUM);
+  }
   return parts.join('\n\n');
 }
 
