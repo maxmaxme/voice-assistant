@@ -60,8 +60,10 @@ async function main(): Promise<void> {
   let connectTs: number;
   let audioSendInterval: NodeJS.Timeout | null = null;
   let safetyTimeout: NodeJS.Timeout | null = null;
+  let endOfTurnTimer: NodeJS.Timeout | null = null;
   let ws: WebSocket | null = null;
   let closed = false;
+  const QUIET_AFTER_AUDIO_MS = 1000; // close 1s after last audio chunk
 
   const cleanup = (): void => {
     if (audioSendInterval) {
@@ -72,11 +74,25 @@ async function main(): Promise<void> {
       clearTimeout(safetyTimeout);
       safetyTimeout = null;
     }
+    if (endOfTurnTimer) {
+      clearTimeout(endOfTurnTimer);
+      endOfTurnTimer = null;
+    }
     if (ws) {
       ws.close();
       ws = null;
     }
     outStream.end();
+  };
+
+  const scheduleEndOfTurn = (): void => {
+    if (endOfTurnTimer) {
+      clearTimeout(endOfTurnTimer);
+    }
+    endOfTurnTimer = setTimeout(() => {
+      log.info(`no audio for ${QUIET_AFTER_AUDIO_MS}ms after reply — closing`);
+      exit(0);
+    }, QUIET_AFTER_AUDIO_MS);
   };
 
   const exit = (code: number): void => {
@@ -137,6 +153,7 @@ async function main(): Promise<void> {
         log.info(`first audio out: ${latencyMs}ms`);
       }
       outStream.write(data);
+      scheduleEndOfTurn();
     } else {
       // Text frame — control message
       try {
