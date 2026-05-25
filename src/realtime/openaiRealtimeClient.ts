@@ -4,21 +4,25 @@ import type { RealtimeTool } from './toolAdapter.ts';
 
 const log = pino({ name: 'openai-realtime' });
 
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
 export interface RealtimeClientOptions {
   apiKey: string;
   model: string;
   instructions: string;
   tools: RealtimeTool[];
   voice: string;
+  reasoningEffort?: ReasoningEffort;
 }
 
 export type RealtimeEvent =
   | { type: 'session.created'; session: unknown }
+  | { type: 'session.updated'; session: unknown }
   | { type: 'input_audio_buffer.speech_started' }
   | { type: 'input_audio_buffer.speech_stopped' }
   | { type: 'response.created'; response: { id: string } }
-  | { type: 'response.audio.delta'; delta: string; response_id: string }
-  | { type: 'response.audio.done'; response_id: string }
+  | { type: 'response.output_audio.delta'; delta: string; response_id: string }
+  | { type: 'response.output_audio.done'; response_id: string }
   | { type: 'response.done'; response: { id: string; output: unknown[] } }
   | {
       type: 'response.function_call_arguments.done';
@@ -50,7 +54,6 @@ export class OpenAiRealtimeClient {
     this.ws = new WebSocket(url, {
       headers: {
         Authorization: `Bearer ${this.opts.apiKey}`,
-        'OpenAI-Beta': 'realtime=v1',
       },
     });
     await new Promise<void>((resolve, reject) => {
@@ -69,18 +72,27 @@ export class OpenAiRealtimeClient {
         log.warn({ err }, 'failed to parse realtime event');
       }
     });
-    this.send({
-      type: 'session.update',
-      session: {
-        modalities: ['audio', 'text'],
-        instructions: this.opts.instructions,
-        voice: this.opts.voice,
-        input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
-        turn_detection: { type: 'server_vad' },
-        tools: this.opts.tools,
+    const session: Record<string, unknown> = {
+      type: 'realtime',
+      model: this.opts.model,
+      output_modalities: ['audio'],
+      audio: {
+        input: {
+          format: { type: 'audio/pcm', rate: 24000 },
+          turn_detection: { type: 'server_vad' },
+        },
+        output: {
+          format: { type: 'audio/pcm' },
+          voice: this.opts.voice,
+        },
       },
-    });
+      instructions: this.opts.instructions,
+      tools: this.opts.tools,
+    };
+    if (this.opts.reasoningEffort) {
+      session.reasoning = { effort: this.opts.reasoningEffort };
+    }
+    this.send({ type: 'session.update', session });
   }
 
   on(listener: (ev: RealtimeEvent) => void): void {

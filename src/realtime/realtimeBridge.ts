@@ -1,6 +1,10 @@
 import type WebSocket from 'ws';
 import { pino } from 'pino';
-import { OpenAiRealtimeClient, type RealtimeEvent } from './openaiRealtimeClient.ts';
+import {
+  OpenAiRealtimeClient,
+  type RealtimeEvent,
+  type ReasoningEffort,
+} from './openaiRealtimeClient.ts';
 import { resamplePcm16 } from './audio/resample.ts';
 import { pcm16ToBase64, base64ToPcm16 } from './audio/format.ts';
 import { encodeServerMessage, parseDeviceMessage, type ServerMessage } from './protocol.ts';
@@ -16,6 +20,7 @@ export interface BridgeDeps {
   voice: string;
   tools: RealtimeTool[];
   runTool: (name: string, args: unknown) => Promise<string>;
+  reasoningEffort?: ReasoningEffort;
 }
 
 export class RealtimeBridge {
@@ -34,6 +39,7 @@ export class RealtimeBridge {
       instructions: deps.instructions,
       voice: deps.voice,
       tools: deps.tools,
+      reasoningEffort: deps.reasoningEffort,
     });
   }
 
@@ -95,7 +101,7 @@ export class RealtimeBridge {
         this.metrics.mark('thinking_started');
         this.sendDevice({ type: 'phase', value: 'thinking' });
         break;
-      case 'response.audio.delta': {
+      case 'response.output_audio.delta': {
         this.metrics.mark('first_audio_out');
         if (typeof ev.delta === 'string') {
           const pcm24k = base64ToPcm16(ev.delta);
