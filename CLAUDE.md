@@ -7,10 +7,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Personal voice assistant for smart-home control. Targets a Raspberry Pi 5
 runtime, dev happens on macOS. Cloud-heavy stack: OpenAI for STT
 (`gpt-4o-transcribe`) and the LLM (`gpt-4o`); Home Assistant via the
-official MCP Server integration for device control. Voice I/O is done
-upstream by Voice PE + HA's Assist pipeline, which forwards utterances
-to this service's `POST /assist`. Telegram is the other channel into
-the same agent core.
+official MCP Server integration for device control.
+
+Two voice front-ends share the same agent backend:
+
+- **Voice PE speakers (primary)** connect to this service directly over
+  a WebSocket at `:3001/voice` and use OpenAI's **Realtime API** for
+  STT+LLM+TTS in one bidirectional session. HA is used only as an MCP
+  tool backend. See "Realtime bridge" below.
+- **Apple Shortcut / Telegram voice / curl / any HTTP client** still
+  POST to `/assist` (or `/audio` / `/text`) and go through the
+  Responses-API `OpenAiAgent`.
+
+Telegram is the other channel into the same agent core.
 
 This repo only owns the **server-side app** (Node/TS) and the image
 build. Deployment (compose, systemd, healthchecks, rollback) lives
@@ -200,6 +209,71 @@ Auth: `Authorization: Bearer <key>` against `HTTP_API_KEYS`. Two
 rate-limit layers: per-IP for failed auths (10 / 5 min) and per-token
 (30 / min). `/audio` also has a concurrency semaphore (2) to bound
 Whisper spend on a Pi.
+
+### Realtime bridge (`src/realtime/`)
+
+The Voice PE direct-streaming path. A second server runs alongside the
+HTTP runner (gated by `REALTIME_ENABLED=1`) and exposes a WebSocket at
+`:3001/voice`. Each device opens one WS; the bridge brokers between
+the device, OpenAI's Realtime API, and the same `HaMcpClient` the agent
+core uses.
+
+Key files:
+
+- `src/realtime/wsServer.ts` — HTTP+WS on `REALTIME_PORT` (default
+  `3001`). Bearer-token auth via `VA_DEVICE_TOKEN`, single path
+  `/voice`. Spawns one `RealtimeBridge` per accepted connection.
+- `src/realtime/realtimeBridge.ts` — per-session orchestrator: device
+  WS ↔ OpenAI Realtime ↔ HA MCP. Owns the phase state machine
+  (`idle` / `listening` / `thinking` / `replying`), audio passthrough
+  (with resampling), tool-call dispatch, transcript logging, and
+  shutdown. Cancels empty-transcript turns before they hit the model
+  (the `empty-transcript-cancel` guard) to avoid spurious responses
+  on silence.
+- `src/realtime/openaiRealtimeClient.ts` — thin wrapper around the
+  OpenAI Realtime WebSocket. Builds the `session.update` payload from
+  config (model, voice, modalities, tools, system prompt, input audio
+  transcription via `whisper-1`), forwards audio/text/tool events
+  upstream, surfaces typed events downstream.
+- `src/realtime/audio/format.ts`, `src/realtime/audio/resample.ts` —
+  PCM16 helpers and 16↔24 kHz linear resampling. Device sends mono
+  16 kHz PCM16; Realtime expects 24 kHz.
+- `src/realtime/toolAdapter.ts` — converts the MCP tool list (from
+  `HaMcpClient`) into the Realtime API's `tools` schema.
+- `src/realtime/protocol.ts` — JSON wire protocol with the device:
+  server→device `hello`, `phase`, `error`, `pong`; device→server
+  `start`, `interrupt`, `ping`. Binary frames are raw PCM16 in both
+  directions.
+- `src/realtime/metrics.ts` — `LatencyTracker` for the
+  `bridge_start → openai_connected → first_audio_in → first_audio_out`
+  markers. Logged on session end.
+
+Important behaviour:
+
+- **Tool calls go through the same `HaMcpClient`** that the
+  Responses-API agent uses — there's only one HA MCP client per
+  process.
+- **System prompt is shared with the assist channel**: built via
+  `buildSystemPromptFor('assist')` so the voice-flavour rules
+  (TTS-friendly output, brevity, no markdown) apply to the Realtime
+  session too.
+- **Logs mirror the agent core**: the bridge emits `user → <transcript>`,
+  `assistant → <transcript>`, and per-tool `name(args) → result (Nms)`
+  lines so transcripts look uniform across channels.
+- **Input audio transcription** uses `whisper-1` inside the Realtime
+  session (separate from the Realtime model's own internal STT) so
+  user transcripts are available for logging / memory.
+
+Env vars:
+
+| Var                                | Default               | Purpose                                                      |
+| ---------------------------------- | --------------------- | ------------------------------------------------------------ |
+| `REALTIME_ENABLED`                 | unset                 | Set to `1` to start the WS server alongside the HTTP runner. |
+| `VA_DEVICE_TOKEN`                  | required when enabled | Bearer token devices must present on the WS handshake.       |
+| `REALTIME_PORT`                    | `3001`                | WS listen port.                                              |
+| `OPENAI_REALTIME_MODEL`            | `gpt-realtime-2`      | Realtime model id.                                           |
+| `OPENAI_REALTIME_VOICE`            | `marin`               | Realtime TTS voice.                                          |
+| `OPENAI_REALTIME_REASONING_EFFORT` | `low`                 | Forwarded into the `session.update` reasoning config.        |
 
 ### MCP client (`src/mcp/haMcpClient.ts`)
 
