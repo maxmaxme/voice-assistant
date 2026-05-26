@@ -29,6 +29,11 @@ const ConfigSchema = z.object({
     model: z.string().default('gpt-realtime-2'),
     voice: z.string().default('marin'),
     reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).default('low'),
+    idleResetMs: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .default(90 * 1000),
   }),
 });
 
@@ -51,6 +56,7 @@ const PATH_TO_ENV: Record<string, string> = {
   'realtime.model': 'OPENAI_REALTIME_MODEL',
   'realtime.voice': 'OPENAI_REALTIME_VOICE',
   'realtime.reasoningEffort': 'OPENAI_REALTIME_REASONING_EFFORT',
+  'realtime.idleResetMs': 'REALTIME_IDLE_RESET_MS',
 };
 
 export function loadConfig(): Config {
@@ -101,6 +107,7 @@ export function loadConfig(): Config {
       model: process.env.OPENAI_REALTIME_MODEL,
       voice: process.env.OPENAI_REALTIME_VOICE,
       reasoningEffort: process.env.OPENAI_REALTIME_REASONING_EFFORT,
+      idleResetMs: process.env.REALTIME_IDLE_RESET_MS,
     },
   };
   const parsed = ConfigSchema.safeParse(raw);

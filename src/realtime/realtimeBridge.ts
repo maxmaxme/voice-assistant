@@ -35,6 +35,11 @@ export interface BridgeDeps {
   tools: RealtimeTool[];
   runTool: (name: string, args: unknown) => Promise<string>;
   reasoningEffort?: ReasoningEffort;
+  // How long to wait while the bridge is in `idle` phase before tearing
+  // down the upstream OpenAI Realtime session so the next wake word gets
+  // a fresh conversation. 0 disables the timer (legacy behaviour — the
+  // session only resets on OpenAI's hard 30/60-minute cap).
+  idleResetMs?: number;
 }
 
 export class RealtimeBridge {
@@ -71,9 +76,18 @@ export class RealtimeBridge {
   // memory if the connect hangs.
   private static readonly MAX_AUDIO_BUFFER_FRAMES = 200;
 
+  // Idle-reset: drops the upstream Realtime session after the bridge sits
+  // in `idle` for `idleResetMs`, so the next wake word starts a fresh
+  // conversation instead of resuming whatever was being discussed N
+  // minutes ago. Pairs with lazy-reconnect — closing the upstream is
+  // enough, the next audio frame will reopen it.
+  private idleResetTimer: NodeJS.Timeout | null = null;
+  private readonly idleResetMs: number;
+
   constructor(deviceWs: WebSocket, deps: BridgeDeps) {
     this.deviceWs = deviceWs;
     this.deps = deps;
+    this.idleResetMs = deps.idleResetMs ?? 0;
     // Inject two built-in flow-control tools ahead of MCP tools:
     //   - wait_for_user: incoming audio is silence/noise/echo; stay silent.
     //   - request_follow_up: model asked the user a clarifying question and
@@ -143,6 +157,7 @@ export class RealtimeBridge {
     this.deviceWs.on('close', () => {
       log.info({ sessionId: this.sessionId }, 'device closed');
       this.clearFollowUpWatchdog();
+      this.clearIdleResetTimer();
       this.metrics.log(this.sessionId);
       this.openai.close();
     });
@@ -468,6 +483,41 @@ export class RealtimeBridge {
     }
     this.currentPhase = next;
     this.sendDevice({ type: 'phase', value: next });
+    if (next === 'idle') {
+      this.armIdleResetTimer();
+    } else {
+      this.clearIdleResetTimer();
+    }
+  }
+
+  private armIdleResetTimer(): void {
+    this.clearIdleResetTimer();
+    if (this.idleResetMs <= 0) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.idleResetTimer = null;
+      if (this.openaiState !== 'connected') {
+        return;
+      }
+      log.info(
+        { sessionId: this.sessionId, idleResetMs: this.idleResetMs },
+        'idle reset — closing upstream so next wake word starts a fresh conversation',
+      );
+      this.openai.close();
+    }, this.idleResetMs);
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+    this.idleResetTimer = timer;
+  }
+
+  private clearIdleResetTimer(): void {
+    if (this.idleResetTimer === null) {
+      return;
+    }
+    clearTimeout(this.idleResetTimer);
+    this.idleResetTimer = null;
   }
 
   /**

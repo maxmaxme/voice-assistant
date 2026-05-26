@@ -162,6 +162,7 @@ export async function main(): Promise<void> {
         model: deps.config.realtime.model,
         voice: deps.config.realtime.voice,
         reasoningEffort: deps.config.realtime.reasoningEffort,
+        idleResetMs: deps.config.realtime.idleResetMs,
         instructions: buildSystemPromptFor('realtime'),
         tools: [
           ...mcpToolsToRealtime(await deps.mcp.listTools()),
