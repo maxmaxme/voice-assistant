@@ -379,13 +379,19 @@ export class RealtimeBridge {
             message = ev.error['message'];
           }
         }
-        // response_cancel_not_active is benign and noisy: we race
-        // cancelResponse() against natural response completion (the
-        // noise-transcript guard fires after the response has already
-        // finished). Don't bother the device with an error chime — log
-        // at debug for diagnostics and move on.
-        if (code === 'response_cancel_not_active') {
-          log.debug({ ev }, 'cancel raced with response completion (benign)');
+        // Some upstream errors are expected lifecycle events, not real
+        // failures the user needs to know about. Don't surface them to
+        // the device (which would fire the error chime + red LED) —
+        // lazy-reconnect handles the recovery on the next wake word.
+        //
+        //  - response_cancel_not_active: noise-transcript guard called
+        //    cancelResponse() after the response had already finished.
+        //  - session_expired: OpenAI Realtime hits its hard session
+        //    cap (30 / 60 minutes depending on the account). The 'close'
+        //    event will follow immediately and we'll lazy-reconnect.
+        const benignCodes = new Set(['response_cancel_not_active', 'session_expired']);
+        if (benignCodes.has(code)) {
+          log.info({ code, message }, `upstream sent ${code} (benign, suppressing device error)`);
           break;
         }
         log.error({ ev }, 'openai realtime error');
