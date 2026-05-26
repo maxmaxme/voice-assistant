@@ -29,6 +29,14 @@ export const rootLogger: Logger = pino(
     // Drop `pid` and `hostname` from every line — noise on a single-process
     // home daemon. Keep `time`.
     base: undefined,
+    // Emit `"level":"info"` (string) instead of pino's default integer 30.
+    // Dozzle's level_guesser checks the JSON `level` field but type-asserts
+    // it to string — integer levels fall through and the severity dots
+    // never light up. String labels unlock colouring in Dozzle and stay
+    // readable in any other JSON-aware viewer.
+    formatters: {
+      level: (label) => ({ level: label }),
+    },
   },
   sink,
 );
