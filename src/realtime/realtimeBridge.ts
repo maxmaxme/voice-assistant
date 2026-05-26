@@ -245,14 +245,28 @@ export class RealtimeBridge {
         break;
       }
       case 'error': {
-        log.error({ ev }, 'openai realtime error');
+        // Pull out the error code/message defensively — the Realtime API
+        // doesn't strictly type these.
+        let code = '';
         let message = 'unknown';
-        if (typeof ev.error === 'object' && ev.error !== null && 'message' in ev.error) {
-          const msg = ev.error['message'];
-          if (typeof msg === 'string') {
-            message = msg;
+        if (typeof ev.error === 'object' && ev.error !== null) {
+          if ('code' in ev.error && typeof ev.error['code'] === 'string') {
+            code = ev.error['code'];
+          }
+          if ('message' in ev.error && typeof ev.error['message'] === 'string') {
+            message = ev.error['message'];
           }
         }
+        // response_cancel_not_active is benign and noisy: we race
+        // cancelResponse() against natural response completion (the
+        // noise-transcript guard fires after the response has already
+        // finished). Don't bother the device with an error chime — log
+        // at debug for diagnostics and move on.
+        if (code === 'response_cancel_not_active') {
+          log.debug({ ev }, 'cancel raced with response completion (benign)');
+          break;
+        }
+        log.error({ ev }, 'openai realtime error');
         this.sendDevice({ type: 'error', message });
         break;
       }
