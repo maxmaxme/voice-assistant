@@ -13,6 +13,34 @@ import { telegramFromConfig, receiverFromConfig } from '../telegram/fromConfig.t
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
 import { CHAT_TEXT_FORMAT } from '../agent/agentOutput.ts';
 import { buildGoalRunner, type GoalRunner } from '../scheduling/goalRunner.ts';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('shared');
+
+async function connectMcpWithRetry(mcp: HaMcpClient): Promise<void> {
+  const maxAttempts = 20;
+  const delayMs = 3000;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await mcp.connect();
+      if (attempt > 1) {
+        log.info({ attempt }, 'mcp connected after retries');
+      }
+      return;
+    } catch (err) {
+      lastErr = err;
+      log.warn(
+        { attempt, maxAttempts, err: err instanceof Error ? err.message : String(err) },
+        'mcp connect failed, retrying',
+      );
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw lastErr;
+}
 
 export const AGENT_MODES = ['telegram', 'http', 'both'] as const;
 export type AgentMode = (typeof AGENT_MODES)[number];
@@ -100,7 +128,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   const memory = openMemoryStore(config.memory.dbPath);
   const telegram = telegramFromConfig(config);
 
-  await mcp.connect();
+  await connectMcpWithRetry(mcp);
 
   // Goal-mode agent: dedicated session, base system prompt (no channel suffix),
   // chat text format (goal mode produces a written summary, never speaks).
