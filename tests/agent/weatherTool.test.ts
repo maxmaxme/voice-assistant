@@ -60,6 +60,40 @@ describe('weatherTool', () => {
     expect(calls[1]).toContain('start_date=2026-05-27');
   });
 
+  it('retries geocoding in the other language when the first lookup is empty', async () => {
+    const calls: string[] = [];
+    const fakeFetch = vi.fn(async (url: string) => {
+      calls.push(url);
+      if (url.includes('geocoding-api')) {
+        if (url.includes('language=ru')) {
+          return jsonResponse({ results: [] });
+        }
+        return jsonResponse({
+          results: [{ latitude: 40.4, longitude: -3.7, name: 'Madrid', country: 'Spain' }],
+        });
+      }
+      return jsonResponse({
+        daily: {
+          time: ['2026-05-27'],
+          temperature_2m_min: [15],
+          temperature_2m_max: [28],
+          weather_code: [0],
+          precipitation_probability_max: [0],
+          wind_speed_10m_max: [8],
+        },
+      });
+    });
+    const r = await executeWeatherTool(
+      { location: 'Мадрид', date: '2026-05-27' },
+      { fetch: fakeFetch as unknown as typeof fetch },
+    );
+    expect(r.location).toBe('Madrid, Spain');
+    const geoCalls = calls.filter((u) => u.includes('geocoding-api'));
+    expect(geoCalls).toHaveLength(2);
+    expect(geoCalls[0]).toContain('language=ru');
+    expect(geoCalls[1]).toContain('language=en');
+  });
+
   it('rejects missing location', async () => {
     await expect(executeWeatherTool({ location: '', date: '2026-05-27' })).rejects.toThrow(
       /location/,

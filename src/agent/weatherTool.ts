@@ -185,15 +185,26 @@ export async function executeWeatherTool(
     throw new Error('get_weather: `date` must be ISO YYYY-MM-DD');
   }
 
-  const geoUrl =
-    `https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name=` +
-    encodeURIComponent(location);
-  const geoRes = await fetchImpl(geoUrl);
-  if (!geoRes.ok) {
-    throw new Error(`get_weather: geocoding HTTP ${geoRes.status}`);
+  // Open-Meteo geocoding is language-sensitive: "Мадрид" only matches with
+  // `language=ru`, "Madrid" with `language=en`. Pick by script, then fall
+  // back to the other language so the model doesn't have to retry.
+  const isCyrillic = /[Ѐ-ӿ]/.test(location);
+  const langOrder = isCyrillic ? ['ru', 'en'] : ['en', 'ru'];
+  let place: NonNullable<GeocodeResult['results']>[number] | undefined;
+  for (const lang of langOrder) {
+    const geoUrl =
+      `https://geocoding-api.open-meteo.com/v1/search?count=1&format=json&language=${lang}&name=` +
+      encodeURIComponent(location);
+    const geoRes = await fetchImpl(geoUrl);
+    if (!geoRes.ok) {
+      throw new Error(`get_weather: geocoding HTTP ${geoRes.status}`);
+    }
+    const geo: GeocodeResult = parseGeocode(await geoRes.json());
+    place = geo.results?.[0];
+    if (place) {
+      break;
+    }
   }
-  const geo: GeocodeResult = parseGeocode(await geoRes.json());
-  const place = geo.results?.[0];
   if (!place) {
     throw new Error(`get_weather: unknown location "${location}"`);
   }
