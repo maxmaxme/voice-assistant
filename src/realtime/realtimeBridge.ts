@@ -44,6 +44,15 @@ export class RealtimeBridge {
   private deviceWs: WebSocket;
   private deps: BridgeDeps;
   private currentPhase: 'idle' | 'listening' | 'thinking' | 'replying' = 'idle';
+  // Tracks an in-flight request_follow_up window so we can tell the
+  // difference (in logs) between "user answered the model's question
+  // within the window" and "window expired in silence". The device's
+  // follow-up state is hidden from us — we approximate by running a
+  // timer that matches the device's kFollowupOpenDelayMs (1500ms) +
+  // kRequestFollowUpMs (10000ms) + a small slack so the log fires
+  // *just after* the device-side timeout if no speech_started came in.
+  private pendingFollowUp: { sentAt: number; timer: NodeJS.Timeout } | null = null;
+  private static readonly FOLLOW_UP_WINDOW_MS = 12_000;
 
   constructor(deviceWs: WebSocket, deps: BridgeDeps) {
     this.deviceWs = deviceWs;
@@ -101,6 +110,7 @@ export class RealtimeBridge {
     this.deviceWs.on('message', (data, isBinary) => this.handleDevice(data, isBinary));
     this.deviceWs.on('close', () => {
       log.info({ sessionId: this.sessionId }, 'device closed');
+      this.clearFollowUpWatchdog();
       this.metrics.log(this.sessionId);
       this.openai.close();
     });
@@ -143,6 +153,7 @@ export class RealtimeBridge {
   private handleOpenAi(ev: RealtimeEvent): void {
     switch (ev.type) {
       case 'input_audio_buffer.speech_started':
+        this.notePossibleFollowUpResponse();
         this.setPhase('listening');
         break;
       case 'input_audio_buffer.speech_stopped':
@@ -268,6 +279,7 @@ export class RealtimeBridge {
       this.openai.submitToolResult(callId, '{}', /* triggerResponse */ false);
       this.sendDevice({ type: 'request_follow_up' });
       this.setPhase('idle');
+      this.armFollowUpWatchdog();
       return;
     }
     const t0 = Date.now();
@@ -314,5 +326,54 @@ export class RealtimeBridge {
     }
     this.currentPhase = next;
     this.sendDevice({ type: 'phase', value: next });
+  }
+
+  /**
+   * Start a soft timeout matched to the device's follow-up window so we can
+   * log when nothing came back. The bridge doesn't get an explicit signal
+   * for "device closed the mic" — speech_started would arrive *only* if the
+   * user actually answered, and silence == no event at all. Without this
+   * timer there would be no log line that says "the user ignored the
+   * model's question," which makes "why didn't the assistant act on the
+   * follow-up?" much harder to debug.
+   */
+  private armFollowUpWatchdog(): void {
+    this.clearFollowUpWatchdog();
+    const sentAt = Date.now();
+    const timer = setTimeout(() => {
+      log.info(
+        { sessionId: this.sessionId, windowMs: RealtimeBridge.FOLLOW_UP_WINDOW_MS },
+        'request_follow_up window expired — user did not respond',
+      );
+      this.pendingFollowUp = null;
+    }, RealtimeBridge.FOLLOW_UP_WINDOW_MS);
+    // Don't keep the event loop alive solely for this timer.
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+    this.pendingFollowUp = { sentAt, timer };
+  }
+
+  /** Called on input_audio_buffer.speech_started — if we were waiting on a
+   * request_follow_up reply, this is it. Cancel the watchdog so the
+   * "expired" line doesn't also fire. */
+  private notePossibleFollowUpResponse(): void {
+    if (this.pendingFollowUp === null) {
+      return;
+    }
+    const latencyMs = Date.now() - this.pendingFollowUp.sentAt;
+    log.info(
+      { sessionId: this.sessionId, latencyMs },
+      `request_follow_up — user responded after ${latencyMs}ms`,
+    );
+    this.clearFollowUpWatchdog();
+  }
+
+  private clearFollowUpWatchdog(): void {
+    if (this.pendingFollowUp === null) {
+      return;
+    }
+    clearTimeout(this.pendingFollowUp.timer);
+    this.pendingFollowUp = null;
   }
 }
