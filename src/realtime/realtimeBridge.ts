@@ -54,6 +54,23 @@ export class RealtimeBridge {
   private pendingFollowUp: { sentAt: number; timer: NodeJS.Timeout } | null = null;
   private static readonly FOLLOW_UP_WINDOW_MS = 12_000;
 
+  // OpenAI Realtime caps every session at 30 minutes, so the upstream WS
+  // *will* close on us on a long-lived device connection. We don't try to
+  // hold it open with pings (the cap is hard) and we don't tear down the
+  // device on every close (that wastes a reconnect cycle). Instead we lazy-
+  // reconnect: the upstream stays disconnected until the device's next wake
+  // word brings in a fresh audio frame, at which point we kick off
+  // openai.connect() and buffer until it's ready. The wake-word UX gives us
+  // ~1.1s of headroom (wake chime + i2s tail before mic streams), well over
+  // a typical 300–500 ms connect, so the buffer barely fills in practice.
+  private openaiState: 'disconnected' | 'connecting' | 'connected' = 'disconnected';
+  private pendingConnect: Promise<void> | null = null;
+  private audioBuffer: string[] = [];
+  // Cap on how many base64 audio frames we'll buffer waiting for openai to
+  // come up. ~50 fps × 4 s = 200 frames; beyond that we drop oldest to bound
+  // memory if the connect hangs.
+  private static readonly MAX_AUDIO_BUFFER_FRAMES = 200;
+
   constructor(deviceWs: WebSocket, deps: BridgeDeps) {
     this.deviceWs = deviceWs;
     this.deps = deps;
@@ -102,10 +119,25 @@ export class RealtimeBridge {
 
   async start(): Promise<void> {
     this.metrics.mark('bridge_start');
-    await this.openai.connect();
-    this.metrics.mark('openai_connected');
 
+    // Register the event + close listeners ONCE on the openai client.
+    // Listener arrays inside OpenAiRealtimeClient persist across reconnects,
+    // so a single subscription here keeps working when the underlying ws
+    // gets swapped on lazy reconnect.
     this.openai.on((ev) => this.handleOpenAi(ev));
+    this.openai.onClose((info) => {
+      log.info(
+        { sessionId: this.sessionId, code: info.code, reason: info.reason },
+        'openai closed — will lazy-reconnect on next device audio',
+      );
+      this.openaiState = 'disconnected';
+      // Drop any in-flight follow-up watchdog: if we were mid-window when
+      // the upstream went away, there's nothing to wait for.
+      this.clearFollowUpWatchdog();
+    });
+
+    await this.ensureOpenaiConnected();
+    this.metrics.mark('openai_connected');
 
     this.deviceWs.on('message', (data, isBinary) => this.handleDevice(data, isBinary));
     this.deviceWs.on('close', () => {
@@ -119,7 +151,61 @@ export class RealtimeBridge {
     this.setPhase('idle', { force: true });
   }
 
+  /**
+   * Idempotent, concurrency-safe upstream connect. Returns immediately if
+   * we're already connected; awaits an in-flight connect if one's running;
+   * otherwise kicks off a new connect, marks state=connecting, and on
+   * success drains any frames that piled up while we were down.
+   */
+  private async ensureOpenaiConnected(): Promise<void> {
+    if (this.openaiState === 'connected') {
+      return;
+    }
+    if (this.pendingConnect !== null) {
+      return this.pendingConnect;
+    }
+    this.openaiState = 'connecting';
+    const t0 = Date.now();
+    this.pendingConnect = (async () => {
+      try {
+        await this.openai.connect();
+        const tookMs = Date.now() - t0;
+        log.info(
+          { sessionId: this.sessionId, tookMs, buffered: this.audioBuffer.length },
+          `openai reconnected in ${tookMs}ms`,
+        );
+        this.openaiState = 'connected';
+        // Drain anything that arrived while we were connecting.
+        for (const b64 of this.audioBuffer) {
+          this.openai.appendAudioPcm16Base64(b64);
+        }
+        this.audioBuffer = [];
+      } catch (err) {
+        this.openaiState = 'disconnected';
+        this.audioBuffer = [];
+        log.error({ err, sessionId: this.sessionId }, 'openai connect failed');
+        throw err;
+      } finally {
+        this.pendingConnect = null;
+      }
+    })();
+    return this.pendingConnect;
+  }
+
   private handleDevice(data: WebSocket.RawData, isBinary: boolean): void {
+    // Belt-and-suspenders: any throw inside the ws message handler that
+    // escapes will crash the whole process (Node's default unhandled-error
+    // behaviour for EventEmitter). We've been bitten by this exactly once
+    // when the OpenAI WS closed mid-session and an audio frame's send()
+    // threw — entire container died. Swallow + log instead.
+    try {
+      this.handleDeviceInner(data, isBinary);
+    } catch (err) {
+      log.error({ err, sessionId: this.sessionId }, 'unhandled error in device handler');
+    }
+  }
+
+  private handleDeviceInner(data: WebSocket.RawData, isBinary: boolean): void {
     if (isBinary) {
       this.metrics.mark('first_audio_in');
       // Device sends PCM16 16kHz; OpenAI Realtime expects PCM16 24kHz.
@@ -133,7 +219,27 @@ export class RealtimeBridge {
         pcm16k = Buffer.concat(data);
       }
       const pcm24k = resamplePcm16(pcm16k, 16000, 24000);
-      this.openai.appendAudioPcm16Base64(pcm16ToBase64(pcm24k));
+      const b64 = pcm16ToBase64(pcm24k);
+      if (this.openaiState === 'connected') {
+        // Fast path. appendAudioPcm16Base64 won't throw even if the ws
+        // raced a close — drops the frame and logs a summary count.
+        this.openai.appendAudioPcm16Base64(b64);
+      } else {
+        // OpenAI side is down (either initial connect failed or 30-min
+        // cap expired mid-idle). Buffer this frame and kick a reconnect.
+        // The wake-chime delay on the device gives us ~1.1 s before the
+        // mic actually streams the user's voice, comfortably more than
+        // a typical 300–500 ms openai connect.
+        if (this.audioBuffer.length >= RealtimeBridge.MAX_AUDIO_BUFFER_FRAMES) {
+          this.audioBuffer.shift(); // drop oldest to bound memory
+        }
+        this.audioBuffer.push(b64);
+        if (this.openaiState === 'disconnected') {
+          void this.ensureOpenaiConnected().catch(() => {
+            // ensureOpenaiConnected already logged + cleared the buffer.
+          });
+        }
+      }
       return;
     }
     try {
@@ -151,6 +257,22 @@ export class RealtimeBridge {
   }
 
   private handleOpenAi(ev: RealtimeEvent): void {
+    // Same belt-and-suspenders as handleDevice: any throw here would
+    // crash the process (Node's default for EventEmitter listener errors).
+    // The risk surface is mostly the control-message paths inside
+    // (cancelResponse / submitToolResult) that throw when the openai ws
+    // races a close. Lazy-reconnect makes that race rarer but not zero.
+    try {
+      this.handleOpenAiInner(ev);
+    } catch (err) {
+      log.error(
+        { err, sessionId: this.sessionId, evType: ev.type },
+        'unhandled error in openai handler',
+      );
+    }
+  }
+
+  private handleOpenAiInner(ev: RealtimeEvent): void {
     switch (ev.type) {
       case 'input_audio_buffer.speech_started':
         this.notePossibleFollowUpResponse();
