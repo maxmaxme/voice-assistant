@@ -11,6 +11,7 @@ import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runne
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
 import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
 import { mcpToolsToRealtime } from '../realtime/toolAdapter.ts';
+import { ToolResultCache, CACHEABLE_TOOLS } from '../realtime/toolCache.ts';
 import { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
@@ -146,6 +147,12 @@ export async function main(): Promise<void> {
 
   let realtimeServer: RealtimeServer | null = null;
   if (deps.config.realtime.enabled) {
+    // Process-wide cache shared across all bridges (each WS connection
+    // spawns a fresh RealtimeBridge but they all hit the same HA — there's
+    // no per-user state to isolate). Re-created on process restart so a
+    // server bounce flushes stale device snapshots.
+    const toolCache = new ToolResultCache();
+    const TOOL_CACHE_TTL_MS = 5_000;
     realtimeServer = await startRealtimeServer({
       port: deps.config.realtime.port,
       token: deps.config.realtime.token,
@@ -161,6 +168,22 @@ export async function main(): Promise<void> {
           if (args && typeof args === 'object') {
             Object.assign(safeArgs, args);
           }
+          if (CACHEABLE_TOOLS.has(name)) {
+            const key = `${name}:${JSON.stringify(safeArgs)}`;
+            const cached = toolCache.get(key);
+            if (cached !== undefined) {
+              log.info({ name }, `${name} cache hit`);
+              return cached;
+            }
+            const result = await deps.mcp.callTool(name, safeArgs);
+            const serialized = JSON.stringify(result);
+            toolCache.set(key, serialized, TOOL_CACHE_TTL_MS);
+            return serialized;
+          }
+          // Any non-cacheable tool may have mutated state (HassTurnOn /
+          // HassTurnOff / SetClimate / ...). Drop the snapshot so the
+          // next GetLiveContext goes to HA for real.
+          toolCache.clear(name);
           const result = await deps.mcp.callTool(name, safeArgs);
           return JSON.stringify(result);
         },
