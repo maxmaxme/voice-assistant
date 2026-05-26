@@ -19,7 +19,7 @@ import {
 } from './scheduledActionTools.ts';
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
-import { WEATHER_TOOL_NAME, buildWeatherTool, executeWeatherTool } from './weatherTool.ts';
+import { LOCAL_TOOL_NAMES, buildLocalTools, executeLocalTool } from './localTools.ts';
 import type { TelegramSender } from '../telegram/types.ts';
 import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from './agentOutput.ts';
 import { getServerTimezone, toLocalIso } from '../utils/time.ts';
@@ -116,7 +116,7 @@ export class OpenAiAgent implements Agent {
       ...buildScheduledActionTools(),
       ...(askEnabled ? [buildAskTool()] : []),
       buildTelegramTool(),
-      buildWeatherTool(),
+      ...buildLocalTools(),
     ];
     // Our function-tool shape (`OpenAiFunctionTool`-derived) matches the
     // SDK's `FunctionTool` member of the `Tool` union structurally, but our
@@ -335,9 +335,9 @@ export class OpenAiAgent implements Agent {
                 resultText = e instanceof Error ? e.message : String(e);
                 isError = true;
               }
-            } else if (tc.name === WEATHER_TOOL_NAME) {
+            } else if (LOCAL_TOOL_NAMES.has(tc.name)) {
               try {
-                const r = await executeWeatherTool(args);
+                const r = await executeLocalTool(tc.name, args);
                 resultText = JSON.stringify(r);
               } catch (e) {
                 resultText = e instanceof Error ? e.message : String(e);

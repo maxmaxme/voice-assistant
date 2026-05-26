@@ -10,8 +10,8 @@ import {
 import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runners/telegram.ts';
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
 import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
-import { mcpToolsToRealtime, type RealtimeTool } from '../realtime/toolAdapter.ts';
-import { WEATHER_TOOL_NAME, buildWeatherTool, executeWeatherTool } from '../agent/weatherTool.ts';
+import { mcpToolsToRealtime, localToolsToRealtime } from '../realtime/toolAdapter.ts';
+import { LOCAL_TOOL_NAMES, buildLocalTools, executeLocalTool } from '../agent/localTools.ts';
 import { ToolResultCache, CACHEABLE_TOOLS } from '../realtime/toolCache.ts';
 import { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
@@ -165,24 +165,16 @@ export async function main(): Promise<void> {
         instructions: buildSystemPromptFor('realtime'),
         tools: [
           ...mcpToolsToRealtime(await deps.mcp.listTools()),
-          ((): RealtimeTool => {
-            const t = buildWeatherTool();
-            return {
-              type: 'function',
-              name: t.name,
-              description: t.description,
-              parameters: t.parameters,
-            };
-          })(),
+          ...localToolsToRealtime(buildLocalTools()),
         ],
         runTool: async (name, args) => {
           const safeArgs: Record<string, unknown> = {};
           if (args && typeof args === 'object') {
             Object.assign(safeArgs, args);
           }
-          if (name === WEATHER_TOOL_NAME) {
+          if (LOCAL_TOOL_NAMES.has(name)) {
             try {
-              return JSON.stringify(await executeWeatherTool(safeArgs));
+              return JSON.stringify(await executeLocalTool(name, safeArgs));
             } catch (e) {
               return JSON.stringify({ error: e instanceof Error ? e.message : String(e) });
             }
