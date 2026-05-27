@@ -84,6 +84,15 @@ export class RealtimeBridge {
   private idleResetTimer: NodeJS.Timeout | null = null;
   private readonly idleResetMs: number;
 
+  // Set on device-initiated interrupt. OpenAI's response.cancel is not
+  // instantaneous — the server can still flush queued response.output_audio
+  // deltas for the cancelled response after we asked it to stop. Without
+  // dropping those, the device hears "the tail of the answer you just
+  // barged through" (or, on a Stop wake word, a phantom continuation a
+  // second later). We drop deltas until a fresh response.created arrives,
+  // which marks the start of a genuinely new response.
+  private dropResponseAudio = false;
+
   constructor(deviceWs: WebSocket, deps: BridgeDeps) {
     this.deviceWs = deviceWs;
     this.deps = deps;
@@ -261,8 +270,16 @@ export class RealtimeBridge {
       const msg = parseDeviceMessage(data.toString());
       log.debug({ msg }, 'device control msg');
       if (msg.type === 'interrupt') {
+        // Device tells us to drop the current reply. We don't know whether
+        // this is "barge-in, I'll speak next" or "Stop, full close" — both
+        // map to the same upstream action (cancel response, clear input
+        // buffer). The device drives its own mic/LED state via its yaml
+        // wake handlers; bridge stays neutral and does not force a phase
+        // transition here. setPhase('listening') used to live here and
+        // ended up popping the mic open after a Stop, which then let
+        // OpenAI generate a phantom follow-up response.
         this.openai.cancelResponse();
-        this.setPhase('listening');
+        this.dropResponseAudio = true;
       } else if (msg.type === 'ping') {
         this.sendDevice({ type: 'pong' });
       }
@@ -335,6 +352,13 @@ export class RealtimeBridge {
         break;
       }
       case 'response.output_audio.delta': {
+        // After a device interrupt, upstream may still flush queued audio
+        // deltas for the cancelled response. Drop them — the device has
+        // already stopped playback and reopened (or closed) the mic; we
+        // mustn't push the old reply's tail back at it.
+        if (this.dropResponseAudio) {
+          break;
+        }
         this.metrics.mark('first_audio_out');
         if (typeof ev.delta === 'string') {
           const pcm24k = base64ToPcm16(ev.delta);
@@ -343,6 +367,12 @@ export class RealtimeBridge {
         }
         break;
       }
+      case 'response.created':
+        // A fresh response is starting — clear the drop flag so its audio
+        // deltas reach the device. Anything still queued from the previous
+        // (cancelled) response has been ignored up to this point.
+        this.dropResponseAudio = false;
+        break;
       case 'response.function_call_arguments.done': {
         if (
           typeof ev.call_id === 'string' &&
