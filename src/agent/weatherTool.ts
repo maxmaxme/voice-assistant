@@ -123,8 +123,10 @@ export function buildWeatherTool(): OpenAiFunctionTool {
       '"сегодня"/"today" → that date, "завтра"/"tomorrow" → +1 day, etc. ' +
       'DEFAULTS — do NOT ask the user for these, fill them in yourself: ' +
       'if the user did not name a day, use today (server TZ); ' +
-      'if the user did not name a place, use `home_city` from memory ' +
-      '(call `recall` if you have not loaded it yet). ' +
+      'if the user did not name a place, look in the `Known user profile` block of ' +
+      'the system prompt for a key that names where the user is based and pass that ' +
+      'value verbatim (e.g. "Madrid"). NEVER pass a profile key name (like "home_city") ' +
+      'as the location string. ' +
       'Only ask for clarification if neither a default nor context can resolve the value. ' +
       'Forecast is available up to ~16 days ahead.',
     parameters: {

@@ -11,7 +11,8 @@ import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runne
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
 import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
 import { mcpToolsToRealtime, localToolsToRealtime } from '../realtime/toolAdapter.ts';
-import { LOCAL_TOOL_NAMES, buildLocalTools, executeLocalTool } from '../agent/localTools.ts';
+import { buildLocalToolset } from '../agent/localTools.ts';
+import { appendUserContext } from '../agent/systemPrompt.ts';
 import { ToolResultCache, CACHEABLE_TOOLS } from '../realtime/toolCache.ts';
 import { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
@@ -157,49 +158,59 @@ export async function main(): Promise<void> {
     realtimeServer = await startRealtimeServer({
       port: deps.config.realtime.port,
       token: deps.config.realtime.token,
-      buildBridgeDeps: async () => ({
-        apiKey: deps.config.openai.apiKey,
-        model: deps.config.realtime.model,
-        voice: deps.config.realtime.voice,
-        reasoningEffort: deps.config.realtime.reasoningEffort,
-        idleResetMs: deps.config.realtime.idleResetMs,
-        instructions: buildSystemPromptFor('realtime'),
-        tools: [
-          ...mcpToolsToRealtime(await deps.mcp.listTools()),
-          ...localToolsToRealtime(buildLocalTools()),
-        ],
-        runTool: async (name, args) => {
-          const safeArgs: Record<string, unknown> = {};
-          if (args && typeof args === 'object') {
-            Object.assign(safeArgs, args);
-          }
-          if (LOCAL_TOOL_NAMES.has(name)) {
-            try {
-              return JSON.stringify(await executeLocalTool(name, safeArgs));
-            } catch (e) {
-              return JSON.stringify({ error: e instanceof Error ? e.message : String(e) });
+      buildBridgeDeps: async () => {
+        const localToolset = buildLocalToolset({
+          memory: deps.memory.profile,
+          scheduledActions: deps.memory.scheduledActions,
+          telegram: deps.telegram,
+        });
+        return {
+          apiKey: deps.config.openai.apiKey,
+          model: deps.config.realtime.model,
+          voice: deps.config.realtime.voice,
+          reasoningEffort: deps.config.realtime.reasoningEffort,
+          idleResetMs: deps.config.realtime.idleResetMs,
+          instructions: appendUserContext(
+            buildSystemPromptFor('realtime'),
+            deps.memory.profile.recall(),
+          ),
+          tools: [
+            ...mcpToolsToRealtime(await deps.mcp.listTools()),
+            ...localToolsToRealtime(localToolset.tools),
+          ],
+          runTool: async (name, args) => {
+            const safeArgs: Record<string, unknown> = {};
+            if (args && typeof args === 'object') {
+              Object.assign(safeArgs, args);
             }
-          }
-          if (CACHEABLE_TOOLS.has(name)) {
-            const key = `${name}:${JSON.stringify(safeArgs)}`;
-            const cached = toolCache.get(key);
-            if (cached !== undefined) {
-              log.info({ name }, `${name} cache hit`);
-              return cached;
+            if (localToolset.names.has(name)) {
+              try {
+                return JSON.stringify(await localToolset.execute(name, safeArgs));
+              } catch (e) {
+                return JSON.stringify({ error: e instanceof Error ? e.message : String(e) });
+              }
             }
+            if (CACHEABLE_TOOLS.has(name)) {
+              const key = `${name}:${JSON.stringify(safeArgs)}`;
+              const cached = toolCache.get(key);
+              if (cached !== undefined) {
+                log.info({ name }, `${name} cache hit`);
+                return cached;
+              }
+              const result = await deps.mcp.callTool(name, safeArgs);
+              const serialized = JSON.stringify(result);
+              toolCache.set(key, serialized, TOOL_CACHE_TTL_MS);
+              return serialized;
+            }
+            // Any non-cacheable tool may have mutated state (HassTurnOn /
+            // HassTurnOff / SetClimate / ...). Drop the snapshot so the
+            // next GetLiveContext goes to HA for real.
+            toolCache.clear(name);
             const result = await deps.mcp.callTool(name, safeArgs);
-            const serialized = JSON.stringify(result);
-            toolCache.set(key, serialized, TOOL_CACHE_TTL_MS);
-            return serialized;
-          }
-          // Any non-cacheable tool may have mutated state (HassTurnOn /
-          // HassTurnOff / SetClimate / ...). Drop the snapshot so the
-          // next GetLiveContext goes to HA for real.
-          toolCache.clear(name);
-          const result = await deps.mcp.callTool(name, safeArgs);
-          return JSON.stringify(result);
-        },
-      }),
+            return JSON.stringify(result);
+          },
+        };
+      },
     });
     log.info({ port: realtimeServer.port }, 'realtime server listening');
   }
