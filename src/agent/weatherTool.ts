@@ -121,6 +121,11 @@ export function buildWeatherTool(): OpenAiFunctionTool {
       '"what\'s the weather like on Friday in Paris", "будет ли дождь в выходные"). ' +
       'Resolve relative days against the server timezone shown in the system prompt: ' +
       '"сегодня"/"today" → that date, "завтра"/"tomorrow" → +1 day, etc. ' +
+      'DEFAULTS — do NOT ask the user for these, fill them in yourself: ' +
+      'if the user did not name a day, use today (server TZ); ' +
+      'if the user did not name a place, use `home_city` from memory ' +
+      '(call `recall` if you have not loaded it yet). ' +
+      'Only ask for clarification if neither a default nor context can resolve the value. ' +
       'Forecast is available up to ~16 days ahead.',
     parameters: {
       type: 'object',
