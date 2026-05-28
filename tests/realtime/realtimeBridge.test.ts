@@ -95,6 +95,44 @@ function deviceControl(msg: unknown): void {
   deviceWs.emit('message', Buffer.from(JSON.stringify(msg)), false);
 }
 
+// Feed an OpenAI Realtime server event through the listener the bridge wired
+// up in start(), then let any async work it kicks off settle.
+async function feedOpenAi(client: FakeOpenAiClient, ev: unknown): Promise<void> {
+  openaiEventListener(client)(ev);
+  await new Promise((r) => setTimeout(r, 0));
+}
+
+// Decode the JSON control messages the bridge pushed to the device.
+function serverMessages(): Array<Record<string, unknown>> {
+  return deviceWs.send.mock.calls
+    .map((c) => c[0])
+    .filter((a): a is string => typeof a === 'string')
+    .map((s) => {
+      try {
+        return JSON.parse(s) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })
+    .filter((m): m is Record<string, unknown> => m !== null);
+}
+
+function phasesSent(): string[] {
+  return serverMessages()
+    .filter((m) => m.type === 'phase')
+    .map((m) => m.value as string);
+}
+
+// Count the binary PCM frames forwarded to the device (audio out).
+function audioFramesSent(): number {
+  return deviceWs.send.mock.calls.filter((c) => Buffer.isBuffer(c[0])).length;
+}
+
+// A base64-encoded PCM16 chunk, the shape response.output_audio.delta carries.
+function audioDelta(): string {
+  return Buffer.alloc(8).toString('base64');
+}
+
 describe('RealtimeBridge lazy upstream connect', () => {
   it('does not open the OpenAI session on start()', async () => {
     bridge = new RealtimeBridge(deviceWs as never, makeDeps());
@@ -247,5 +285,243 @@ describe('RealtimeBridge device handler resilience', () => {
       throw new Error('ws raced a close');
     });
     expect(() => deviceWs.emit('message', audioFrame(), true)).not.toThrow();
+  });
+});
+
+// The phase the device shows on its LED ring tracks the conversation state.
+// These walk the happy-path turn: listening → thinking → replying → idle.
+describe('RealtimeBridge phase / status machine', () => {
+  let client: FakeOpenAiClient;
+
+  beforeEach(async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+    client = currentClient();
+    deviceWs.send.mockClear(); // drop the initial hello + idle from start()
+  });
+
+  it('enters listening when the user starts speaking', async () => {
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_started' });
+    expect(phasesSent()).toEqual(['listening']);
+  });
+
+  it('enters thinking when the user stops speaking', async () => {
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' });
+    expect(phasesSent()).toEqual(['thinking']);
+  });
+
+  it('forwards reply audio to the device and shows the replying phase', async () => {
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    expect(audioFramesSent()).toBe(1);
+    expect(phasesSent()).toContain('replying');
+  });
+
+  it('does not re-emit the phase for every audio delta (dedup)', async () => {
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    expect(audioFramesSent()).toBe(3);
+    expect(phasesSent().filter((p) => p === 'replying')).toHaveLength(1);
+  });
+
+  it('returns to idle after a plain text response finishes', async () => {
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' }); // → thinking
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: { id: 'r1', output: [{ type: 'message' }] },
+    });
+    expect(phasesSent()).toEqual(['thinking', 'idle']);
+  });
+});
+
+// Barge-in: the user says a wake/stop word while the assistant is talking.
+// OpenAI keeps flushing queued audio for the cancelled response after we ask
+// it to stop; the bridge must drop that tail so the device doesn't replay it.
+describe('RealtimeBridge barge-in / interruption', () => {
+  let client: FakeOpenAiClient;
+
+  beforeEach(async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+    client = currentClient();
+    deviceWs.send.mockClear();
+  });
+
+  it('cancels the upstream response on a device interrupt', async () => {
+    deviceControl({ type: 'interrupt' });
+    expect(client.cancelResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops queued reply audio after an interrupt until a new response starts', async () => {
+    // Assistant is mid-reply.
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    expect(audioFramesSent()).toBe(1);
+
+    // User barges in.
+    deviceControl({ type: 'interrupt' });
+
+    // Tail deltas of the cancelled response keep arriving — they must NOT be
+    // forwarded, or the device replays audio the user already talked over.
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    expect(audioFramesSent()).toBe(1);
+
+    // A genuinely new response begins → audio flows to the device again.
+    await feedOpenAi(client, { type: 'response.created', response: { id: 'r2' } });
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    expect(audioFramesSent()).toBe(2);
+  });
+});
+
+// Whisper transcribes the input in parallel with the model generating a reply.
+// On silence/noise it hallucinates ("...", "뿅!"), so the bridge cancels the
+// spurious turn rather than letting the assistant say "I didn't catch that".
+describe('RealtimeBridge noise-transcript guard', () => {
+  let client: FakeOpenAiClient;
+
+  beforeEach(async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+    client = currentClient();
+  });
+
+  it('cancels the in-flight response on an empty transcript', async () => {
+    await feedOpenAi(client, {
+      type: 'conversation.item.input_audio_transcription.completed',
+      transcript: '   ',
+    });
+    expect(client.cancelResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels when the transcript has no letters or digits', async () => {
+    await feedOpenAi(client, {
+      type: 'conversation.item.input_audio_transcription.completed',
+      transcript: '...',
+    });
+    expect(client.cancelResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a real transcript through without cancelling', async () => {
+    await feedOpenAi(client, {
+      type: 'conversation.item.input_audio_transcription.completed',
+      transcript: 'turn off the kitchen light',
+    });
+    expect(client.cancelResponse).not.toHaveBeenCalled();
+  });
+});
+
+// Tool calls flow through the same runTool the agent core uses. The tricky
+// part is the follow-up gate: real tools must trigger exactly one follow-up
+// response after the whole batch; the built-in flow-control tools must not.
+describe('RealtimeBridge tool dispatch', () => {
+  let client: FakeOpenAiClient;
+  let runTool: ReturnType<typeof vi.fn<(name: string, args: unknown) => Promise<string>>>;
+
+  async function callTool(callId: string, name: string, args: string): Promise<void> {
+    await feedOpenAi(client, {
+      type: 'response.function_call_arguments.done',
+      call_id: callId,
+      name,
+      arguments: args,
+    });
+  }
+  async function finishResponse(id: string, names: string[]): Promise<void> {
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: { id, output: names.map((name) => ({ type: 'function_call', name })) },
+    });
+  }
+
+  beforeEach(async () => {
+    runTool = vi.fn<(name: string, args: unknown) => Promise<string>>().mockResolvedValue('done');
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ runTool }));
+    await bridge.start();
+    client = currentClient();
+    deviceWs.send.mockClear();
+  });
+
+  it('runs a real tool, submits its result, and requests one follow-up response', async () => {
+    await callTool('c1', 'HassTurnOff', '{"name":"Kitchen Light"}');
+    expect(runTool).toHaveBeenCalledWith('HassTurnOff', { name: 'Kitchen Light' });
+    expect(client.submitToolResult).toHaveBeenCalledWith('c1', 'done');
+
+    await finishResponse('r1', ['HassTurnOff']);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays in thinking (not idle) across a tool call so the mic does not reopen', async () => {
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' }); // → thinking
+    await callTool('c1', 'HassTurnOff', '{}');
+    await finishResponse('r1', ['HassTurnOff']);
+    // Never dropped back to idle — a pure tool-call response must keep the
+    // device in thinking until the follow-up reply arrives.
+    expect(phasesSent()).toEqual(['thinking']);
+  });
+
+  it('still requests the follow-up when the tool throws', async () => {
+    runTool.mockRejectedValueOnce(new Error('HA unreachable'));
+    await callTool('c1', 'HassTurnOff', '{}');
+    expect(client.submitToolResult).toHaveBeenCalledWith(
+      'c1',
+      JSON.stringify({ error: 'HA unreachable' }),
+    );
+
+    await finishResponse('r1', ['HassTurnOff']);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires exactly one follow-up for a parallel tool batch', async () => {
+    await callTool('c1', 'HassTurnOff', '{}');
+    await callTool('c2', 'HassTurnOn', '{}');
+    await finishResponse('r1', ['HassTurnOff', 'HassTurnOn']);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('wait_for_user stays silent: no follow-up, drops to idle', async () => {
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' }); // → thinking
+    await callTool('c1', 'wait_for_user', '{}');
+    expect(client.submitToolResult).toHaveBeenCalledWith('c1', '{}');
+    await finishResponse('r1', ['wait_for_user']);
+    expect(client.requestResponse).not.toHaveBeenCalled();
+    expect(phasesSent()).toContain('idle');
+    expect(runTool).not.toHaveBeenCalled();
+  });
+
+  it('request_follow_up opens the device mic window without a model follow-up', async () => {
+    await callTool('c1', 'request_follow_up', '{}');
+    expect(serverMessages().some((m) => m.type === 'request_follow_up')).toBe(true);
+    await finishResponse('r1', ['request_follow_up']);
+    expect(client.requestResponse).not.toHaveBeenCalled();
+  });
+});
+
+// Some upstream "errors" are normal lifecycle events. Surfacing them would
+// fire the device's error chime + red LED for no reason.
+describe('RealtimeBridge upstream error handling', () => {
+  let client: FakeOpenAiClient;
+
+  beforeEach(async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+    client = currentClient();
+    deviceWs.send.mockClear();
+  });
+
+  it('suppresses benign session_expired errors', async () => {
+    await feedOpenAi(client, { type: 'error', error: { code: 'session_expired' } });
+    expect(serverMessages().some((m) => m.type === 'error')).toBe(false);
+  });
+
+  it('suppresses benign response_cancel_not_active errors', async () => {
+    await feedOpenAi(client, { type: 'error', error: { code: 'response_cancel_not_active' } });
+    expect(serverMessages().some((m) => m.type === 'error')).toBe(false);
+  });
+
+  it('forwards genuine errors to the device', async () => {
+    await feedOpenAi(client, {
+      type: 'error',
+      error: { code: 'server_error', message: 'upstream blew up' },
+    });
+    expect(serverMessages()).toContainEqual({ type: 'error', message: 'upstream blew up' });
   });
 });
