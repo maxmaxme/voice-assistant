@@ -4,7 +4,12 @@ import { OpenAiRealtimeClient, type ReasoningEffort } from './openaiRealtimeClie
 import type { RealtimeServerEvent } from 'openai/resources/realtime/realtime';
 import { resamplePcm16 } from './audio/resample.ts';
 import { pcm16ToBase64, base64ToPcm16 } from './audio/format.ts';
-import { encodeServerMessage, parseDeviceMessage, Phase, type ServerMessage } from './protocol.ts';
+import {
+  encodeServerMessage,
+  parseDeviceMessage,
+  type Phase,
+  type ServerMessage,
+} from './protocol.ts';
 import { LatencyTracker } from './metrics.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
 
