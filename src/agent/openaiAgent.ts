@@ -83,6 +83,7 @@ export class OpenAiAgent implements Agent {
     const { mcp, model, llmClient } = this.opts;
     const session = opts.session ?? this.opts.session;
     const images = opts.images ?? [];
+    const respondStartedAt = Date.now();
 
     log.info(
       { mode: this.mode, hasImages: images.length > 0, imageCount: images.length },
@@ -275,7 +276,19 @@ export class OpenAiAgent implements Agent {
         const parsed = response.output_parsed;
         const text = stripApiArtifacts(parsed.speak ?? '');
         const direction = 'direction' in parsed ? (parsed.direction ?? null) : null;
-        log.info({ direction }, `assistant → ${text}`);
+        const usage = response.usage;
+        log.info(
+          {
+            direction,
+            elapsedMs: Date.now() - respondStartedAt,
+            iterations: i + 1,
+            toolsUsed,
+            inputTokens: usage?.input_tokens,
+            outputTokens: usage?.output_tokens,
+            reasoningTokens: usage?.output_tokens_details?.reasoning_tokens,
+          },
+          `assistant → ${text}`,
+        );
         return { text, direction, toolsUsed };
       }
 

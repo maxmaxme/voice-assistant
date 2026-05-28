@@ -1,5 +1,8 @@
 import { Telegram } from 'telegraf';
 import type { AudioFileStt } from '../audio/types.ts';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('voice-transcriber');
 
 export interface TelegramVoiceTranscriber {
   /** Resolves a Telegram voice file_id into transcribed text. */
@@ -29,18 +32,27 @@ export class BotVoiceTranscriber implements TelegramVoiceTranscriber {
   }
 
   async transcribe(fileId: string): Promise<string> {
+    const downloadStartedAt = Date.now();
     const url = await this.telegram.getFileLink(fileId);
     const res = await this.fetchImpl(url);
     if (!res.ok) {
       throw new Error(`Telegram file download failed: ${res.status} ${res.statusText}`);
     }
     const audio = Buffer.from(await res.arrayBuffer());
+    const downloadMs = Date.now() - downloadStartedAt;
     // Telegram serves voice as `.oga`, which OpenAI's transcribe endpoint
     // rejects ("Unsupported file format oga") even though it is OGG/OPUS.
     // Force the `.ogg` extension so the API picks the right decoder.
-    return this.stt.transcribeFile(audio, {
+    const sttStartedAt = Date.now();
+    const text = await this.stt.transcribeFile(audio, {
       filename: 'voice.ogg',
       contentType: 'audio/ogg',
     });
+    const sttMs = Date.now() - sttStartedAt;
+    log.info(
+      { downloadMs, sttMs, bytes: audio.length },
+      `voice transcribed (download ${downloadMs}ms, stt ${sttMs}ms)`,
+    );
+    return text;
   }
 }

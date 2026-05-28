@@ -51,6 +51,16 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
     // handling this message is automatically tagged with chatId+updateId,
     // which is what you want when grepping logs across overlapping requests.
     const reqLog = log.child({ chatId: msg.chatId, updateId: msg.updateId, kind: msg.kind });
+    if (msg.kind === 'voice') {
+      reqLog.info(
+        { fileId: msg.fileId, durationSec: msg.durationSec },
+        `inbound voice (${msg.durationSec}s)`,
+      );
+    } else if (msg.kind === 'photo') {
+      reqLog.info({ fileId: msg.fileId }, 'inbound photo');
+    } else {
+      reqLog.info('inbound message');
+    }
     const replyer = deps.replyTo ? deps.replyTo(msg.chatId) : deps.sender;
     if (!allow.has(msg.chatId)) {
       reqLog.warn(`dropped message from chat=${msg.chatId} (not allow-listed)`);
@@ -97,6 +107,7 @@ async function handleMessage(
       return;
     }
     let transcript: string;
+    const sttStartedAt = Date.now();
     try {
       transcript = await ctx.voiceTranscriber.transcribe(msg.fileId);
     } catch (err) {
@@ -106,6 +117,10 @@ async function handleMessage(
       return;
     }
     transcript = transcript.trim();
+    ctx.log.info(
+      { transcribeMs: Date.now() - sttStartedAt, chars: transcript.length },
+      `transcribed voice → ${transcript}`,
+    );
     if (!transcript) {
       await ctx.sender.send('Voice message is empty — no speech detected.');
       return;
