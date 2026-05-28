@@ -4,7 +4,7 @@ import { OpenAiRealtimeClient, type ReasoningEffort } from './openaiRealtimeClie
 import type { RealtimeServerEvent } from 'openai/resources/realtime/realtime';
 import { resamplePcm16 } from './audio/resample.ts';
 import { pcm16ToBase64, base64ToPcm16 } from './audio/format.ts';
-import { encodeServerMessage, parseDeviceMessage, type ServerMessage } from './protocol.ts';
+import { encodeServerMessage, parseDeviceMessage, Phase, type ServerMessage } from './protocol.ts';
 import { LatencyTracker } from './metrics.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
 
@@ -45,7 +45,7 @@ export class RealtimeBridge {
   private sessionId = Math.random().toString(36).slice(2, 10);
   private deviceWs: WebSocket;
   private deps: BridgeDeps;
-  private currentPhase: 'idle' | 'listening' | 'thinking' | 'replying' = 'idle';
+  private currentPhase: Phase = 'idle';
   // Tracks an in-flight request_follow_up window so we can tell the
   // difference (in logs) between "user answered the model's question
   // within the window" and "window expired in silence". The device's
@@ -280,17 +280,32 @@ export class RealtimeBridge {
     try {
       const msg = parseDeviceMessage(data.toString());
       log.debug({ msg }, 'device control msg');
-      if (msg.type === 'interrupt') {
-        // Device tells us to drop the current reply. We don't know whether
-        // this is "barge-in, I'll speak next" or "Stop, full close" — both
-        // map to the same upstream action (cancel response, clear input
-        // buffer). The device drives its own mic/LED state via its yaml
-        // wake handlers; bridge stays neutral and does not force a phase
-        // transition here. setPhase('listening') used to live here and
-        // ended up popping the mic open after a Stop, which then let
-        // OpenAI generate a phantom follow-up response.
+      if (msg.type === 'start') {
+        // Wake word fired on the device — a turn is beginning. This is the
+        // *only* signal that opens a turn, including barge-in: the device no
+        // longer pairs it with a separate `interrupt`. So `start` also has to
+        // tear down any reply still in flight — cancel it upstream and drop
+        // its tail audio (the new turn's response.created re-arms forwarding).
+        // On a fresh wake there's nothing to cancel and cancelResponse is
+        // benign (response_cancel_not_active is suppressed). Going to listening
+        // mirrors the device's local LED and clears the idle-reset timer so an
+        // active turn can't be torn down mid-listen; speech_started later
+        // re-asserts listening (deduped to a no-op).
         this.openai.cancelResponse();
         this.dropResponseAudio = true;
+        this.setPhase('listening');
+      } else if (msg.type === 'interrupt') {
+        // Device is aborting the current turn and returning to idle — a Stop
+        // wake word, or the no-speech watchdog. (Barge-in does NOT come here;
+        // it sends `start`.) Cancel the response upstream and move the bridge
+        // back to idle so the idle-reset timer re-arms — otherwise a turn
+        // aborted from listening leaves the bridge stuck non-idle with the
+        // OpenAI session leaking open forever. We go to idle, not listening:
+        // setPhase('listening') used to live here and popped the mic open
+        // after a Stop, which let OpenAI emit a phantom follow-up response.
+        this.openai.cancelResponse();
+        this.dropResponseAudio = true;
+        this.setPhase('idle');
       } else if (msg.type === 'ping') {
         this.sendDevice({ type: 'pong' });
       }
@@ -331,21 +346,14 @@ export class RealtimeBridge {
         this.setPhase('thinking');
         break;
       case 'conversation.item.input_audio_transcription.completed': {
-        const transcript =
-          'transcript' in ev && typeof ev.transcript === 'string' ? ev.transcript : '';
+        const transcript = ev.transcript.trim();
         log.info(`user → ${transcript}`);
-        // Empty / near-empty transcript means whisper heard noise or the
-        // device's own TTS tail. Realtime fires a response in parallel
-        // with transcription, so by the time we know it's empty the model
-        // is already saying "I didn't catch that". Cancel it to keep the
-        // device quiet rather than spawning a useless turn.
-        const cleaned = transcript.trim();
         // Empty / single-non-letter transcripts are whisper hallucinating
         // from a brief noise burst (speaker-amp click, knob click, a stray
         // glottal sound). We've seen "뿅!", "...", single punctuation, etc.
         // Treat anything without at least one letter/digit character as noise.
-        const hasLetterOrDigit = /\p{L}|\p{N}/u.test(cleaned);
-        if (cleaned.length === 0 || !hasLetterOrDigit) {
+        const hasLetterOrDigit = /\p{L}|\p{N}/u.test(transcript);
+        if (transcript.length === 0 || !hasLetterOrDigit) {
           log.info(
             { transcript },
             'user transcript looks like noise — cancelling in-flight response',
@@ -359,9 +367,7 @@ export class RealtimeBridge {
         break;
       }
       case 'response.output_audio_transcript.done': {
-        const transcript =
-          'transcript' in ev && typeof ev.transcript === 'string' ? ev.transcript : '';
-        log.info(`assistant → ${transcript}`);
+        log.info(`assistant → ${ev.transcript}`);
         break;
       }
       case 'response.output_audio.delta': {
@@ -468,18 +474,8 @@ export class RealtimeBridge {
         break;
       }
       case 'error': {
-        // Pull out the error code/message defensively — the Realtime API
-        // doesn't strictly type these.
-        let code = '';
-        let message = 'unknown';
-        if (typeof ev.error === 'object' && ev.error !== null) {
-          if ('code' in ev.error && typeof ev.error['code'] === 'string') {
-            code = ev.error['code'];
-          }
-          if ('message' in ev.error && typeof ev.error['message'] === 'string') {
-            message = ev.error['message'];
-          }
-        }
+        const code = ev.error.code ?? 'unknown';
+        const message = ev.error.message;
         // Some upstream errors are expected lifecycle events, not real
         // failures the user needs to know about. Don't surface them to
         // the device (which would fire the error chime + red LED) —
@@ -560,10 +556,7 @@ export class RealtimeBridge {
    * messages are suppressed so the device doesn't flicker. Pass
    * `force: true` for the initial hello to make sure the device sees the
    * starting state even if we haven't transitioned yet. */
-  private setPhase(
-    next: 'idle' | 'listening' | 'thinking' | 'replying',
-    opts: { force?: boolean } = {},
-  ): void {
+  private setPhase(next: Phase, opts: { force?: boolean } = {}): void {
     if (!opts.force && this.currentPhase === next) {
       return;
     }

@@ -220,6 +220,32 @@ describe('RealtimeBridge idle reset', () => {
 
     expect(client.close).not.toHaveBeenCalled();
   });
+
+  it('returns to idle and re-arms the idle-reset timer when a turn aborts via interrupt', async () => {
+    vi.useFakeTimers();
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+    const client = currentClient();
+
+    // Wake fires: the device opens a turn (leaves idle → listening, which
+    // clears the idle-reset timer) and mic frames (silence) flow, so the
+    // upstream connects.
+    deviceControl({ type: 'start' });
+    deviceWs.emit('message', audioFrame(), true);
+    await vi.advanceTimersByTimeAsync(0); // resolve the connect microtask
+    expect(client.connect).toHaveBeenCalledTimes(1);
+
+    // No speech: the device's 7 s watchdog aborts with `interrupt` and goes
+    // idle locally. The bridge must mirror that — phase back to idle, idle-reset
+    // re-armed — otherwise it stays stuck in listening and the upstream session
+    // leaks open forever.
+    deviceWs.send.mockClear();
+    deviceControl({ type: 'interrupt' });
+    expect(phasesSent()).toEqual(['idle']);
+
+    await vi.advanceTimersByTimeAsync(IDLE_RESET_MS + 1);
+    expect(client.close).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('RealtimeBridge lazy reconnect after upstream close', () => {
@@ -267,6 +293,35 @@ describe('RealtimeBridge device control protocol', () => {
     await bridge.start();
 
     expect(() => deviceWs.emit('message', Buffer.from('not json'), false)).not.toThrow();
+  });
+
+  it('enters listening as soon as the device sends start (wake word)', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+    deviceWs.send.mockClear(); // drop hello + initial idle
+
+    // The device sends `start` the moment the wake word fires — before any
+    // audio, well before OpenAI's server VAD emits speech_started. The bridge
+    // must reflect "listening" immediately, not lag until speech is detected.
+    deviceControl({ type: 'start' });
+
+    expect(phasesSent()).toEqual(['listening']);
+  });
+
+  it('treats a barge-in wake (single start mid-reply) as a fresh listening turn', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+    const client = currentClient();
+    // Drive the bridge into replying, like a reply is playing out.
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    deviceWs.send.mockClear();
+
+    // Barge-in: the device sends a single `start` (it no longer pairs it with a
+    // separate interrupt). `start` alone must cut the residual reply and move
+    // straight to listening — no idle blip in between.
+    deviceControl({ type: 'start' });
+
+    expect(phasesSent()).toEqual(['listening']);
   });
 });
 
@@ -370,6 +425,28 @@ describe('RealtimeBridge barge-in / interruption', () => {
     await feedOpenAi(client, { type: 'response.created', response: { id: 'r2' } });
     await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
     expect(audioFramesSent()).toBe(2);
+  });
+
+  it('cancels the residual reply and drops its queued audio when start arrives mid-reply', async () => {
+    // Assistant is mid-reply when the user barges in with a fresh wake word.
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    expect(audioFramesSent()).toBe(1);
+    deviceWs.send.mockClear();
+
+    // A single `start` (no separate interrupt) must cancel the in-flight reply
+    // upstream and move to listening.
+    deviceControl({ type: 'start' });
+    expect(client.cancelResponse).toHaveBeenCalledTimes(1);
+    expect(phasesSent()).toEqual(['listening']);
+
+    // Tail deltas of the cancelled reply must not reach the device.
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    expect(audioFramesSent()).toBe(0);
+
+    // The new turn's response clears the drop flag → audio flows again.
+    await feedOpenAi(client, { type: 'response.created', response: { id: 'r2' } });
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    expect(audioFramesSent()).toBe(1);
   });
 });
 
