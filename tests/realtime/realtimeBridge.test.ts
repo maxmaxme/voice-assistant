@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { captureLogs } from '../helpers/captureLogs.ts';
 
 // Capture every fake OpenAI client the bridge constructs so a test can assert
 // against connect()/close() without reaching into private fields. Both the
@@ -448,6 +449,21 @@ describe('RealtimeBridge barge-in / interruption', () => {
     await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
     expect(audioFramesSent()).toBe(1);
   });
+
+  it("does not let a cancelled reply's late response.done drag a barged-in turn back to idle", async () => {
+    // A reply is playing out when the user barges in.
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    deviceControl({ type: 'start' }); // → cancels r1, new turn → listening
+    deviceWs.send.mockClear();
+
+    // OpenAI flushes a late response.done for the cancelled r1 (no tool call).
+    // It must NOT yank the fresh listening turn back to idle.
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: { id: 'r1', output: [] },
+    });
+    expect(phasesSent()).toEqual([]);
+  });
 });
 
 // Whisper transcribes the input in parallel with the model generating a reply.
@@ -569,6 +585,23 @@ describe('RealtimeBridge tool dispatch', () => {
     expect(serverMessages().some((m) => m.type === 'request_follow_up')).toBe(true);
     await finishResponse('r1', ['request_follow_up']);
     expect(client.requestResponse).not.toHaveBeenCalled();
+  });
+
+  it('treats a wake word during a follow-up window as the user responding', async () => {
+    // Model asked a question and opened the follow-up window.
+    await callTool('c1', 'request_follow_up', '{}');
+    await finishResponse('r1', ['request_follow_up']);
+
+    const logs = captureLogs();
+    try {
+      // The user re-engages with a wake word instead of speaking into the
+      // follow-up mic → `start`. The pending follow-up watchdog must be
+      // cleared so it doesn't later log a bogus "user did not respond".
+      deviceControl({ type: 'start' });
+      expect(logs.text()).toMatch(/request_follow_up — user responded/);
+    } finally {
+      logs.restore();
+    }
   });
 });
 

@@ -291,6 +291,11 @@ export class RealtimeBridge {
         // mirrors the device's local LED and clears the idle-reset timer so an
         // active turn can't be torn down mid-listen; speech_started later
         // re-asserts listening (deduped to a no-op).
+        // A wake word during a follow-up window means the user re-engaged
+        // (just via wake word rather than the open follow-up mic), so retire
+        // the watchdog — otherwise it would later log a bogus "user did not
+        // respond". No-op when no follow-up is pending.
+        this.notePossibleFollowUpResponse();
         this.openai.cancelResponse();
         this.dropResponseAudio = true;
         this.setPhase('listening');
@@ -444,10 +449,16 @@ export class RealtimeBridge {
           'response.done',
         );
         if (!hasRealToolCall) {
-          // No follow-up response will be requested — drop back to idle.
-          // Builtin flow-control tools have already called setPhase('idle')
-          // themselves; this covers pure-text responses.
-          this.setPhase('idle');
+          // No follow-up response will be requested — drop back to idle, but
+          // only if we're still in the turn this response.done belongs to
+          // (thinking/replying). A barge-in `start` may have already cancelled
+          // this response and opened a fresh turn (phase=listening); the late
+          // response.done for the cancelled reply must not drag that new turn
+          // back to idle. Builtin flow-control tools have already set their own
+          // phase. This covers pure-text responses.
+          if (this.currentPhase === 'thinking' || this.currentPhase === 'replying') {
+            this.setPhase('idle');
+          }
           break;
         }
         // Wait for every tool's output to be submitted, then ask the model
