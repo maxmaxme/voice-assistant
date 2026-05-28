@@ -505,7 +505,10 @@ export class RealtimeBridge {
         //    event will follow immediately and we'll lazy-reconnect.
         const benignCodes = new Set(['response_cancel_not_active', 'session_expired']);
         if (benignCodes.has(code)) {
-          log.info({ code, message }, `upstream sent ${code} (benign, suppressing device error)`);
+          // Expected lifecycle noise — fires on every barge-in / wake-after-
+          // reply (cancel with nothing to cancel) and on the 30-min cap. Keep
+          // it at debug so normal logs stay clean; it's never user-facing.
+          log.debug({ code, message }, `upstream sent ${code} (benign, suppressing device error)`);
           break;
         }
         log.error({ ev }, 'openai realtime error');

@@ -51,12 +51,15 @@ export class OpenAiRealtimeClient {
         l(ev);
       }
     });
-    // SDK emits 'error' as OpenAIRealtimeError. Server-side error events
-    // are also delivered to our listeners via the 'event' channel above;
-    // this listener exists only to swallow the unhandled-rejection path
-    // the SDK takes when no 'error' listener is attached.
+    // SDK emits 'error' as OpenAIRealtimeError. Server-side error events are
+    // ALSO delivered to our listeners via the 'event' channel above, where the
+    // bridge classifies them (suppressing benign codes, surfacing real ones).
+    // So this is a duplicate whose only real job is to swallow the SDK's
+    // unhandled-rejection path. Log at trace — the authoritative handling (and
+    // any user-facing surfacing) happens on the event-stream side; logging the
+    // full stack here too just doubles the noise for benign cancels.
     sdk.on('error', (err) => {
-      log.debug({ err }, 'sdk emitter error (also delivered via event stream)');
+      log.trace({ err }, 'sdk emitter error (also delivered via event stream)');
     });
     this.ws = sdk.socket;
 
