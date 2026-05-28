@@ -382,6 +382,7 @@ export class RealtimeBridge {
         // deltas reach the device. Anything still queued from the previous
         // (cancelled) response has been ignored up to this point.
         this.dropResponseAudio = false;
+        log.info({ responseId: ev.response.id, sessionId: this.sessionId }, 'response.created');
         break;
       case 'response.function_call_arguments.done': {
         if (
@@ -404,32 +405,35 @@ export class RealtimeBridge {
         //  1) Pure tool-call response (no audio) — original concern.
         //  2) Mixed response where the model speaks then calls a tool, e.g.
         //     "Okay, turning off the kitchen light" followed by HassTurnOff.
-        const response: unknown = 'response' in ev ? ev.response : undefined;
-        const output =
-          typeof response === 'object' &&
-          response !== null &&
-          'output' in response &&
-          Array.isArray(response.output)
-            ? response.output
-            : [];
+        const output = ev.response.output ?? [];
         // "Real" = a function call whose output will feed back into a
         // follow-up response. The built-in flow-control tools (wait_for_user,
         // request_follow_up) deliberately do NOT trigger a follow-up, so
         // they must not keep the device in `thinking` and must not cause
         // us to fire response.create.
         const BUILTIN_FLOW_CONTROL = new Set(['wait_for_user', 'request_follow_up']);
-        const hasRealToolCall = output.some((item: unknown) => {
-          if (typeof item !== 'object' || item === null || !('type' in item)) {
-            return false;
-          }
-          if (item.type !== 'function_call') {
-            return false;
-          }
-          const name = 'name' in item && typeof item.name === 'string' ? item.name : '';
-          return !BUILTIN_FLOW_CONTROL.has(name);
-        });
+        const hasRealToolCall = output.some(
+          (item) => item.type === 'function_call' && !BUILTIN_FLOW_CONTROL.has(item.name),
+        );
         const pending = this.pendingToolCalls;
         this.pendingToolCalls = [];
+        const responseId = ev.response.id ?? '?';
+        const outputKinds =
+          output
+            .map((item) =>
+              item.type === 'function_call' ? `function_call(${item.name})` : item.type,
+            )
+            .join(',') || '<empty>';
+        log.info(
+          {
+            responseId,
+            outputKinds,
+            hasRealToolCall,
+            pendingCount: pending.length,
+            sessionId: this.sessionId,
+          },
+          'response.done',
+        );
         if (!hasRealToolCall) {
           // No follow-up response will be requested — drop back to idle.
           // Builtin flow-control tools have already called setPhase('idle')
@@ -453,6 +457,10 @@ export class RealtimeBridge {
             log.warn({ err: r.reason }, 'tool call promise rejected — continuing batch');
           }
         }
+        log.info(
+          { responseId, sessionId: this.sessionId },
+          'tool batch complete — requesting follow-up response',
+        );
         this.openai.requestResponse();
         break;
       }
