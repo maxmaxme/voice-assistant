@@ -167,9 +167,11 @@ export class RealtimeBridge {
       this.pendingToolCalls = [];
     });
 
-    await this.ensureOpenaiConnected();
-    this.metrics.mark('openai_connected');
-
+    // Don't connect upstream here. Per the lazy-reconnect design above, the
+    // OpenAI session stays down until the device's first audio frame — see
+    // handleDeviceInner. Connecting eagerly on every WS attach (e.g. when the
+    // speaker reconnects at boot) burns a session that just idles for
+    // idleResetMs and then closes untouched.
     this.deviceWs.on('message', (data, isBinary) => this.handleDevice(data, isBinary));
     this.deviceWs.on('close', () => {
       log.info({ sessionId: this.sessionId }, 'device closed');
@@ -201,6 +203,7 @@ export class RealtimeBridge {
     this.pendingConnect = (async () => {
       try {
         await this.openai.connect();
+        this.metrics.mark('openai_connected');
         const tookMs = Date.now() - t0;
         log.info(
           { sessionId: this.sessionId, tookMs, buffered: this.audioBuffer.length },
