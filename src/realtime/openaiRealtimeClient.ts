@@ -151,6 +151,14 @@ export class OpenAiRealtimeClient {
   }
 
   cancelResponse(): void {
+    // Like {@link appendAudioPcm16Base64}, this MUST NOT throw on a closed WS.
+    // A device `start`/`interrupt` can arrive while the upstream is lazily
+    // disconnected (fresh wake after the idle-reset or OpenAI's 30-min cap);
+    // there's no response to cancel, and an unhandled throw would abort the
+    // bridge's control handler (dropping the listening phase).
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
     this.send({ type: 'response.cancel' });
     this.send({ type: 'input_audio_buffer.clear' });
   }

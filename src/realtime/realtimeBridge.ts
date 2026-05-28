@@ -291,8 +291,9 @@ export class RealtimeBridge {
         // longer pairs it with a separate `interrupt`. So `start` also has to
         // tear down any reply still in flight — cancel it upstream and drop
         // its tail audio (the new turn's response.created re-arms forwarding).
-        // On a fresh wake there's nothing to cancel and cancelResponse is
-        // benign (response_cancel_not_active is suppressed). Going to listening
+        // On a fresh wake there's nothing to cancel — cancelResponse is a
+        // no-op on a lazily-disconnected upstream and benign when connected
+        // with no active response (response_cancel_not_active). Going to listening
         // mirrors the device's local LED and clears the idle-reset timer so an
         // active turn can't be torn down mid-listen; speech_started later
         // re-asserts listening (deduped to a no-op).
