@@ -93,6 +93,16 @@ export class RealtimeBridge {
   // which marks the start of a genuinely new response.
   private dropResponseAudio = false;
 
+  // Coalesce parallel function calls into a single response.create. When the
+  // model emits N tool calls in one response, each tool's output must be
+  // submitted as a function_call_output item, but only ONE response.create
+  // should follow — otherwise OpenAI rejects the second one with
+  // `conversation_already_has_active_response`. We track in-flight call ids
+  // for the current response; `response.done` (with tool calls) sets the
+  // pending flag, and the last completing tool call fires response.create.
+  private inFlightToolCalls = new Set<string>();
+  private pendingResponseCreate = false;
+
   constructor(deviceWs: WebSocket, deps: BridgeDeps) {
     this.deviceWs = deviceWs;
     this.deps = deps;
@@ -157,6 +167,10 @@ export class RealtimeBridge {
       // Drop any in-flight follow-up watchdog: if we were mid-window when
       // the upstream went away, there's nothing to wait for.
       this.clearFollowUpWatchdog();
+      // Discard stale tool-call coalescing state — the response that owned
+      // these call ids is gone, and a fresh connect starts from scratch.
+      this.inFlightToolCalls.clear();
+      this.pendingResponseCreate = false;
     });
 
     await this.ensureOpenaiConnected();
@@ -400,14 +414,38 @@ export class RealtimeBridge {
           Array.isArray(response.output)
             ? response.output
             : [];
-        const hasToolCall = output.some((item: unknown) => {
+        // "Real" = a function call whose output will feed back into a
+        // follow-up response. The built-in flow-control tools (wait_for_user,
+        // request_follow_up) deliberately do NOT trigger a follow-up, so
+        // they must not keep the device in `thinking` and must not cause
+        // us to fire response.create.
+        const BUILTIN_FLOW_CONTROL = new Set(['wait_for_user', 'request_follow_up']);
+        const hasRealToolCall = output.some((item: unknown) => {
           if (typeof item !== 'object' || item === null || !('type' in item)) {
             return false;
           }
-          return item.type === 'function_call';
+          if (item.type !== 'function_call') {
+            return false;
+          }
+          const name = 'name' in item && typeof item.name === 'string' ? item.name : '';
+          return !BUILTIN_FLOW_CONTROL.has(name);
         });
-        if (!hasToolCall) {
+        if (!hasRealToolCall) {
+          // No follow-up response will be requested — drop back to idle.
+          // (Builtin flow-control tools have already called setPhase('idle')
+          // themselves; for pure-text responses this is the only place that
+          // does it.)
           this.setPhase('idle');
+        } else if (this.inFlightToolCalls.size === 0) {
+          // All tool calls already finished before response.done arrived —
+          // safe to ask the model for its follow-up response now.
+          this.openai.requestResponse();
+        } else {
+          // Defer response.create until the last in-flight tool call submits
+          // its output. Without this, two parallel tool calls each trigger
+          // response.create and the second one races with the first response,
+          // producing `conversation_already_has_active_response`.
+          this.pendingResponseCreate = true;
         }
         break;
       }
@@ -454,7 +492,7 @@ export class RealtimeBridge {
     // because the server isn't going to emit a clean response.done.
     if (name === 'wait_for_user') {
       log.info('wait_for_user — staying silent, no response triggered');
-      this.openai.submitToolResult(callId, '{}', /* triggerResponse */ false);
+      this.openai.submitToolResult(callId, '{}');
       this.setPhase('idle');
       return;
     }
@@ -463,12 +501,17 @@ export class RealtimeBridge {
     // follow-up mic window, then close out the LED phase cleanly.
     if (name === 'request_follow_up') {
       log.info('request_follow_up — opening device follow-up mic window');
-      this.openai.submitToolResult(callId, '{}', /* triggerResponse */ false);
+      this.openai.submitToolResult(callId, '{}');
       this.sendDevice({ type: 'request_follow_up' });
       this.setPhase('idle');
       this.armFollowUpWatchdog();
       return;
     }
+    // Only "real" tool calls (those whose outputs feed back into a follow-up
+    // response) participate in the response.create coalescing window. The
+    // built-ins above intentionally do NOT request a follow-up response, so
+    // they must not block the coalescer.
+    this.inFlightToolCalls.add(callId);
     const t0 = Date.now();
     let args: unknown;
     try {
@@ -493,6 +536,19 @@ export class RealtimeBridge {
         `${name}(${truncatePreview(args)}) FAILED in ${durationMs}ms: ${errorMsg}`,
       );
       this.openai.submitToolResult(callId, JSON.stringify({ error: errorMsg }));
+    }
+    this.markToolCallComplete(callId);
+  }
+
+  private markToolCallComplete(callId: string): void {
+    this.inFlightToolCalls.delete(callId);
+    if (this.pendingResponseCreate && this.inFlightToolCalls.size === 0) {
+      this.pendingResponseCreate = false;
+      try {
+        this.openai.requestResponse();
+      } catch (err) {
+        log.warn({ err, callId }, 'failed to request follow-up response');
+      }
     }
   }
 

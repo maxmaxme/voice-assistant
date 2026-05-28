@@ -11,6 +11,7 @@ import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runne
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
 import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
 import { mcpToolsToRealtime, localToolsToRealtime } from '../realtime/toolAdapter.ts';
+import { applyHaToolSuffixes } from '../agent/toolBridge.ts';
 import { buildLocalToolset } from '../agent/localTools.ts';
 import { appendUserContext } from '../agent/systemPrompt.ts';
 import { ToolResultCache, CACHEABLE_TOOLS } from '../realtime/toolCache.ts';
@@ -175,7 +176,7 @@ export async function main(): Promise<void> {
             deps.memory.profile.recall(),
           ),
           tools: [
-            ...mcpToolsToRealtime(await deps.mcp.listTools()),
+            ...mcpToolsToRealtime(applyHaToolSuffixes(await deps.mcp.listTools())),
             ...localToolsToRealtime(localToolset.tools),
           ],
           runTool: async (name, args) => {

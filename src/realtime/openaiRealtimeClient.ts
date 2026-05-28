@@ -173,7 +173,10 @@ export class OpenAiRealtimeClient {
     this.send({ type: 'input_audio_buffer.clear' });
   }
 
-  submitToolResult(callId: string, output: string, triggerResponse = true): void {
+  /** Submit a function_call_output item. Does NOT trigger a follow-up
+   * response — call {@link requestResponse} once, after the last tool in a
+   * parallel batch has submitted, to ask the model to continue. */
+  submitToolResult(callId: string, output: string): void {
     this.send({
       type: 'conversation.item.create',
       item: {
@@ -182,9 +185,12 @@ export class OpenAiRealtimeClient {
         output,
       },
     });
-    if (triggerResponse) {
-      this.send({ type: 'response.create' });
-    }
+  }
+
+  /** Ask the model to produce a new response. Pairs with
+   * {@link submitToolResult} when coalescing parallel tool results. */
+  requestResponse(): void {
+    this.send({ type: 'response.create' });
   }
 
   close(): void {

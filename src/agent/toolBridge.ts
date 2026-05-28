@@ -33,15 +33,32 @@ const HA_SUFFIX_TOOLS = [
   'HassClimateSetTemperature',
   'HassTurnOn',
   'HassListAddItem',
+  'HassListRemoveItem',
   'GetLiveContext',
 ] as const;
 
-const HA_TOOL_DESCRIPTION_SUFFIX: Readonly<Record<string, string>> = Object.fromEntries(
+export const HA_TOOL_DESCRIPTION_SUFFIX: Readonly<Record<string, string>> = Object.fromEntries(
   HA_SUFFIX_TOOLS.map((name) => [
     name,
     loadPrompt(`./prompts/ha-suffix/${name}.md`, import.meta.url),
   ]),
 );
+
+/** Merge per-tool prompt suffixes into the MCP descriptions before either the
+ * Responses-API or Realtime tool adapter sees them. Both code paths reach for
+ * the same suffix map so a rule written once applies on every channel. */
+export function applyHaToolSuffixes<T extends { name: string; description?: string }>(
+  tools: T[],
+): T[] {
+  return tools.map((t) => {
+    const suffix = HA_TOOL_DESCRIPTION_SUFFIX[t.name];
+    if (!suffix) {
+      return t;
+    }
+    const base = t.description ?? '';
+    return { ...t, description: base ? `${base}\n\n${suffix}` : suffix };
+  });
+}
 
 export function mcpToolsToOpenAi(tools: McpTool[]): OpenAiFunctionTool[] {
   return tools.map((t) => {
