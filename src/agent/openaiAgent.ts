@@ -284,6 +284,7 @@ export class OpenAiAgent implements Agent {
             iterations: i + 1,
             toolsUsed,
             inputTokens: usage?.input_tokens,
+            cachedTokens: usage?.input_tokens_details?.cached_tokens,
             outputTokens: usage?.output_tokens,
             reasoningTokens: usage?.output_tokens_details?.reasoning_tokens,
           },
