@@ -1,10 +1,7 @@
 import type WebSocket from 'ws';
 import { createLogger } from '../utils/logger.ts';
-import {
-  OpenAiRealtimeClient,
-  type RealtimeEvent,
-  type ReasoningEffort,
-} from './openaiRealtimeClient.ts';
+import { OpenAiRealtimeClient, type ReasoningEffort } from './openaiRealtimeClient.ts';
+import type { RealtimeServerEvent } from 'openai/resources/realtime/realtime';
 import { resamplePcm16 } from './audio/resample.ts';
 import { pcm16ToBase64, base64ToPcm16 } from './audio/format.ts';
 import { encodeServerMessage, parseDeviceMessage, type ServerMessage } from './protocol.ts';
@@ -299,7 +296,7 @@ export class RealtimeBridge {
     }
   }
 
-  private handleOpenAi(ev: RealtimeEvent): void {
+  private handleOpenAi(ev: RealtimeServerEvent): void {
     // Same belt-and-suspenders as handleDevice: any throw here would
     // crash the process (Node's default for EventEmitter listener errors).
     // The risk surface is mostly the control-message paths inside
@@ -317,7 +314,7 @@ export class RealtimeBridge {
     });
   }
 
-  private async handleOpenAiInner(ev: RealtimeEvent): Promise<void> {
+  private async handleOpenAiInner(ev: RealtimeServerEvent): Promise<void> {
     switch (ev.type) {
       case 'input_audio_buffer.speech_started':
         this.notePossibleFollowUpResponse();

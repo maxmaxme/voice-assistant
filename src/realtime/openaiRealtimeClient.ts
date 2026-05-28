@@ -1,4 +1,11 @@
 import WebSocket from 'ws';
+import OpenAI from 'openai';
+import { OpenAIRealtimeWS } from 'openai/realtime/ws';
+import type {
+  RealtimeClientEvent,
+  RealtimeServerEvent,
+  RealtimeSessionCreateRequest,
+} from 'openai/resources/realtime/realtime';
 import { createLogger } from '../utils/logger.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
 
@@ -15,33 +22,13 @@ export interface RealtimeClientOptions {
   reasoningEffort?: ReasoningEffort;
 }
 
-export type RealtimeEvent =
-  | { type: 'session.created'; session: unknown }
-  | { type: 'session.updated'; session: unknown }
-  | { type: 'input_audio_buffer.speech_started' }
-  | { type: 'input_audio_buffer.speech_stopped' }
-  | { type: 'response.created'; response: { id: string } }
-  | { type: 'response.output_audio.delta'; delta: string; response_id: string }
-  | { type: 'response.output_audio.done'; response_id: string }
-  | { type: 'response.done'; response: { id: string; output: unknown[] } }
-  | {
-      type: 'response.function_call_arguments.done';
-      call_id: string;
-      name: string;
-      arguments: string;
-    }
-  | { type: 'error'; error: { message: string } }
-  | Record<string, unknown>;
-
-function parseRealtimeEvent(data: unknown): data is RealtimeEvent {
-  return (
-    typeof data === 'object' && data !== null && 'type' in data && typeof data.type === 'string'
-  );
-}
-
 export class OpenAiRealtimeClient {
+  // We let the SDK build the URL, open the socket, and parse each incoming
+  // frame into a typed `RealtimeServerEvent`. Once dispatch is wired we
+  // discard the SDK reference and keep only the underlying socket — that's
+  // all `send`, `readyState`, and close/error listeners need.
   private ws: WebSocket | null = null;
-  private listeners: ((ev: RealtimeEvent) => void)[] = [];
+  private listeners: ((ev: RealtimeServerEvent) => void)[] = [];
   private closeListeners: ((info: { code: number; reason: string }) => void)[] = [];
   private opts: RealtimeClientOptions;
   // Counts append calls that hit a closed WS so we can log a single
@@ -53,37 +40,31 @@ export class OpenAiRealtimeClient {
   }
 
   async connect(): Promise<void> {
-    const base = process.env.OPENAI_REALTIME_URL_OVERRIDE ?? 'wss://api.openai.com/v1/realtime';
-    const url = `${base}?model=${encodeURIComponent(this.opts.model)}`;
-    this.ws = new WebSocket(url, {
-      headers: {
-        Authorization: `Bearer ${this.opts.apiKey}`,
-      },
-    });
+    const oa = new OpenAI({ apiKey: this.opts.apiKey });
+    const sdk = new OpenAIRealtimeWS({ model: this.opts.model }, oa);
     await new Promise<void>((resolve, reject) => {
-      this.ws!.once('open', () => resolve());
-      this.ws!.once('error', reject);
+      sdk.socket.once('open', () => resolve());
+      sdk.socket.once('error', reject);
     });
-    this.ws!.on('message', (data) => {
-      try {
-        const parsed = JSON.parse(data.toString());
-        if (parseRealtimeEvent(parsed)) {
-          for (const l of this.listeners) {
-            l(parsed);
-          }
-        }
-      } catch (err) {
-        log.warn({ err }, 'failed to parse realtime event');
+    sdk.on('event', (ev) => {
+      for (const l of this.listeners) {
+        l(ev);
       }
     });
-    // Surface unexpected closes so the bridge can tear down the device WS
-    // (instead of the device streaming audio into a dead OpenAI socket and
-    // crashing the process with "ws not open" on every frame).
+    // SDK emits 'error' as OpenAIRealtimeError. Server-side error events
+    // are also delivered to our listeners via the 'event' channel above;
+    // this listener exists only to swallow the unhandled-rejection path
+    // the SDK takes when no 'error' listener is attached.
+    sdk.on('error', (err) => {
+      log.debug({ err }, 'sdk emitter error (also delivered via event stream)');
+    });
+    this.ws = sdk.socket;
+
     // OpenAI Realtime caps each session at 30 minutes — sockets WILL close
     // on us. We don't try to keep them alive; we just make sure the next
     // device wake word comes up cleanly by tearing the device session
     // down (see RealtimeBridge.onClose), so the firmware reconnects fresh.
-    this.ws!.on('close', (code: number, reason: Buffer) => {
+    this.ws.on('close', (code: number, reason: Buffer) => {
       const info = { code, reason: reason.toString('utf8') };
       log.info(info, 'openai realtime ws closed');
       if (this.droppedAudioFrames > 0) {
@@ -94,10 +75,11 @@ export class OpenAiRealtimeClient {
         l(info);
       }
     });
-    this.ws!.on('error', (err: Error) => {
+    this.ws.on('error', (err: Error) => {
       log.warn({ err }, 'openai realtime ws error');
     });
-    const session: Record<string, unknown> = {
+
+    const session: RealtimeSessionCreateRequest = {
       type: 'realtime',
       model: this.opts.model,
       output_modalities: ['audio'],
@@ -133,7 +115,7 @@ export class OpenAiRealtimeClient {
     this.send({ type: 'session.update', session });
   }
 
-  on(listener: (ev: RealtimeEvent) => void): void {
+  on(listener: (ev: RealtimeServerEvent) => void): void {
     this.listeners.push(listener);
   }
 
@@ -148,11 +130,11 @@ export class OpenAiRealtimeClient {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 
-  send(msg: unknown): void {
+  send(event: RealtimeClientEvent): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('openai realtime ws not open');
     }
-    this.ws.send(JSON.stringify(msg));
+    this.ws.send(JSON.stringify(event));
   }
 
   /** High-frequency audio fastpath. Unlike {@link send}, this MUST NOT throw
@@ -165,7 +147,7 @@ export class OpenAiRealtimeClient {
       this.droppedAudioFrames++;
       return;
     }
-    this.ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: b64 }));
+    this.send({ type: 'input_audio_buffer.append', audio: b64 });
   }
 
   cancelResponse(): void {
