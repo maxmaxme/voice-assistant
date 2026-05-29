@@ -65,7 +65,8 @@ export async function dispatch(
         agent,
         sessionFor,
         memory: deps.memory,
-        allowedChatIds: deps.config.telegram.allowedChatIds,
+        identities: deps.memory.identities,
+        profileStore: deps.memory.profileStore,
         replyTo: perChatSender(deps.config.telegram.botToken),
         voiceTranscriber: new BotVoiceTranscriber({
           botToken: deps.config.telegram.botToken,

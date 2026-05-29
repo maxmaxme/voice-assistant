@@ -2,6 +2,9 @@ import { exec } from 'child_process';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import { Session } from '../../agent/session.ts';
 import type { MemoryStore } from '../../memory/types.ts';
+import { makeScopedProfile, type Scope, type ScopedProfile } from '../../memory/scope.ts';
+import type { IdentitiesAdapter } from '../../memory/types.ts';
+import type { SqliteProfileMemory } from '../../memory/sqliteProfileMemory.ts';
 import type { TelegramReceiver, TelegramSender, TelegramMessage } from '../../telegram/types.ts';
 import { BotTelegramSender } from '../../telegram/telegramSender.ts';
 import type { TelegramVoiceTranscriber } from '../../telegram/voiceTranscriber.ts';
@@ -22,7 +25,8 @@ export interface TelegramRunnerDeps {
    * unified.ts builds Sessions backed by `memory.telegramSessions`; tests can
    * pass an in-memory factory. */
   sessionFor: (chatId: number) => Session;
-  allowedChatIds: number[];
+  identities: IdentitiesAdapter;
+  profileStore: SqliteProfileMemory;
   /** Build a new sender targeting a specific chat. Defaults to the global one
    * (single-user setup). Tests inject this. */
   replyTo?: (chatId: number) => TelegramSender;
@@ -41,10 +45,13 @@ Commands:
   /update — pull latest image and restart
   /help — show this`;
 
+export function resolveTelegramScope(identities: IdentitiesAdapter, chatId: number): Scope | null {
+  const res = identities.resolve('telegram', String(chatId));
+  return res ? { role: res.role, userId: res.userId } : null;
+}
+
 export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
-  const { receiver, agent, sessionFor, memory, allowedChatIds, voiceTranscriber, photoLoader } =
-    deps;
-  const allow = new Set(allowedChatIds);
+  const { receiver, agent, sessionFor, memory, voiceTranscriber, photoLoader } = deps;
 
   for await (const msg of receiver.messages()) {
     // One child logger per inbound update — every line emitted while
@@ -62,8 +69,9 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
       reqLog.info('inbound message');
     }
     const replyer = deps.replyTo ? deps.replyTo(msg.chatId) : deps.sender;
-    if (!allow.has(msg.chatId)) {
-      reqLog.warn(`dropped message from chat=${msg.chatId} (not allow-listed)`);
+    const scope = resolveTelegramScope(deps.identities, msg.chatId);
+    if (!scope) {
+      reqLog.warn(`dropped message from chat=${msg.chatId} (no identity)`);
       continue;
     }
     try {
@@ -71,6 +79,7 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
         agent,
         session: sessionFor(msg.chatId),
         memory,
+        profile: makeScopedProfile(deps.profileStore, scope),
         sender: replyer,
         voiceTranscriber,
         photoLoader,
@@ -94,6 +103,7 @@ async function handleMessage(
     agent: OpenAiAgent;
     session: Session;
     memory: MemoryStore;
+    profile: ScopedProfile;
     sender: TelegramSender;
     voiceTranscriber?: TelegramVoiceTranscriber;
     photoLoader?: TelegramPhotoLoader;
@@ -127,7 +137,7 @@ async function handleMessage(
     }
     let reply;
     try {
-      reply = await ctx.agent.respond(transcript, { session });
+      reply = await ctx.agent.respond(transcript, { session, profile: ctx.profile });
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       ctx.log.error({ err }, `agent error on voice transcript: ${m}`);
@@ -157,7 +167,11 @@ async function handleMessage(
     }
     let reply;
     try {
-      reply = await ctx.agent.respond(msg.caption ?? '', { images: [image], session });
+      reply = await ctx.agent.respond(msg.caption ?? '', {
+        images: [image],
+        session,
+        profile: ctx.profile,
+      });
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       ctx.log.error({ err }, `agent error on photo: ${m}`);
@@ -183,7 +197,7 @@ async function handleMessage(
     return;
   }
   if (text === '/profile') {
-    await ctx.sender.send(JSON.stringify(ctx.memory.profile.recall(), null, 2));
+    await ctx.sender.send(JSON.stringify(ctx.profile.recall(), null, 2));
     return;
   }
   if (text === '/update') {
@@ -200,7 +214,7 @@ async function handleMessage(
 
   let reply;
   try {
-    reply = await ctx.agent.respond(text, { session });
+    reply = await ctx.agent.respond(text, { session, profile: ctx.profile });
   } catch (err) {
     const m = err instanceof Error ? err.message : String(err);
     ctx.log.error({ err }, `agent error: ${m}`);

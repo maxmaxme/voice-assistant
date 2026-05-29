@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('child_process', () => ({ exec: vi.fn() }));
 import { exec } from 'child_process';
-import { runTelegramMode } from '../../../src/cli/runners/telegram.ts';
+import { runTelegramMode, type TelegramRunnerDeps } from '../../../src/cli/runners/telegram.ts';
 import type {
   TelegramMessage,
   TelegramReceiver,
@@ -14,17 +14,31 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../../../src/memory/migrate.ts';
 import { SqliteProfileMemory } from '../../../src/memory/sqliteProfileMemory.ts';
 import { IdentitiesStore } from '../../../src/memory/identities.ts';
+import { HOUSEHOLD_OWNER } from '../../../src/memory/scope.ts';
 import type { MemoryStore } from '../../../src/memory/types.ts';
 
-function fakeMemory(recallFn?: () => Record<string, unknown>): MemoryStore {
+interface FakeMemory {
+  memory: MemoryStore;
+  identities: IdentitiesStore;
+  profileStore: SqliteProfileMemory;
+}
+
+/** Build an in-memory MemoryStore over a single migrated db. `attachChats`
+ *  attaches each chat id as a `member` so `resolveTelegramScope` resolves it
+ *  (i.e. the chat is allow-listed). Chats not listed resolve to null → dropped. */
+function fakeMemory(attachChats: number[] = []): FakeMemory {
   const db = new Database(':memory:');
   runMigrations(db);
   const profileStore = new SqliteProfileMemory({ db });
   const identities = new IdentitiesStore(db);
-  return {
+  for (const chatId of attachChats) {
+    const u = identities.addUser('test', 'member');
+    identities.attachIdentity('telegram', String(chatId), u);
+  }
+  const memory: MemoryStore = {
     profile: {
       remember: () => {},
-      recall: recallFn ?? (() => ({})),
+      recall: () => ({}),
       forget: () => {},
       close: () => {},
     },
@@ -48,6 +62,17 @@ function fakeMemory(recallFn?: () => Record<string, unknown>): MemoryStore {
     },
     close: () => {},
   };
+  return { memory, identities, profileStore };
+}
+
+/** Deps fragment wiring identity-gating + scoped profile over one db.
+ *  `attachChats` lists the chat ids that resolve to a member scope (i.e. are
+ *  allow-listed); any other chat resolves to null and is dropped. */
+function memDeps(
+  attachChats: number[] = [],
+): Pick<TelegramRunnerDeps, 'memory' | 'identities' | 'profileStore'> {
+  const fm = fakeMemory(attachChats);
+  return { memory: fm.memory, identities: fm.identities, profileStore: fm.profileStore };
 }
 
 /** Per-chat Session factory for tests. Uses an in-memory cache; no DB. */
@@ -97,7 +122,6 @@ describe('runTelegramMode', () => {
   it('forwards a text message to the agent and replies', async () => {
     const respond = vi.fn(async (text: string) => ({ text: `echo:${text}` }));
     const factory = sessionFactory();
-    const memory = fakeMemory();
     const cap = captureSender();
 
     await runTelegramMode({
@@ -107,8 +131,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: factory.sessionFor,
-      memory,
-      allowedChatIds: [42],
+      ...memDeps([42]),
     });
 
     expect(respond).toHaveBeenCalledWith(
@@ -130,8 +153,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
     });
     expect(respond).not.toHaveBeenCalled();
     expect(cap.sent).toEqual([]);
@@ -151,8 +173,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: factory.sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
     });
     expect(resetSpy).toHaveBeenCalledTimes(1);
     expect(respond).not.toHaveBeenCalled();
@@ -161,8 +182,11 @@ describe('runTelegramMode', () => {
 
   it('handles /profile locally', async () => {
     const respond = vi.fn();
-    const recall = vi.fn(() => ({ name: 'Maxim' }));
     const cap = captureSender();
+    const fm = fakeMemory([42]);
+    // /profile now dumps the SCOPED view (household ∪ personal). Seed a
+    // household fact so the member chat sees it.
+    fm.profileStore.rememberFor(HOUSEHOLD_OWNER, 'name', 'Maxim');
     await runTelegramMode({
       receiver: recvFromMessages([
         { updateId: 1, chatId: 42, fromUserId: 7, kind: 'text', text: '/profile', receivedAt: 0 },
@@ -170,10 +194,10 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(recall),
-      allowedChatIds: [42],
+      memory: fm.memory,
+      identities: fm.identities,
+      profileStore: fm.profileStore,
     });
-    expect(recall).toHaveBeenCalled();
     expect(respond).not.toHaveBeenCalled();
     expect(cap.sent[0]).toContain('Maxim');
   });
@@ -188,8 +212,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
     });
     expect(respond).not.toHaveBeenCalled();
     expect(cap.sent[0]).toMatch(/help|ready|hi/i);
@@ -214,8 +237,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
       voiceTranscriber: { transcribe },
     });
     expect(transcribe).toHaveBeenCalledWith('F');
@@ -249,8 +271,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
       voiceTranscriber: { transcribe },
     });
     expect(respond).not.toHaveBeenCalled();
@@ -275,8 +296,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
     });
     expect(respond).not.toHaveBeenCalled();
     expect(cap.sent[0]).toMatch(/voice|not supported/i);
@@ -294,8 +314,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
     });
     expect(cap.sent[0]).toMatch(/error|Agent/i);
   });
@@ -312,8 +331,7 @@ describe('runTelegramMode', () => {
         sender: cap.sender,
         agent: { respond } as unknown as OpenAiAgent,
         sessionFor: sessionFactory().sessionFor,
-        memory: fakeMemory(),
-        allowedChatIds: [42],
+        ...memDeps([42]),
       });
       expect(respond).not.toHaveBeenCalled();
       expect(cap.sent[0]).toMatch(/starting.*update|🔄/i);
@@ -344,8 +362,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
       photoLoader: { load },
     });
     expect(load).toHaveBeenCalledWith('PHOTO1');
@@ -367,8 +384,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
       photoLoader: { load },
     });
     expect(respond).toHaveBeenCalledWith(
@@ -395,8 +411,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
       photoLoader: { load },
     });
     expect(respond).not.toHaveBeenCalled();
@@ -414,8 +429,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
     });
     expect(respond).not.toHaveBeenCalled();
     expect(cap.sent[0]).toMatch(/photo|not supported/i);
@@ -434,8 +448,7 @@ describe('runTelegramMode', () => {
       sender: cap.sender,
       agent: { respond } as unknown as OpenAiAgent,
       sessionFor: sessionFactory().sessionFor,
-      memory: fakeMemory(),
-      allowedChatIds: [42],
+      ...memDeps([42]),
       photoLoader: { load },
     });
     expect(respond).not.toHaveBeenCalled();
@@ -454,8 +467,7 @@ describe('runTelegramMode', () => {
         sender: cap.sender,
         agent: { respond } as unknown as OpenAiAgent,
         sessionFor: sessionFactory().sessionFor,
-        memory: fakeMemory(),
-        allowedChatIds: [42],
+        ...memDeps([42]),
       });
       expect(respond).not.toHaveBeenCalled();
       expect(cap.sent[0]).toMatch(/update only works on the pi/i);
