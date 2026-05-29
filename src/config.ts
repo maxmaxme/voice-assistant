@@ -20,7 +20,9 @@ const ConfigSchema = z.object({
     allowedChatIds: z.array(z.number().int()).default([]),
   }),
   http: z.object({
-    apiKeys: z.array(z.string()).min(1),
+    // Optional: HTTP auth is DB-backed (identities). HTTP_API_KEYS is only a
+    // first-boot seed source — empty is fine once the DB has identities.
+    apiKeys: z.array(z.string()).default([]),
   }),
   realtime: z.object({
     enabled: z.boolean().default(false),

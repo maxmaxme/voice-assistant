@@ -82,10 +82,10 @@ describe('loadConfig', () => {
     expect(() => loadConfig()).toThrow(/TELEGRAM_CHAT_ID/);
   });
 
-  it('throws when HTTP_API_KEYS is missing', () => {
+  it('defaults HTTP_API_KEYS to [] when missing (auth is DB-backed; env is seed-only)', () => {
     setRequired();
     delete process.env.HTTP_API_KEYS;
-    expect(() => loadConfig()).toThrow(/HTTP_API_KEYS/);
+    expect(loadConfig().http.apiKeys).toEqual([]);
   });
 
   it('allowed chat ids defaults to [Number(chatId)] when TELEGRAM_ALLOWED_CHAT_IDS is unset', () => {

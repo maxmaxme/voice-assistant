@@ -59,8 +59,9 @@ npm install
 
 # 2. .env
 cp .env.example .env
-# Fill HA_URL, HA_TOKEN, OPENAI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID,
-# HTTP_API_KEYS.
+# Fill HA_URL, HA_TOKEN, OPENAI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+# HTTP_API_KEYS is optional (first-boot seed source only; auth is DB-backed —
+# mint tokens later with `npm run users -- mint-http`).
 
 # 3. Sanity check — list HA's MCP tools
 npm run mcp:call -- list
