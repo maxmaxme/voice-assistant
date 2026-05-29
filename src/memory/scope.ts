@@ -50,3 +50,21 @@ export function makeScopedProfile(store: SqliteProfileMemory, scope: Scope): Sco
 export function householdProfile(store: SqliteProfileMemory): ScopedProfile {
   return makeScopedProfile(store, { role: 'shared', userId: 0 });
 }
+
+/** Wrap a plain household-backed MemoryAdapter (recall/remember/forget with
+ *  no scope arg) as a ScopedProfile. Used as the agent's fallback when no
+ *  per-request scope is supplied — writes/reads go to the adapter as-is
+ *  (household). */
+export interface MemoryAdapterLike {
+  recall(key?: string): ProfileFacts;
+  remember(key: string, value: unknown): void;
+  forget(key: string): void;
+}
+
+export function householdFromAdapter(adapter: MemoryAdapterLike): ScopedProfile {
+  return {
+    recall: (key) => adapter.recall(key),
+    remember: (key, value) => adapter.remember(key, value),
+    forget: (key) => adapter.forget(key),
+  };
+}

@@ -5,6 +5,7 @@ import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import {
   makeScopedProfile,
   householdProfile,
+  householdFromAdapter,
   HOUSEHOLD_OWNER,
   personalOwner,
 } from '../../src/memory/scope.ts';
@@ -52,5 +53,23 @@ describe('scope', () => {
     const p = householdProfile(m);
     p.remember('x', 1);
     expect(m.recallFor([HOUSEHOLD_OWNER])).toEqual({ x: 1 });
+  });
+
+  it('householdFromAdapter delegates to the adapter (scope arg ignored)', () => {
+    const calls: Array<[string, string, unknown]> = [];
+    const adapter = {
+      recall: (key?: string) => (key ? { [key]: 'v' } : { a: 1 }),
+      remember: (key: string, value: unknown) => void calls.push(['remember', key, value]),
+      forget: (key: string) => void calls.push(['forget', key, undefined]),
+    };
+    const p = householdFromAdapter(adapter);
+    p.remember('k', 2, 'household'); // scope arg accepted but ignored by the wrapper
+    p.forget('k');
+    expect(calls).toEqual([
+      ['remember', 'k', 2],
+      ['forget', 'k', undefined],
+    ]);
+    expect(p.recall()).toEqual({ a: 1 });
+    expect(p.recall('x')).toEqual({ x: 'v' });
   });
 });

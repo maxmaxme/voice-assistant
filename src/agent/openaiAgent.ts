@@ -9,6 +9,7 @@ import type {
 import type { Agent, AgentImage, AgentResponse, AgentRespondOptions } from './types.ts';
 import type { McpClient } from '../mcp/types.ts';
 import type { MemoryStore } from '../memory/types.ts';
+import { householdFromAdapter, type ScopedProfile } from '../memory/scope.ts';
 import { PENDING_ASK_TTL_MS, Session } from './session.ts';
 import { mcpToolsToOpenAi } from './toolBridge.ts';
 import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
@@ -82,6 +83,7 @@ export class OpenAiAgent implements Agent {
   async respond(userText: string, opts: AgentRespondOptions = {}): Promise<AgentResponse> {
     const { mcp, model, llmClient } = this.opts;
     const session = opts.session ?? this.opts.session;
+    const profile: ScopedProfile = opts.profile ?? householdFromAdapter(this.opts.memory.profile);
     const images = opts.images ?? [];
     const respondStartedAt = Date.now();
 
@@ -102,7 +104,9 @@ export class OpenAiAgent implements Agent {
     // fresh chain. Within a chain OpenAI keeps the original instructions
     // alongside the rest of the conversation state.
     const buildInstructions = (): string =>
-      this.mode === 'goal' ? this.buildGoalSystemMessage(userText) : this.buildSystemMessage();
+      this.mode === 'goal'
+        ? this.buildGoalSystemMessage(userText)
+        : this.buildSystemMessage(profile);
     let instructions: string | undefined =
       previousResponseId === undefined ? buildInstructions() : undefined;
 
@@ -323,7 +327,7 @@ export class OpenAiAgent implements Agent {
             let isError = false;
             if (MEMORY_TOOL_NAMES.has(tc.name)) {
               try {
-                const r = executeMemoryTool(this.opts.memory.profile, tc.name, args);
+                const r = executeMemoryTool(profile, tc.name, args);
                 resultText = JSON.stringify(r);
               } catch (e) {
                 resultText = e instanceof Error ? e.message : String(e);
@@ -442,9 +446,9 @@ export class OpenAiAgent implements Agent {
     throw new Error('Agent exceeded max tool iterations');
   }
 
-  private buildSystemMessage(): string {
+  private buildSystemMessage(profile: ScopedProfile): string {
     const base = this.opts.systemPrompt;
-    const profile = this.opts.memory.profile.recall();
+    const facts = profile.recall();
     const nowMs = Date.now();
     // Include both UTC ISO and local time with offset so the LLM can express
     // dates in the server's local timezone without doing timezone arithmetic.
@@ -461,14 +465,16 @@ export class OpenAiAgent implements Agent {
       process.env.OPENAI_WEB_SEARCH === '1'
         ? `\n\nThe web_search tool is available — use it for weather, news, and general-knowledge queries that no Home Assistant entity covers.`
         : '';
-    if (Object.keys(profile).length === 0) {
+    if (Object.keys(facts).length === 0) {
       return base + timeBlock + webSearchBlock;
     }
-    return `${base}${timeBlock}${webSearchBlock}\n\nKnown user profile: ${JSON.stringify(profile)}`;
+    return `${base}${timeBlock}${webSearchBlock}\n\nKnown user profile: ${JSON.stringify(facts)}`;
   }
 
   private buildGoalSystemMessage(goal: string): string {
-    const base = this.buildSystemMessage();
+    // Goal mode never carries a per-user scope; the household view of the
+    // agent's own adapter is the correct (and only) profile here.
+    const base = this.buildSystemMessage(householdFromAdapter(this.opts.memory.profile));
     return (
       base +
       `\n\nYou are running a previously-scheduled goal. There is NO USER PRESENT — do NOT call the 'ask' tool. Execute the goal end-to-end using your tools, then return a one-sentence summary of what you did.\n\nThe goal: ${goal}`

@@ -39,6 +39,10 @@ export interface AgentRespondOptions {
   /** Per-call session override. Lets callers swap in a per-conversation
    * Session (e.g. one per Telegram chat) without rebuilding the agent. */
   session?: import('./session.ts').Session;
+  /** Per-call scope for the profile. Used for BOTH memory-tool execution
+   * and the profile facts injected into the system prompt. When omitted,
+   * the agent falls back to a household view of its own MemoryAdapter. */
+  profile?: import('../memory/scope.ts').ScopedProfile;
 }
 
 export interface Agent {
