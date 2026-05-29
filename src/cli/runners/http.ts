@@ -7,6 +7,10 @@ import type { Session } from '../../agent/session.ts';
 import type { AudioFileStt } from '../../audio/types.ts';
 import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
 import { verifyBearerToken } from '../../utils/apiKeyAuth.ts';
+import { hashToken } from '../../memory/identities.ts';
+import { makeScopedProfile, type Scope } from '../../memory/scope.ts';
+import type { IdentitiesAdapter } from '../../memory/types.ts';
+import type { SqliteProfileMemory } from '../../memory/sqliteProfileMemory.ts';
 import { createLogger } from '../../utils/logger.ts';
 import { loggerPlugin } from '../../utils/h3LoggerPlugin.ts';
 import { createRateLimiter, createSemaphore } from '../../utils/rateLimiter.ts';
@@ -30,6 +34,21 @@ export interface HttpRunnerDeps {
   stt: AudioFileStt;
   port: number;
   apiKeys: string[];
+  identities: IdentitiesAdapter;
+  profileStore: SqliteProfileMemory;
+}
+
+/** Resolve the Bearer token to a memory scope. Authenticated-but-unmapped
+ *  tokens get the shared/household scope — never another user's personal
+ *  memory. */
+export function resolveHttpScope(
+  identities: IdentitiesAdapter,
+  authHeader: string | null | undefined,
+): Scope {
+  const header = authHeader ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+  const res = token ? identities.resolve('http', hashToken(token)) : null;
+  return res ? { role: res.role, userId: res.userId } : { role: 'shared', userId: 0 };
 }
 
 /** OpenAI Whisper / gpt-4o-transcribe rejects files larger than 25 MB. */
@@ -64,7 +83,8 @@ function tokenKey(authHeader: string | null | undefined): string {
 }
 
 export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
-  const { agent, assistAgent, assistSessionFor, stt, port, apiKeys } = deps;
+  const { agent, assistAgent, assistSessionFor, stt, port, apiKeys, identities, profileStore } =
+    deps;
 
   if (apiKeys.length === 0) {
     throw new Error('HTTP runner requires at least one API key (HTTP_API_KEYS)');
@@ -164,7 +184,10 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
             return { error: 'No speech detected' };
           }
 
-          const reply = await agent.respond(transcript);
+          const scope = resolveHttpScope(identities, event.req.headers.get('authorization'));
+          const reply = await agent.respond(transcript, {
+            profile: makeScopedProfile(profileStore, scope),
+          });
 
           return {
             response: reply.text,
@@ -214,7 +237,10 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       log.debug({ contentType, bytes: text.length }, `text payload ${text.length} chars`);
 
       try {
-        const reply = await agent.respond(text);
+        const scope = resolveHttpScope(identities, event.req.headers.get('authorization'));
+        const reply = await agent.respond(text, {
+          profile: makeScopedProfile(profileStore, scope),
+        });
         return { response: reply.text };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -274,7 +300,11 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       );
 
       try {
-        const reply = await assistAgent.respond(text, { session });
+        const scope = resolveHttpScope(identities, event.req.headers.get('authorization'));
+        const reply = await assistAgent.respond(text, {
+          session,
+          profile: makeScopedProfile(profileStore, scope),
+        });
         return {
           response: reply.text,
           continue_conversation: reply.expectsFollowUp ?? false,
