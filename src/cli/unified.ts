@@ -13,6 +13,7 @@ import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
 import { mcpToolsToRealtime, localToolsToRealtime } from '../realtime/toolAdapter.ts';
 import { applyHaToolSuffixes } from '../agent/toolBridge.ts';
 import { buildLocalToolset } from '../agent/localTools.ts';
+import { householdProfile } from '../memory/scope.ts';
 import { appendUserContext } from '../agent/systemPrompt.ts';
 import { ToolResultCache, CACHEABLE_TOOLS } from '../realtime/toolCache.ts';
 import { Session } from '../agent/session.ts';
@@ -161,7 +162,7 @@ export async function main(): Promise<void> {
       token: deps.config.realtime.token,
       buildBridgeDeps: async () => {
         const localToolset = buildLocalToolset({
-          memory: deps.memory.profile,
+          profile: householdProfile(deps.memory.profileStore),
           scheduledActions: deps.memory.scheduledActions,
           telegram: deps.telegram,
         });

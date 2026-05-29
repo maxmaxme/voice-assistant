@@ -6,14 +6,15 @@
  *  - **Adapter-backed** (currently `remember` / `recall` / `forget`):
  *    available when the caller passes the relevant adapter. The
  *    Responses-API `OpenAiAgent` and the Realtime bridge both wire memory
- *    in via `buildLocalToolset({ memory })`; tools that need an adapter
+ *    in via `buildLocalToolset({ profile })`; tools that need an adapter
  *    the caller did NOT provide are silently omitted.
  *
  * Tools that need more than a simple adapter (scheduled actions,
  * send_to_telegram, ask) still live in their own modules and are wired
  * per-channel. */
 
-import type { MemoryAdapter, ScheduledActionsAdapter } from '../memory/types.ts';
+import type { ScheduledActionsAdapter } from '../memory/types.ts';
+import type { ScopedProfile } from '../memory/scope.ts';
 import type { TelegramSender } from '../telegram/types.ts';
 import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
 import {
@@ -26,7 +27,7 @@ import type { OpenAiFunctionTool } from './toolBridge.ts';
 import { buildWeatherTool, executeWeatherTool, WEATHER_TOOL_NAME } from './weatherTool.ts';
 
 export interface LocalToolDeps {
-  memory?: MemoryAdapter;
+  profile?: ScopedProfile;
   scheduledActions?: ScheduledActionsAdapter;
   telegram?: TelegramSender;
 }
@@ -49,12 +50,12 @@ function buildRegistry(deps: LocalToolDeps): Record<string, LocalTool> {
       execute: (args) => executeWeatherTool(args),
     },
   };
-  if (deps.memory) {
-    const memory = deps.memory;
+  if (deps.profile) {
+    const profile = deps.profile;
     for (const tool of buildMemoryTools()) {
       registry[tool.name] = {
         tool,
-        execute: (args) => executeMemoryTool(memory, tool.name, args),
+        execute: (args) => executeMemoryTool(profile, tool.name, args),
       };
     }
   }
