@@ -131,7 +131,6 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     allowedChatIds: config.telegram.allowedChatIds,
     httpApiKeys: config.http.apiKeys,
     voiceToken: config.realtime.token,
-    haToken: config.ha.token,
   });
   const telegram = telegramFromConfig(config);
 

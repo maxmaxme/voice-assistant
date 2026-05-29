@@ -5,7 +5,6 @@ export interface SeedInput {
   allowedChatIds: number[];
   httpApiKeys: string[];
   voiceToken: string;
-  haToken: string;
 }
 
 /** One-time import of the pre-DB env allow-lists. No-op once any identity
@@ -14,13 +13,10 @@ export function seedIdentitiesFromConfig(identities: IdentitiesAdapter, input: S
   if (!identities.isEmpty()) {
     return;
   }
-  // The single shared principal — speaker(s) + HA system token.
+  // The single shared principal — the speaker(s).
   const home = identities.addUser('home', 'shared');
   if (input.voiceToken) {
     identities.attachIdentity('voice', hashToken(input.voiceToken), home);
-  }
-  if (input.haToken) {
-    identities.attachIdentity('http', hashToken(input.haToken), home);
   }
   // Each Telegram chat → its own member user.
   for (const chatId of input.allowedChatIds) {

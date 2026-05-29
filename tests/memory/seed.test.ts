@@ -11,19 +11,18 @@ function store(): IdentitiesStore {
 }
 
 describe('seedIdentitiesFromConfig', () => {
-  it('creates home (shared) for voice + ha token, and a member per chat/key', () => {
+  it('creates home (shared) for voice, and a member per chat/key', () => {
     const s = store();
     seedIdentitiesFromConfig(s, {
       allowedChatIds: [111, 222],
       httpApiKeys: ['k1', 'k2'],
       voiceToken: 'devtoken',
-      haToken: 'hatoken',
     });
     const viaVoice = s.resolve('voice', hashToken('devtoken'));
-    const viaHa = s.resolve('http', hashToken('hatoken'));
     expect(viaVoice?.role).toBe('shared');
-    expect(viaHa?.role).toBe('shared');
-    expect(viaVoice?.userId).toBe(viaHa?.userId);
+    // HA_TOKEN is the OUTBOUND VA→HA MCP token; it never arrives as an
+    // inbound credential, so it must NOT be seeded as an http identity.
+    expect(s.resolve('http', hashToken('hatoken'))).toBeNull();
 
     expect(s.resolve('telegram', '111')?.role).toBe('member');
     expect(s.resolve('telegram', '222')?.role).toBe('member');
@@ -39,7 +38,6 @@ describe('seedIdentitiesFromConfig', () => {
       allowedChatIds: [999],
       httpApiKeys: [],
       voiceToken: '',
-      haToken: '',
     });
     expect(s.resolve('telegram', '999')).toBeNull();
   });
