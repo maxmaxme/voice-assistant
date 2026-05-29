@@ -81,6 +81,9 @@ export interface TelegramSessionsAdapter {
 
 export interface MemoryStore {
   profile: MemoryAdapter;
+  /** The raw owner-aware profile store, for scope-aware callers. */
+  profileStore: import('./sqliteProfileMemory.ts').SqliteProfileMemory;
+  identities: IdentitiesAdapter;
   scheduledActions: ScheduledActionsAdapter;
   telegramSessions: TelegramSessionsAdapter;
   close(): void;

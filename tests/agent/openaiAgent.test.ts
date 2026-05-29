@@ -3,7 +3,10 @@ import type OpenAI from 'openai';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
 import { PENDING_ASK_TTL_MS, Session } from '../../src/agent/session.ts';
 import { CHAT_TEXT_FORMAT } from '../../src/agent/agentOutput.ts';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../../src/memory/migrate.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
+import { IdentitiesStore } from '../../src/memory/identities.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
 import type { MemoryStore } from '../../src/memory/types.ts';
 import type { TelegramSender } from '../../src/telegram/types.ts';
@@ -23,6 +26,10 @@ function emptyMemory(): MemoryStore {
     cancel: () => false,
     get: () => null,
   };
+  const db = new Database(':memory:');
+  runMigrations(db);
+  const profileStore = new SqliteProfileMemory({ db });
+  const identities = new IdentitiesStore(db);
   return {
     profile: {
       remember: () => {},
@@ -30,6 +37,8 @@ function emptyMemory(): MemoryStore {
       forget: () => {},
       close: () => {},
     },
+    profileStore,
+    identities,
     scheduledActions: noopScheduledActions,
     telegramSessions: {
       get: () => null,

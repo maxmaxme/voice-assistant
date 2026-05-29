@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
+import Database from 'better-sqlite3';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
 import { Session } from '../../src/agent/session.ts';
+import { runMigrations } from '../../src/memory/migrate.ts';
+import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
+import { IdentitiesStore } from '../../src/memory/identities.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
 import type { MemoryStore } from '../../src/memory/types.ts';
 import type { TelegramSender } from '../../src/telegram/types.ts';
@@ -12,8 +16,14 @@ import {
 import { BotTelegramSender } from '../../src/telegram/telegramSender.ts';
 
 function emptyMemory(): MemoryStore {
+  const db = new Database(':memory:');
+  runMigrations(db);
+  const profileStore = new SqliteProfileMemory({ db });
+  const identities = new IdentitiesStore(db);
   return {
     profile: { remember: () => {}, recall: () => ({}), forget: () => {}, close: () => {} },
+    profileStore,
+    identities,
     scheduledActions: {
       add: () => {
         throw new Error('not used');

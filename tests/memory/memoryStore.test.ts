@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -39,5 +39,24 @@ describe('openMemoryStore', () => {
     expect(m2.profile.recall('x')).toEqual({ x: 1 });
     expect(m2.scheduledActions.listActive()[0].goal).toBe('persist me');
     m2.close();
+  });
+});
+
+const TMP = `/tmp/va-memstore-task8-${process.pid}.db`;
+afterEach(() => {
+  for (const f of [TMP, `${TMP}-wal`, `${TMP}-shm`]) {
+    if (fs.existsSync(f)) {
+      fs.rmSync(f);
+    }
+  }
+});
+
+describe('openMemoryStore identities + profileStore', () => {
+  it('exposes identities and the raw profile store', () => {
+    const store = openMemoryStore(TMP);
+    expect(store.identities.isEmpty()).toBe(true);
+    store.profileStore.rememberFor('household', 'x', 1);
+    expect(store.profileStore.recallFor(['household'])).toEqual({ x: 1 });
+    store.close();
   });
 });

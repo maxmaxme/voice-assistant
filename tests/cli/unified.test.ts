@@ -3,6 +3,10 @@ import { dispatch } from '../../src/cli/unified.ts';
 import { Scheduler } from '../../src/scheduling/scheduler.ts';
 import type { CommonDeps } from '../../src/cli/shared.ts';
 import type OpenAI from 'openai';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../../src/memory/migrate.ts';
+import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
+import { IdentitiesStore } from '../../src/memory/identities.ts';
 import type { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
 import type { MemoryStore, ScheduledActionsAdapter } from '../../src/memory/types.ts';
 import type { TelegramSender, TelegramReceiver } from '../../src/telegram/types.ts';
@@ -20,8 +24,14 @@ function makeMemoryStore(): MemoryStore {
     cancel: () => false,
     get: () => null,
   };
+  const db = new Database(':memory:');
+  runMigrations(db);
+  const profileStore = new SqliteProfileMemory({ db });
+  const identities = new IdentitiesStore(db);
   return {
     profile: { remember: () => {}, recall: () => ({}), forget: () => {}, close: () => {} },
+    profileStore,
+    identities,
     scheduledActions: noopScheduledActions,
     telegramSessions: {
       get: () => null,
