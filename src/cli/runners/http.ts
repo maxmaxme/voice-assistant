@@ -6,7 +6,6 @@ import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import type { Session } from '../../agent/session.ts';
 import type { AudioFileStt } from '../../audio/types.ts';
 import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
-import { verifyBearerToken } from '../../utils/apiKeyAuth.ts';
 import { hashToken } from '../../memory/identities.ts';
 import { makeScopedProfile, type Scope } from '../../memory/scope.ts';
 import type { IdentitiesAdapter } from '../../memory/types.ts';
@@ -33,7 +32,6 @@ export interface HttpRunnerDeps {
   assistSessionFor: (conversationId: string) => Session;
   stt: AudioFileStt;
   port: number;
-  apiKeys: string[];
   identities: IdentitiesAdapter;
   profileStore: SqliteProfileMemory;
 }
@@ -49,6 +47,17 @@ export function resolveHttpScope(
   const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
   const res = token ? identities.resolve('http', hashToken(token)) : null;
   return res ? { role: res.role, userId: res.userId } : { role: 'shared', userId: 0 };
+}
+
+/** DB-backed HTTP auth: the Bearer token is allowed iff its hash has an
+ *  `http` identity. */
+export function httpTokenAllowed(
+  identities: IdentitiesAdapter,
+  authHeader: string | null | undefined,
+): boolean {
+  const header = authHeader ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+  return token ? identities.resolve('http', hashToken(token)) !== null : false;
 }
 
 /** OpenAI Whisper / gpt-4o-transcribe rejects files larger than 25 MB. */
@@ -83,12 +92,7 @@ function tokenKey(authHeader: string | null | undefined): string {
 }
 
 export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
-  const { agent, assistAgent, assistSessionFor, stt, port, apiKeys, identities, profileStore } =
-    deps;
-
-  if (apiKeys.length === 0) {
-    throw new Error('HTTP runner requires at least one API key (HTTP_API_KEYS)');
-  }
+  const { agent, assistAgent, assistSessionFor, stt, port, identities, profileStore } = deps;
 
   const authFailLimiter = createRateLimiter({
     windowMs: AUTH_FAIL_WINDOW_MS,
@@ -115,7 +119,7 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       return { error: 'Too many authentication failures' };
     }
 
-    if (!verifyBearerToken(authHeader, apiKeys)) {
+    if (!httpTokenAllowed(identities, authHeader)) {
       // Count this failure (one extra check beyond the probe above).
       authFailLimiter.check(`fail:${ip}`);
       event.res.status = 401;

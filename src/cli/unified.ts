@@ -118,7 +118,6 @@ export async function dispatch(
         assistSessionFor,
         stt: new OpenAiStt({ client: deps.llm }),
         port,
-        apiKeys: deps.config.http.apiKeys,
         identities: deps.memory.identities,
         profileStore: deps.memory.profileStore,
       }),
