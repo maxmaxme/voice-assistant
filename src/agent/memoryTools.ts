@@ -1,4 +1,4 @@
-import type { MemoryAdapter } from '../memory/types.ts';
+import type { ScopedProfile, WriteScope } from '../memory/scope.ts';
 import { loadPrompt } from './prompts/load.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
 
@@ -26,6 +26,15 @@ export function buildMemoryTools(): OpenAiFunctionTool[] {
             description:
               'The value to store. Use a string for free-form facts, ' +
               'numbers for measurements, booleans for flags.',
+          },
+          scope: {
+            type: 'string',
+            enum: ['personal', 'household'],
+            description:
+              'Who the fact is about. "personal" (default) = only this user. ' +
+              '"household" = shared with everyone on the speaker. Only set ' +
+              '"household" when the user clearly means a shared fact; if ' +
+              'unsure, ask first.',
           },
         },
         required: ['key', 'value'],
@@ -63,20 +72,22 @@ export function buildMemoryTools(): OpenAiFunctionTool[] {
 }
 
 export function executeMemoryTool(
-  memory: MemoryAdapter,
+  profile: ScopedProfile,
   name: string,
   args: Record<string, unknown>,
 ): unknown {
   switch (name) {
-    case 'remember':
-      memory.remember(String(args.key), args.value);
+    case 'remember': {
+      const scope: WriteScope | undefined = args.scope === 'household' ? 'household' : undefined;
+      profile.remember(String(args.key), args.value, scope);
       return { ok: true };
+    }
     case 'recall': {
       const key = args.key;
-      return memory.recall(typeof key === 'string' ? key : undefined);
+      return profile.recall(typeof key === 'string' ? key : undefined);
     }
     case 'forget':
-      memory.forget(String(args.key));
+      profile.forget(String(args.key));
       return { ok: true };
     default:
       throw new Error(`Unknown memory tool: ${name}`);
