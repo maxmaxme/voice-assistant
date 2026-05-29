@@ -6,7 +6,6 @@ import { HaMcpClient } from '../mcp/haMcpClient.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
-import { seedIdentitiesFromConfig } from '../memory/seed.ts';
 import type { MemoryStore } from '../memory/types.ts';
 import { loadPrompt } from '../agent/prompts/load.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
@@ -127,11 +126,6 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   const llm = new OpenAI({ apiKey: config.openai.apiKey });
   const mcp = new HaMcpClient({ url: config.ha.url, token: config.ha.token });
   const memory = openMemoryStore(config.memory.dbPath);
-  seedIdentitiesFromConfig(memory.identities, {
-    allowedChatIds: config.telegram.allowedChatIds,
-    httpApiKeys: config.http.apiKeys,
-    voiceToken: config.realtime.token,
-  });
   const telegram = telegramFromConfig(config);
 
   await connectMcpWithRetry(mcp);

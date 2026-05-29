@@ -10,7 +10,6 @@ describe('loadConfig', () => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.TELEGRAM_BOT_TOKEN;
     delete process.env.TELEGRAM_CHAT_ID;
-    delete process.env.HTTP_API_KEYS;
     delete process.env.REALTIME_ENABLED;
     delete process.env.REALTIME_PORT;
     delete process.env.VA_DEVICE_TOKEN;
@@ -25,7 +24,6 @@ describe('loadConfig', () => {
     process.env.OPENAI_API_KEY = 'sk-xxx';
     process.env.TELEGRAM_BOT_TOKEN = 'tg_tok';
     process.env.TELEGRAM_CHAT_ID = '42';
-    process.env.HTTP_API_KEYS = 'test-http-key';
   }
 
   afterEach(() => {
@@ -80,32 +78,6 @@ describe('loadConfig', () => {
     setRequired();
     delete process.env.TELEGRAM_CHAT_ID;
     expect(() => loadConfig()).toThrow(/TELEGRAM_CHAT_ID/);
-  });
-
-  it('defaults HTTP_API_KEYS to [] when missing (auth is DB-backed; env is seed-only)', () => {
-    setRequired();
-    delete process.env.HTTP_API_KEYS;
-    expect(loadConfig().http.apiKeys).toEqual([]);
-  });
-
-  it('allowed chat ids defaults to [Number(chatId)] when TELEGRAM_ALLOWED_CHAT_IDS is unset', () => {
-    setRequired();
-    delete process.env.TELEGRAM_ALLOWED_CHAT_IDS;
-    const cfg = loadConfig();
-    expect(cfg.telegram.allowedChatIds).toEqual([42]);
-  });
-
-  it('allowed chat ids parses comma list into number array', () => {
-    setRequired();
-    process.env.TELEGRAM_ALLOWED_CHAT_IDS = '42, 100, -5';
-    const cfg = loadConfig();
-    expect(cfg.telegram.allowedChatIds).toEqual([42, 100, -5]);
-  });
-
-  it('throws on non-numeric entries in TELEGRAM_ALLOWED_CHAT_IDS', () => {
-    setRequired();
-    process.env.TELEGRAM_ALLOWED_CHAT_IDS = '42,abc';
-    expect(() => loadConfig()).toThrow(/TELEGRAM_ALLOWED_CHAT_IDS/);
   });
 
   it('realtime defaults: disabled with default port/model/voice/reasoning', () => {

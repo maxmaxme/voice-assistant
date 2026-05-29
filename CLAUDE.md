@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Personal voice assistant for smart-home control. Targets a Raspberry Pi 5
 runtime, dev happens on macOS. Cloud-heavy stack: OpenAI for STT
-(`gpt-4o-transcribe`) and the LLM (`gpt-4o`); Home Assistant via the
+(`gpt-4o-transcribe`) and the LLM (`gpt-5-mini`, via `OPENAI_MODEL`); Home Assistant via the
 official MCP Server integration for device control.
 
 Inputs into the agent core, and who actually drives each one today:
@@ -189,45 +189,41 @@ personal scope (reads household∪personal, writes personal); everything else
 lands in household. See the per-channel auth breakdown below for exactly how
 each path reaches household.
 
-**Auth & scope resolution** are both DB-backed now (the env allow-lists are
-seed-only):
+**Auth & scope are DB-backed. There is no env allow-list and no seed** —
+identities are created and managed entirely via the `users` CLI (below).
 
 - **Telegram** is DB-gated: a chat is handled iff a `(telegram, chatId)`
   identity exists (`resolveTelegramScope`); unknown chats are dropped, no
-  auto-provisioning. `TELEGRAM_ALLOWED_CHAT_IDS` is seed-only here.
-- **HTTP** (`/text`, `/audio`, `/assist`) is DB-gated: a request is allowed
-  iff the Bearer token's sha256 hash has an `http` identity
-  (`httpTokenAllowed` → `identities.resolve('http', …) !== null`);
-  unknown/missing → 401. `verifyBearerToken`/`HTTP_API_KEYS` are no longer
-  consulted at runtime — `HTTP_API_KEYS` is seed-only. Scope = the resolved
-  identity's role via `resolveHttpScope` (member → household∪personal; shared
-  → household; the unmapped fallback never triggers now that auth requires a
-  mapped identity). A key added to the env _after_ first boot won't
-  authenticate until minted into the DB (`mint-http`).
-- **Realtime `/voice`** authenticates the WS handshake via `VA_DEVICE_TOKEN`
+  auto-provisioning.
+- **HTTP** (`/text`, `/audio`, `/assist`) is DB-gated: allowed iff the Bearer
+  token's sha256 hash has an `http` identity (`httpTokenAllowed` →
+  `identities.resolve('http', …) !== null`); unknown/missing → 401. Scope =
+  the resolved identity's role via `resolveHttpScope` (member →
+  household∪personal; shared → household). `/assist` resolves to whatever token
+  the caller presents — to make it household, mint its token against a `shared`
+  user.
+- **Realtime `/voice`** authenticates the WS handshake against `VA_DEVICE_TOKEN`
   (`wsServer.ts`), then uses `householdProfile` **unconditionally** — it does
-  **not** resolve the `voice` identity. The seed still records `VA_DEVICE_TOKEN`
-  as a `voice` identity of `home` for completeness, but that row is not
-  consulted at runtime.
+  not consult `identities` (the speaker is always household by design).
 
-First-boot seed (`seed.ts`, called from `cli/shared.ts`, no-op once any
-identity exists) imports the env allow-lists: each `TELEGRAM_ALLOWED_CHAT_ID`
-and each `HTTP_API_KEY` → its own `member`; `VA_DEVICE_TOKEN` → the shared
-`home` user (voice). `HA_TOKEN` is **not** seeded — it is the outbound VA→HA
-MCP token only.
+**Bootstrap (fresh DB).** A new DB has zero identities, so nobody can
+authenticate until you add yourself via the CLI:
 
-> **Residual notes:** (a) realtime doesn't resolve its `voice` identity —
-> household is unconditional by design, so the seeded `voice` row is dead but
-> harmless, not a bug; (b) `/assist` resolves to whatever token the caller
-> presents, and since `HTTP_API_KEYS` seed as `member`s it defaults to a
-> member scope — to make it household, attach its token to the shared `home`
-> user (`npm run users -- mint-http --user <home-id>`) and configure the
-> client with it.
+```
+npm run users -- add-user --name me --role member
+npm run users -- attach-telegram --user <id> --chat <chatId>
+npm run users -- mint-http --user <id>          # prints the token once
+```
+
+For a shared/household principal (e.g. the `/assist` token), create a `shared`
+user and mint/attach its tokens the same way. `VA_DEVICE_TOKEN` is still read
+for the WS handshake; `HTTP_API_KEYS` and `TELEGRAM_ALLOWED_CHAT_IDS` are **no
+longer used at all** (removed from config).
 
 **Management CLI:** `npm run users -- <cmd>` (`cli/users.ts`): `add-user`,
 `attach-telegram`, `mint-http`. `mint-http` prints the token once and stores
-only its hash. A separate web admin (sqlite-web) for editing users/identities/
-profile lives outside this repo.
+only its hash. Editing/merging existing users & identities is done directly in
+the DB (or a future sqlite-web admin, out of this repo's scope).
 
 ### Scheduled actions
 
@@ -261,8 +257,9 @@ the 404 and retries fresh).
 
 Allow-list is **DB-backed** (`identities` table, channel `telegram`, identity =
 chatId): a chat is accepted iff `resolveTelegramScope` finds a matching identity;
-unknown chats are dropped. `TELEGRAM_ALLOWED_CHAT_IDS` is only the first-boot seed
-source (see Memory). Commands: `/start`, `/help`, `/reset`, `/profile`, `/update`.
+unknown chats are dropped. Add chats via the `users` CLI (see Memory) —
+`TELEGRAM_ALLOWED_CHAT_IDS` is no longer used. Commands: `/start`, `/help`,
+`/reset`, `/profile`, `/update`.
 
 ### HTTP (`src/cli/runners/http.ts`)
 
@@ -295,9 +292,8 @@ in [src/cli/shared.ts](src/cli/shared.ts)).
 
 Auth is DB-backed (`checkAuthAndRate` → `httpTokenAllowed`): the
 `Authorization: Bearer <key>` token's sha256 hash must have an `http` identity
-in the `identities` table, else **401**. `HTTP_API_KEYS` is seed-only — a key
-added to the env after first boot must be minted into the DB
-(`npm run users -- mint-http`) before it authenticates. Scope follows from the
+in the `identities` table, else **401**. Tokens are created with the `users`
+CLI (`npm run users -- mint-http`); `HTTP_API_KEYS` is no longer used. Scope follows from the
 same lookup: `resolveHttpScope` maps the token hash to its identity's role and
 the resulting `ScopedProfile` is passed into the agent so the response
 reads/writes the caller's scope (member → household∪personal; shared →

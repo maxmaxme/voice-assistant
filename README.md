@@ -2,7 +2,7 @@
 
 Personal voice assistant for smart-home control. Targets a Raspberry Pi 5
 runtime, developed on macOS. Cloud-heavy stack: OpenAI for STT
-(`gpt-4o-transcribe`), LLM (`gpt-4o`), and TTS (handled by Home Assistant
+(`gpt-4o-transcribe`), LLM (`gpt-5-mini`, via `OPENAI_MODEL`), and TTS (handled by Home Assistant
 on the smart-speaker side); Home Assistant via the official MCP Server
 integration.
 
@@ -35,8 +35,8 @@ Working features:
 - Single-process entry point: `node src/cli/unified.ts` routes by
   `AGENT_MODE` (default `both` = `telegram` + `http`)
 - Telegram bot accepts text, voice (transcribed via OpenAI), and photos
-  (multimodal). Authorised against a DB-backed identity table (seeded
-  once from the chat-ID allow-list).
+  (multimodal). Authorised against a DB-backed identity table (chats are
+  added via the `users` CLI).
 - Scheduled actions: `schedule_action` tool persists one-shot
   (wall-clock) or recurring (cron) goals; a tick-based scheduler fires
   them through a goal-mode agent with the full tool surface.
@@ -60,8 +60,8 @@ npm install
 # 2. .env
 cp .env.example .env
 # Fill HA_URL, HA_TOKEN, OPENAI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
-# HTTP_API_KEYS is optional (first-boot seed source only; auth is DB-backed —
-# mint tokens later with `npm run users -- mint-http`).
+# HTTP/Telegram auth is DB-backed — create users/tokens with `npm run users`
+# (see below); there is no HTTP_API_KEYS / TELEGRAM_ALLOWED_CHAT_IDS env.
 
 # 3. Sanity check — list HA's MCP tools
 npm run mcp:call -- list
@@ -92,17 +92,17 @@ Setup:
 
    ```
    TELEGRAM_BOT_TOKEN=...
-   TELEGRAM_CHAT_ID=123456789
-   TELEGRAM_ALLOWED_CHAT_IDS=123456789      # comma-list, optional (defaults to TELEGRAM_CHAT_ID)
+   TELEGRAM_CHAT_ID=123456789               # default outbound chat for the bot
    ```
 
 4. `npm run start` runs the bot alongside the HTTP server. Or
    `AGENT_MODE=telegram npm run start` for bot-only.
 
 Authorisation is DB-backed: a chat is accepted only if it has a matching
-identity row. On first boot `TELEGRAM_ALLOWED_CHAT_IDS` is imported into
-the DB once (each chat becomes its own `member` user); afterwards manage
-chats with `npm run users -- attach-telegram --user <id> --chat <chatId>`.
+identity row. Add yourself with the `users` CLI —
+`npm run users -- add-user --name me --role member` then
+`npm run users -- attach-telegram --user <id> --chat <chatId>`. A fresh DB
+has no identities, so do this once before the bot will respond.
 
 Commands: `/start`, `/help`, `/reset`, `/profile`, `/update`.
 
@@ -130,13 +130,10 @@ application/json`, body `{"text": "...", "conversation_id"?: "..."}`.
 All non-health endpoints require `Authorization: Bearer <key>`, and auth is
 **DB-backed**: the token's sha256 hash must match an `http` identity in the
 identity table, otherwise the request gets a 401. Raw tokens are never stored
-— only their hash. `HTTP_API_KEYS` (comma-separated, from the env) is a
-first-boot seed source only: on first boot each key is imported as its own
-per-user (`member`) identity. Afterwards mint new tokens with
-`npm run users -- mint-http --user <id>` (printed once) — a key added to the
-env after first boot won't authenticate until it's in the DB. The same lookup
-also picks the request's **memory scope** from the resolved identity's role
-(member → household∪personal; shared → household).
+— only their hash. Mint tokens with `npm run users -- mint-http --user <id>`
+(printed once); there is no `HTTP_API_KEYS` env. The same lookup also picks the
+request's **memory scope** from the resolved identity's role (member →
+household∪personal; shared → household).
 
 ## Tests
 

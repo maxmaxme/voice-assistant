@@ -17,12 +17,6 @@ const ConfigSchema = z.object({
   telegram: z.object({
     botToken: z.string().min(1),
     chatId: z.string().min(1),
-    allowedChatIds: z.array(z.number().int()).default([]),
-  }),
-  http: z.object({
-    // Optional: HTTP auth is DB-backed (identities). HTTP_API_KEYS is only a
-    // first-boot seed source — empty is fine once the DB has identities.
-    apiKeys: z.array(z.string()).default([]),
   }),
   realtime: z.object({
     enabled: z.boolean().default(false),
@@ -50,8 +44,6 @@ const PATH_TO_ENV: Record<string, string> = {
   'memory.dbPath': 'MEMORY_DB_PATH',
   'telegram.botToken': 'TELEGRAM_BOT_TOKEN',
   'telegram.chatId': 'TELEGRAM_CHAT_ID',
-  'telegram.allowedChatIds': 'TELEGRAM_ALLOWED_CHAT_IDS',
-  'http.apiKeys': 'HTTP_API_KEYS',
   'realtime.enabled': 'REALTIME_ENABLED',
   'realtime.port': 'REALTIME_PORT',
   'realtime.token': 'VA_DEVICE_TOKEN',
@@ -62,25 +54,6 @@ const PATH_TO_ENV: Record<string, string> = {
 };
 
 export function loadConfig(): Config {
-  const allowedRaw = process.env.TELEGRAM_ALLOWED_CHAT_IDS;
-  const allowedChatIds = allowedRaw
-    ? allowedRaw.split(',').map((s) => {
-        const n = Number(s.trim());
-        if (!Number.isFinite(n)) {
-          throw new Error(`TELEGRAM_ALLOWED_CHAT_IDS: not a number: ${s}`);
-        }
-        return n;
-      })
-    : undefined;
-
-  const apiKeysRaw = process.env.HTTP_API_KEYS;
-  const apiKeys = apiKeysRaw
-    ? apiKeysRaw
-        .split(',')
-        .map((k) => k.trim())
-        .filter((k) => k.length > 0)
-    : [];
-
   const raw = {
     ha: {
       url: process.env.HA_URL,
@@ -97,10 +70,6 @@ export function loadConfig(): Config {
     telegram: {
       botToken: process.env.TELEGRAM_BOT_TOKEN,
       chatId: process.env.TELEGRAM_CHAT_ID,
-      allowedChatIds,
-    },
-    http: {
-      apiKeys,
     },
     realtime: {
       enabled: process.env.REALTIME_ENABLED === '1',
@@ -126,10 +95,6 @@ export function loadConfig(): Config {
   const data = parsed.data;
   if (data.realtime.enabled && !data.realtime.token) {
     throw new Error('REALTIME_ENABLED=1 but VA_DEVICE_TOKEN is empty');
-  }
-  if (data.telegram.allowedChatIds.length === 0) {
-    const fromChat = Number(data.telegram.chatId);
-    data.telegram.allowedChatIds = Number.isFinite(fromChat) ? [fromChat] : [];
   }
   return data;
 }
