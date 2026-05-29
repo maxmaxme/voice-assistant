@@ -9,17 +9,19 @@ runtime, dev happens on macOS. Cloud-heavy stack: OpenAI for STT
 (`gpt-4o-transcribe`) and the LLM (`gpt-4o`); Home Assistant via the
 official MCP Server integration for device control.
 
-Two voice front-ends share the same agent backend:
+Inputs into the agent core, and who actually drives each one today:
 
-- **Voice PE speakers (primary)** connect to this service directly over
-  a WebSocket at `:3001/voice` and use OpenAI's **Realtime API** for
+- **WS `/voice` (`:3001`) — the speaker.** Voice PE speakers connect
+  directly over a WebSocket and use OpenAI's **Realtime API** for
   STT+LLM+TTS in one bidirectional session. HA is used only as an MCP
   tool backend. See "Realtime bridge" below.
-- **Apple Shortcut / Telegram voice / curl / any HTTP client** still
-  POST to `/assist` (or `/audio` / `/text`) and go through the
-  Responses-API `OpenAiAgent`.
-
-Telegram is the other channel into the same agent core.
+- **HTTP `/text` + `/audio` (`:3000`) — iOS Shortcuts.** Text and
+  audio-file inputs go through the Responses-API `OpenAiAgent`. iOS
+  Shortcuts is the current consumer; this is the channel most likely to
+  grow more clients later. `/assist` also lives on this server but is
+  the HA-bridge / HA-style-session path, not a Shortcuts input.
+- **Telegram — chat with the bot.** Text / voice / photo into the same
+  agent core.
 
 This repo only owns the **server-side app** (Node/TS) and the image
 build. Deployment (compose, systemd, healthchecks, rollback) lives
