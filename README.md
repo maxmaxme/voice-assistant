@@ -23,7 +23,9 @@ by CI).
 Working features:
 
 - HA control via natural language over Telegram + HTTP (Voice PE)
-- Long-term user profile in SQLite via `remember`/`recall`/`forget`
+- Long-term profile in SQLite via `remember`/`recall`/`forget`, with a
+  shared `household` scope plus per-person `personal` scopes resolved
+  from DB-backed user identities
 - `ask` tool — clarifying questions surface as `continue_conversation`
   in the HTTP `/assist` response, which the HA bridge forwards into the
   Assist pipeline to reopen the mic without a new wake-word
@@ -33,7 +35,8 @@ Working features:
 - Single-process entry point: `node src/cli/unified.ts` routes by
   `AGENT_MODE` (default `both` = `telegram` + `http`)
 - Telegram bot accepts text, voice (transcribed via OpenAI), and photos
-  (multimodal). Authorised by an allow-list of chat IDs.
+  (multimodal). Authorised against a DB-backed identity table (seeded
+  once from the chat-ID allow-list).
 - Scheduled actions: `schedule_action` tool persists one-shot
   (wall-clock) or recurring (cron) goals; a tick-based scheduler fires
   them through a goal-mode agent with the full tool surface.
@@ -95,6 +98,11 @@ Setup:
 4. `npm run start` runs the bot alongside the HTTP server. Or
    `AGENT_MODE=telegram npm run start` for bot-only.
 
+Authorisation is DB-backed: a chat is accepted only if it has a matching
+identity row. On first boot `TELEGRAM_ALLOWED_CHAT_IDS` is imported into
+the DB once (each chat becomes its own `member` user); afterwards manage
+chats with `npm run users -- attach-telegram --user <id> --chat <chatId>`.
+
 Commands: `/start`, `/help`, `/reset`, `/profile`, `/update`.
 
 ### HTTP
@@ -118,8 +126,16 @@ application/json`, body `{"text": "...", "conversation_id"?: "..."}`.
   Returns `{response, continue_conversation}`.
 - `GET /health` — `{status: "ok"}` for healthchecks.
 
-All non-health endpoints require `Authorization: Bearer <key>` against
-`HTTP_API_KEYS` (comma-separated allowlist).
+All non-health endpoints require `Authorization: Bearer <key>`, validated
+against `HTTP_API_KEYS` (comma-separated, from the env). On top of that the
+token's sha256 hash is looked up in the identity table to pick the request's
+**memory scope**: a token seeded from an `HTTP_API_KEY` maps to its own
+per-user (`member`) scope; an authenticated token with no identity row falls
+back to the shared household scope. Raw tokens are never stored — only their
+hash. On first boot `HTTP_API_KEYS` and `HA_TOKEN` are seeded into the
+identity table; afterwards mint per-user tokens with
+`npm run users -- mint-http --user <id>` (printed once). Note: HTTP auth
+itself is still env-based (`HTTP_API_KEYS`); only the scope is DB-derived.
 
 ## Tests
 

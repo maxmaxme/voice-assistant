@@ -45,6 +45,10 @@ npm run mcp:call -- call HassTurnOn '{"name":"Kitchen Light"}'
 npm run start                      # default — telegram + http (AGENT_MODE=both)
 npm run telegram                   # telegram only
 npm run http                       # http only
+
+npm run users -- add-user --name Alex [--role member|shared]   # create a user (default member)
+npm run users -- attach-telegram --user <id> --chat <chatId>   # bind a Telegram chat to a user
+npm run users -- mint-http --user <id>                         # mint an HTTP token (printed once; only its hash is stored)
 ```
 
 `AGENT_MODE` values: `telegram` | `http` | `both`. Default `both`.
@@ -143,7 +147,84 @@ When adding a new tool with tool-specific rules, put those rules in a sibling `.
 
 ### Memory (`src/memory/`)
 
-Long-term user profile. SQLite via `better-sqlite3`. `MemoryAdapter` interface; `SqliteProfileMemory` implementation; migrations live as **TS string constants** in `migrations.ts`. The runner skips migrations whose version is already in `schema_version` so DDL like `ALTER TABLE ADD COLUMN` is safe on repeated opens.
+Long-term profile. SQLite via `better-sqlite3`. `MemoryAdapter` interface; `SqliteProfileMemory` implementation; migrations live as **TS string constants** in `migrations.ts`. The runner skips migrations whose version is already in `schema_version` so DDL like `ALTER TABLE ADD COLUMN` is safe on repeated opens. The connection sets `busy_timeout = 5000` (`memoryStore.ts`) so a brief external write lock (e.g. an out-of-repo sqlite-web admin) doesn't make the app throw.
+
+**Two memory scopes, DB-backed per-user identities.** Memory is split into a
+shared `household` scope and per-person `personal` scopes.
+
+- **`profile` table** has an `owner` column with composite PK `(owner, key)`.
+  `owner` is `'household'` or `'user:<id>'`. Migration v7 rebuilds the old
+  single-PK table and migrates all existing rows to `household`.
+- **`users(id, name, role, created_at)`** — `role ∈ {shared, member}`. There
+  is exactly ONE `shared` user, `home`, which owns the speaker (`voice`)
+  token(s) and the HA system (`http`) token. Each person is a `member`.
+- **`identities(id, channel, identity, user_id, created_at, UNIQUE(channel, identity))`**
+  — `channel ∈ {telegram, http, voice}`. `identity` is a Telegram chatId
+  (raw) or the **sha256 hash** of an HTTP/voice bearer token. Raw tokens are
+  never stored (`identities.ts::hashToken`).
+
+**Scope is a property of the principal (user), not the channel** (`scope.ts`).
+A request's identity resolves to a user → role → `Scope`, which `makeScopedProfile`
+turns into a `ScopedProfile` (`recall`/`remember`/`forget`):
+
+- `role='shared'` → reads/writes `household` only (write scope forced).
+- `role='member'` → reads `household ∪ personal(user)` (personal **overrides**
+  household on key collision), writes `personal` by default.
+
+`householdProfile` / `householdFromAdapter` give a household-only view for
+callers with no per-user identity (goal runner, fallback).
+
+**`remember` tool** takes an optional `scope` enum (`personal`|`household`),
+default `personal`. The model is told to pick `household` only for clearly-shared
+facts and to ask when ambiguous (`prompts/tools/remember.md`); for `shared`
+principals the write scope is forced to household regardless. `recall` always
+merges per the read rules above.
+
+**Per-request scope resolution.** `OpenAiAgent.respond()` takes an optional
+`profile: ScopedProfile` (falls back to a household view). The HTTP runner
+resolves the Bearer token → scope (`resolveHttpScope`) and the Telegram runner
+resolves the chatId → scope (`resolveTelegramScope`); each passes the scoped
+profile in. A person's Telegram chat or HTTP token resolves to their `member`
+personal scope (reads household∪personal, writes personal); everything else
+lands in household. See the per-channel auth breakdown and the "Known gap"
+note below for exactly how each path reaches household.
+
+**Auth & scope resolution** differ per channel — only the _scope_ model is
+fully DB-driven; HTTP/realtime _auth_ is unchanged from before:
+
+- **Telegram** is DB-gated: a chat is handled iff a `(telegram, chatId)`
+  identity exists (`resolveTelegramScope`); unknown chats are dropped, no
+  auto-provisioning. `TELEGRAM_ALLOWED_CHAT_IDS` is seed-only here.
+- **HTTP** keeps its env Bearer allow-list — every request is still
+  authenticated by `verifyBearerToken` against `HTTP_API_KEYS`. On top of
+  that, `resolveHttpScope` maps the token's hash to a scope via `identities`,
+  falling back to **household** for an authenticated-but-unmapped token. So
+  HTTP _auth_ is env-based; only its _scope_ is DB-derived.
+- **Realtime `/voice`** always uses `householdProfile` directly and does
+  **not** consult `identities` at all (the speaker is unconditionally
+  household).
+
+First-boot seed (`seed.ts`, called from `cli/shared.ts`, no-op once any
+identity exists) imports the env allow-lists: each `TELEGRAM_ALLOWED_CHAT_ID`
+and each `HTTP_API_KEY` → its own `member`; `VA_DEVICE_TOKEN` (voice) +
+`HA_TOKEN` (http) → identities of the shared `home` user.
+
+> **Known gap (Phase 2 half-wired):** the `home` shared user is **not actually
+> resolved by any runtime path today.** Realtime bypasses identity lookup, and
+> `HA_TOKEN` is the _outbound_ VA→HA MCP token — it never arrives as an inbound
+> credential — so both `home` seed rows are dead. Household is reached via the
+> _fallbacks_ (`householdProfile` on realtime; the unmapped-token fallback on
+> HTTP), not via resolving to `home`. Consequently `/assist` driven by the HA
+> integration resolves to whatever `HTTP_API_KEY` it presents — a `member`,
+> not household. To make an HTTP caller resolve to household, attach its real
+> inbound token to `home` (`npm run users -- mint-http --user <home-id>` then
+> configure the client with it). Members are the only actively-resolved
+> identities.
+
+**Management CLI:** `npm run users -- <cmd>` (`cli/users.ts`): `add-user`,
+`attach-telegram`, `mint-http`. `mint-http` prints the token once and stores
+only its hash. A separate web admin (sqlite-web) for editing users/identities/
+profile lives outside this repo.
 
 ### Scheduled actions
 
@@ -175,8 +256,10 @@ with `idleTimeoutMs: Infinity` — the chain only resets via `/reset` or when
 OpenAI evicts the `previous_response_id` (then `OpenAiAgent.respond` catches
 the 404 and retries fresh).
 
-Allow-list via `TELEGRAM_ALLOWED_CHAT_IDS`. Commands: `/start`, `/help`,
-`/reset`, `/profile`, `/update`.
+Allow-list is **DB-backed** (`identities` table, channel `telegram`, identity =
+chatId): a chat is accepted iff `resolveTelegramScope` finds a matching identity;
+unknown chats are dropped. `TELEGRAM_ALLOWED_CHAT_IDS` is only the first-boot seed
+source (see Memory). Commands: `/start`, `/help`, `/reset`, `/profile`, `/update`.
 
 ### HTTP (`src/cli/runners/http.ts`)
 
@@ -207,10 +290,16 @@ instances passed into the runner — they differ in `enableAsk` and in
 the channel's system prompt (see `buildAgent` / `buildSystemPromptFor`
 in [src/cli/shared.ts](src/cli/shared.ts)).
 
-Auth: `Authorization: Bearer <key>` against `HTTP_API_KEYS`. Two
-rate-limit layers: per-IP for failed auths (10 / 5 min) and per-token
-(30 / min). `/audio` also has a concurrency semaphore (2) to bound
-Whisper spend on a Pi.
+Auth: `Authorization: Bearer <key>` is validated against `HTTP_API_KEYS`
+(env) by `verifyBearerToken` — unchanged. On top, `resolveHttpScope` maps the
+token's sha256 hash to a scope via the `identities` table (token seeded from an
+`HTTP_API_KEY` → that `member`; authenticated-but-unmapped → household
+fallback) and the resulting `ScopedProfile` is passed into the agent so the
+response reads/writes the caller's scope. Note `/assist` is **not**
+automatically household — it resolves to whatever token the caller presents
+(see the "Known gap" note in the Memory section). Two rate-limit layers:
+per-IP for failed auths (10 / 5 min) and per-token (30 / min). `/audio` also has
+a concurrency semaphore (2) to bound Whisper spend on a Pi.
 
 ### Realtime bridge (`src/realtime/`)
 
