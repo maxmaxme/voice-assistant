@@ -126,16 +126,16 @@ application/json`, body `{"text": "...", "conversation_id"?: "..."}`.
   Returns `{response, continue_conversation}`.
 - `GET /health` — `{status: "ok"}` for healthchecks.
 
-All non-health endpoints require `Authorization: Bearer <key>`, validated
-against `HTTP_API_KEYS` (comma-separated, from the env). On top of that the
-token's sha256 hash is looked up in the identity table to pick the request's
-**memory scope**: a token seeded from an `HTTP_API_KEY` maps to its own
-per-user (`member`) scope; an authenticated token with no identity row falls
-back to the shared household scope. Raw tokens are never stored — only their
-hash. On first boot `HTTP_API_KEYS` and `HA_TOKEN` are seeded into the
-identity table; afterwards mint per-user tokens with
-`npm run users -- mint-http --user <id>` (printed once). Note: HTTP auth
-itself is still env-based (`HTTP_API_KEYS`); only the scope is DB-derived.
+All non-health endpoints require `Authorization: Bearer <key>`, and auth is
+**DB-backed**: the token's sha256 hash must match an `http` identity in the
+identity table, otherwise the request gets a 401. Raw tokens are never stored
+— only their hash. `HTTP_API_KEYS` (comma-separated, from the env) is a
+first-boot seed source only: on first boot each key is imported as its own
+per-user (`member`) identity. Afterwards mint new tokens with
+`npm run users -- mint-http --user <id>` (printed once) — a key added to the
+env after first boot won't authenticate until it's in the DB. The same lookup
+also picks the request's **memory scope** from the resolved identity's role
+(member → household∪personal; shared → household).
 
 ## Tests
 

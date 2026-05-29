@@ -157,7 +157,7 @@ shared `household` scope and per-person `personal` scopes.
   single-PK table and migrates all existing rows to `household`.
 - **`users(id, name, role, created_at)`** — `role ∈ {shared, member}`. There
   is exactly ONE `shared` user, `home`, which owns the speaker (`voice`)
-  token(s) and the HA system (`http`) token. Each person is a `member`.
+  token(s). Each person is a `member`.
 - **`identities(id, channel, identity, user_id, created_at, UNIQUE(channel, identity))`**
   — `channel ∈ {telegram, http, voice}`. `identity` is a Telegram chatId
   (raw) or the **sha256 hash** of an HTTP/voice bearer token. Raw tokens are
@@ -186,40 +186,43 @@ resolves the Bearer token → scope (`resolveHttpScope`) and the Telegram runner
 resolves the chatId → scope (`resolveTelegramScope`); each passes the scoped
 profile in. A person's Telegram chat or HTTP token resolves to their `member`
 personal scope (reads household∪personal, writes personal); everything else
-lands in household. See the per-channel auth breakdown and the "Known gap"
-note below for exactly how each path reaches household.
+lands in household. See the per-channel auth breakdown below for exactly how
+each path reaches household.
 
-**Auth & scope resolution** differ per channel — only the _scope_ model is
-fully DB-driven; HTTP/realtime _auth_ is unchanged from before:
+**Auth & scope resolution** are both DB-backed now (the env allow-lists are
+seed-only):
 
 - **Telegram** is DB-gated: a chat is handled iff a `(telegram, chatId)`
   identity exists (`resolveTelegramScope`); unknown chats are dropped, no
   auto-provisioning. `TELEGRAM_ALLOWED_CHAT_IDS` is seed-only here.
-- **HTTP** keeps its env Bearer allow-list — every request is still
-  authenticated by `verifyBearerToken` against `HTTP_API_KEYS`. On top of
-  that, `resolveHttpScope` maps the token's hash to a scope via `identities`,
-  falling back to **household** for an authenticated-but-unmapped token. So
-  HTTP _auth_ is env-based; only its _scope_ is DB-derived.
-- **Realtime `/voice`** always uses `householdProfile` directly and does
-  **not** consult `identities` at all (the speaker is unconditionally
-  household).
+- **HTTP** (`/text`, `/audio`, `/assist`) is DB-gated: a request is allowed
+  iff the Bearer token's sha256 hash has an `http` identity
+  (`httpTokenAllowed` → `identities.resolve('http', …) !== null`);
+  unknown/missing → 401. `verifyBearerToken`/`HTTP_API_KEYS` are no longer
+  consulted at runtime — `HTTP_API_KEYS` is seed-only. Scope = the resolved
+  identity's role via `resolveHttpScope` (member → household∪personal; shared
+  → household; the unmapped fallback never triggers now that auth requires a
+  mapped identity). A key added to the env _after_ first boot won't
+  authenticate until minted into the DB (`mint-http`).
+- **Realtime `/voice`** authenticates the WS handshake via `VA_DEVICE_TOKEN`
+  (`wsServer.ts`), then uses `householdProfile` **unconditionally** — it does
+  **not** resolve the `voice` identity. The seed still records `VA_DEVICE_TOKEN`
+  as a `voice` identity of `home` for completeness, but that row is not
+  consulted at runtime.
 
 First-boot seed (`seed.ts`, called from `cli/shared.ts`, no-op once any
 identity exists) imports the env allow-lists: each `TELEGRAM_ALLOWED_CHAT_ID`
-and each `HTTP_API_KEY` → its own `member`; `VA_DEVICE_TOKEN` (voice) +
-`HA_TOKEN` (http) → identities of the shared `home` user.
+and each `HTTP_API_KEY` → its own `member`; `VA_DEVICE_TOKEN` → the shared
+`home` user (voice). `HA_TOKEN` is **not** seeded — it is the outbound VA→HA
+MCP token only.
 
-> **Known gap (Phase 2 half-wired):** the `home` shared user is **not actually
-> resolved by any runtime path today.** Realtime bypasses identity lookup, and
-> `HA_TOKEN` is the _outbound_ VA→HA MCP token — it never arrives as an inbound
-> credential — so both `home` seed rows are dead. Household is reached via the
-> _fallbacks_ (`householdProfile` on realtime; the unmapped-token fallback on
-> HTTP), not via resolving to `home`. Consequently `/assist` driven by the HA
-> integration resolves to whatever `HTTP_API_KEY` it presents — a `member`,
-> not household. To make an HTTP caller resolve to household, attach its real
-> inbound token to `home` (`npm run users -- mint-http --user <home-id>` then
-> configure the client with it). Members are the only actively-resolved
-> identities.
+> **Residual notes:** (a) realtime doesn't resolve its `voice` identity —
+> household is unconditional by design, so the seeded `voice` row is dead but
+> harmless, not a bug; (b) `/assist` resolves to whatever token the caller
+> presents, and since `HTTP_API_KEYS` seed as `member`s it defaults to a
+> member scope — to make it household, attach its token to the shared `home`
+> user (`npm run users -- mint-http --user <home-id>`) and configure the
+> client with it.
 
 **Management CLI:** `npm run users -- <cmd>` (`cli/users.ts`): `add-user`,
 `attach-telegram`, `mint-http`. `mint-http` prints the token once and stores
@@ -290,16 +293,19 @@ instances passed into the runner — they differ in `enableAsk` and in
 the channel's system prompt (see `buildAgent` / `buildSystemPromptFor`
 in [src/cli/shared.ts](src/cli/shared.ts)).
 
-Auth: `Authorization: Bearer <key>` is validated against `HTTP_API_KEYS`
-(env) by `verifyBearerToken` — unchanged. On top, `resolveHttpScope` maps the
-token's sha256 hash to a scope via the `identities` table (token seeded from an
-`HTTP_API_KEY` → that `member`; authenticated-but-unmapped → household
-fallback) and the resulting `ScopedProfile` is passed into the agent so the
-response reads/writes the caller's scope. Note `/assist` is **not**
-automatically household — it resolves to whatever token the caller presents
-(see the "Known gap" note in the Memory section). Two rate-limit layers:
-per-IP for failed auths (10 / 5 min) and per-token (30 / min). `/audio` also has
-a concurrency semaphore (2) to bound Whisper spend on a Pi.
+Auth is DB-backed (`checkAuthAndRate` → `httpTokenAllowed`): the
+`Authorization: Bearer <key>` token's sha256 hash must have an `http` identity
+in the `identities` table, else **401**. `HTTP_API_KEYS` is seed-only — a key
+added to the env after first boot must be minted into the DB
+(`npm run users -- mint-http`) before it authenticates. Scope follows from the
+same lookup: `resolveHttpScope` maps the token hash to its identity's role and
+the resulting `ScopedProfile` is passed into the agent so the response
+reads/writes the caller's scope (member → household∪personal; shared →
+household). `/assist` is **not** automatically household — it resolves to
+whatever token the caller presents (see the residual note in the Memory
+section). Two rate-limit layers: per-IP for failed auths (10 / 5 min) and
+per-token (30 / min). `/audio` also has a concurrency semaphore (2) to bound
+Whisper spend on a Pi.
 
 ### Realtime bridge (`src/realtime/`)
 
