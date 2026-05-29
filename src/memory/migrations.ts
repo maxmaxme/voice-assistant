@@ -124,4 +124,38 @@ export const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO schema_version (version) VALUES (6);
     `,
   },
+  {
+    version: 7,
+    sql: `
+      -- Rebuild profile with an owner column and (owner, key) PK.
+      ALTER TABLE profile RENAME TO profile_old;
+      CREATE TABLE profile (
+        owner      TEXT NOT NULL DEFAULT 'household',
+        key        TEXT NOT NULL,
+        value      TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (owner, key)
+      );
+      INSERT INTO profile (owner, key, value, updated_at)
+        SELECT 'household', key, value, updated_at FROM profile_old;
+      DROP TABLE profile_old;
+
+      CREATE TABLE IF NOT EXISTS users (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL,
+        role       TEXT NOT NULL CHECK (role IN ('shared', 'member')),
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS identities (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel    TEXT NOT NULL CHECK (channel IN ('telegram', 'http', 'voice')),
+        identity   TEXT NOT NULL,
+        user_id    INTEGER NOT NULL REFERENCES users(id),
+        created_at INTEGER NOT NULL,
+        UNIQUE (channel, identity)
+      );
+
+      INSERT OR IGNORE INTO schema_version (version) VALUES (7);
+    `,
+  },
 ];
