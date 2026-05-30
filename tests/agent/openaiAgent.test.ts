@@ -562,7 +562,10 @@ describe('OpenAiAgent', () => {
       expect(args.instructions).toContain('previously-scheduled goal');
     });
 
-    it('omits the ask tool from the tools array in goal mode', async () => {
+    it('omits ask / send_to_telegram / scheduled-action tools in goal mode', async () => {
+      // A scheduled fire executes its goal; it must not re-plan (schedule/list/
+      // cancel) or deliver itself (send_to_telegram — the goal runner owns
+      // delivery to the author). ask is off too (no user present).
       const llm = fakeLlm([textResponse('ok', 'resp_1')]);
       const agent = new OpenAiAgent({
         mcp: fakeMcp(),
@@ -578,8 +581,12 @@ describe('OpenAiAgent', () => {
       const callArgs = llm.calls[0]! as unknown as {
         tools?: Array<{ name: string }>;
       };
-      const tools = callArgs.tools ?? [];
-      expect(tools.find((t) => t.name === 'ask')).toBeUndefined();
+      const names = new Set((callArgs.tools ?? []).map((t) => t.name));
+      expect(names.has('ask')).toBe(false);
+      expect(names.has('send_to_telegram')).toBe(false);
+      expect(names.has('schedule_action')).toBe(false);
+      expect(names.has('list_scheduled')).toBe(false);
+      expect(names.has('cancel_scheduled')).toBe(false);
     });
 
     it('does not chain across calls in goal mode (every call sends instructions, no previous_response_id)', async () => {

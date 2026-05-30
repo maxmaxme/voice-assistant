@@ -119,16 +119,19 @@ export class OpenAiAgent implements Agent {
     // inside `speak`. Goal-fire mode never has a user.
     const askEnabled = this.mode !== 'goal' && (this.opts.enableAsk ?? true);
     const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
-    // In goal mode there's no live user and delivery is owned by the goal
-    // runner (it sends the agent's reply to the action's author). Exposing
-    // send_to_telegram there would let the fire deliver to the wrong, fixed
-    // chat — so omit it and let the runner route the reply.
-    const telegramTools = this.mode === 'goal' ? [] : [buildTelegramTool()];
+    // Goal mode is a scheduled fire, not an interactive turn:
+    //  - no send_to_telegram: delivery is owned by the goal runner, which
+    //    sends the agent's reply to the action's *author*. Exposing the tool
+    //    would deliver to the wrong, fixed chat.
+    //  - no schedule/list/cancel: a fire executes its goal, it does not
+    //    re-plan. The goal carries no user scope, so these would only confuse
+    //    the model (and schedule_action would throw on the null owner).
+    const goalMode = this.mode === 'goal';
     const localTools = [
       ...buildMemoryTools(),
-      ...buildScheduledActionTools(),
+      ...(goalMode ? [] : buildScheduledActionTools()),
       ...(askEnabled ? [buildAskTool()] : []),
-      ...telegramTools,
+      ...(goalMode ? [] : [buildTelegramTool()]),
       ...buildLocalTools(),
     ];
     // Our function-tool shape (`OpenAiFunctionTool`-derived) matches the
@@ -486,7 +489,7 @@ export class OpenAiAgent implements Agent {
     const base = this.buildSystemMessage(householdFromAdapter(this.opts.memory.profile));
     return (
       base +
-      `\n\nYou are running a previously-scheduled goal. There is NO USER PRESENT — do NOT call the 'ask' tool, and you have no way to message the user mid-task. Execute the goal end-to-end using your tools. Your final reply text is automatically delivered to the user who scheduled this (over Telegram), so write it AS the message to that user: for a reminder, output the reminder content itself; for an action, a short confirmation of what you did. Plain text, no preamble.\n\nThe goal: ${goal}`
+      `\n\nYou are running a previously-scheduled goal. There is NO USER PRESENT: do NOT ask clarifying questions and do NOT request any details — the goal is final and self-contained, act on it as-is. You cannot message the user mid-task and have no Telegram/send tool. Your final reply text is delivered to the user who scheduled this automatically, so write it AS the message to them: if the goal is just a reminder (even if it literally says "send to Telegram …" or similar), output ONLY the reminder content, in the user's language (e.g. goal "send a Telegram reminder: walk the dog" → reply "Reminder: walk the dog"); if it is an action, perform it via your tools and reply with a short confirmation. Plain text, no preamble, no questions.\n\nThe goal: ${goal}`
     );
   }
 

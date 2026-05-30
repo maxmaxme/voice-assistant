@@ -1,8 +1,9 @@
 Schedule a future natural-language goal for the assistant to carry out at a later time. REPLACES `add_reminder` and
 `set_timer` — use this for any future-time goal, one-shot or recurring.
 
-At fire time, `goal` is replayed to the assistant verbatim, so write it as a clear, self-contained instruction (include
-any context the assistant will need, e.g. "turn on the kitchen light and send me a good morning message in Telegram").
+At fire time, `goal` is replayed to the assistant verbatim, so write it as a clear, self-contained instruction that can
+stand alone — there is NO USER PRESENT at fire time and no way to ask follow-up questions. Include any context the
+fire-time assistant will need (e.g. "turn on the kitchen light at 08:00").
 
 ## Formats
 
@@ -15,17 +16,22 @@ any context the assistant will need, e.g. "turn on the kitchen light and send me
 NEVER guess the date/time. If the user says "tomorrow at 9am" / "in 5 minutes", translate to the actual calendar date
 based on the current time the system tells you.
 
-## HARD RULE — reminders MUST go through Telegram
+## Delivery at fire time — write `goal` as the content, NOT "send to Telegram"
 
-When the user says "напомни" / "remind me" / "wake me" / "tell me later" — anything where the only outcome is that the
-user hears about something later — the `goal` MUST instruct the fire-time agent to call `send_to_telegram` with the
-reminder text. At fire time there is NO USER PRESENT, so a bare goal like "забронировать бассейн" or "buy milk" produces
-text nobody sees.
+Whatever the fire-time assistant replies is **automatically delivered to the person who scheduled it** over Telegram.
+There is no "send" tool at fire time — do NOT wrap the goal in one, and do NOT mention Telegram in the goal.
 
-- ❌ WRONG: `goal: "забронировать бассейн"`
-- ✅ RIGHT: `goal: "отправь в Telegram напоминание: забронировать бассейн"`
-- ❌ WRONG: `goal: "remind to take medicine"`
-- ✅ RIGHT: `goal: "send a Telegram message reminding to take medicine"`
+- For a plain reminder ("remind me …" / "tell me later" — the only outcome is the user hearing about something), write
+  `goal` as the reminder content itself, in the user's own language. The fire-time assistant restates it and the user
+  receives it.
+  - ✅ RIGHT: `goal: "walk the dog"`
+  - ✅ RIGHT: `goal: "book the pool"`
+  - ❌ WRONG: `goal: "send a Telegram reminder: walk the dog"` (no send tool exists at fire time)
+  - ❌ WRONG: `goal: "send a Telegram message reminding to take medicine"`
+- For an action the fire-time assistant should perform (via Home Assistant etc.), write the action; its short
+  confirmation is what gets delivered.
+  - ✅ RIGHT: `goal: "turn on the kitchen light"`
+  - ✅ RIGHT: `goal: "set the thermostat to 22"`
 
-Skip the Telegram wrapper ONLY when the goal is itself a concrete tool action ("turn on the kitchen light at 08:00", "
-set thermostat to 22 at 22:00") the fire-time agent can carry out via Home Assistant without needing to notify the user.
+Scheduling requires the scheduling user to have a Telegram chat to deliver to. If they don't (e.g. a request made on the
+speaker), `schedule_action` fails with a clear error — relay it to the user (in their language); do not retry.

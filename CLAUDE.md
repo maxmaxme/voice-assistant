@@ -137,6 +137,8 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 
 `memory: MemoryAdapter` is **required** on `OpenAiAgentOptions`. Tests that don't care about persistent state pass `emptyMemory()` (no-op).
 
+**Agent prompts are written in English.** Every prompt — system prompts, tool descriptions, and any prompt text injected at runtime — must be in English, even though users talk to the agent in any language (the prompts instruct the model to reply in the user's language). Keep examples in prompts English too; don't paste Russian sample phrases. This keeps prompts consistent and avoids biasing the model toward one language.
+
 **Prompt text lives in markdown files**, not in TS string literals. `src/agent/systemPrompt.ts` and friends just `fs.readFileSync` a sibling `.md` at module load (helper: `src/agent/prompts/load.ts::loadPrompt`). Layout:
 
 - `src/agent/prompts/base-system.md` — cross-cutting rules (identity, HA error-recovery procedure, composite-intent self-check, style, JSON output shape). Loaded as `BASE_SYSTEM_PROMPT`.
