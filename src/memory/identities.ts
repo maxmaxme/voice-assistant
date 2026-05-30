@@ -34,6 +34,17 @@ export class IdentitiesStore implements IdentitiesAdapter {
     return row ? row.identity : null;
   }
 
+  listTelegramUsers(): { userId: number; name: string; chatId: string }[] {
+    return this.db
+      .prepare<[], { userId: number; name: string; chatId: string }>(
+        `SELECT i.user_id AS userId, u.name AS name, i.identity AS chatId
+         FROM identities i JOIN users u ON u.id = i.user_id
+         WHERE i.channel = 'telegram'
+         ORDER BY i.id`,
+      )
+      .all();
+  }
+
   addUser(name: string): number {
     const info = this.db
       .prepare(`INSERT INTO users (name, created_at) VALUES (?, ?)`)

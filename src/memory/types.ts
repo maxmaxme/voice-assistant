@@ -15,6 +15,9 @@ export interface IdentitiesAdapter {
    *  their Telegram chat id), or null if none. Returns the earliest-attached
    *  one when a user has several. */
   identityFor(channel: Channel, userId: number): string | null;
+  /** All users that have a Telegram identity, for recipient resolution and
+   *  for listing valid recipients in errors. */
+  listTelegramUsers(): { userId: number; name: string; chatId: string }[];
   addUser(name: string): number;
   attachIdentity(channel: Channel, identity: string, userId: number): void;
   isEmpty(): boolean;

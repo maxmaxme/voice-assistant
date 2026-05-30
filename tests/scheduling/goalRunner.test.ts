@@ -24,23 +24,19 @@ function throwingAgent(err: Error): Agent {
   };
 }
 
-function fakeTelegram(): TelegramSender & { sent: string[] } {
-  const sent: string[] = [];
-  return {
-    sent,
-    send: async (text: string): Promise<void> => {
-      sent.push(text);
-    },
-  };
-}
-
-/** Identities adapter whose `identityFor('telegram', userId)` returns the
- *  mapped chat id (or null). Only `identityFor` is exercised here. */
+/** Identities whose `identityFor('telegram', userId)` returns the mapped chat
+ *  id (or null). */
 function fakeIdentities(telegramByUser: Record<number, string>): IdentitiesAdapter {
   return {
     resolve: () => null,
     identityFor: (channel: Channel, userId: number) =>
       channel === 'telegram' ? (telegramByUser[userId] ?? null) : null,
+    listTelegramUsers: () =>
+      Object.entries(telegramByUser).map(([userId, chatId]) => ({
+        userId: Number(userId),
+        name: `user${userId}`,
+        chatId,
+      })),
     addUser: () => 0,
     attachIdentity: () => {},
     isEmpty: () => false,
@@ -66,35 +62,31 @@ function makeSenderFactory(): {
 
 describe('buildGoalRunner', () => {
   it('delivers the agent reply to the author’s Telegram chat', async () => {
-    const agent = passingAgent({ text: 'купи молоко' });
+    const agent = passingAgent({ text: 'buy milk' });
     const { senderFor, sentByChat } = makeSenderFactory();
     const runner = buildGoalRunner({
       agent,
       identities: fakeIdentities({ 7: '555' }),
       senderFor,
-      defaultTelegram: fakeTelegram(),
     });
-    await expect(runner.fire('напомни купить молоко', 7)).resolves.toBeUndefined();
-    expect(agent.calls).toEqual(['напомни купить молоко']);
-    expect(sentByChat['555']).toEqual(['купи молоко']);
+    await expect(runner.fire('remind me to buy milk', 7)).resolves.toBeUndefined();
+    expect(agent.calls).toEqual(['remind me to buy milk']);
+    expect(sentByChat['555']).toEqual(['buy milk']);
   });
 
-  it('falls back to the default sender when the author has no Telegram identity', async () => {
+  it('drops delivery (and warns) when the author has no Telegram identity', async () => {
     const logs = captureLogs();
     try {
       const agent = passingAgent({ text: 'reminder text' });
       const { senderFor, sentByChat } = makeSenderFactory();
-      const defaultTelegram = fakeTelegram();
       const runner = buildGoalRunner({
         agent,
         identities: fakeIdentities({}), // user 7 has no telegram
         senderFor,
-        defaultTelegram,
       });
       await runner.fire('do thing', 7);
-      expect(defaultTelegram.sent).toEqual(['reminder text']);
       expect(sentByChat).toEqual({});
-      expect(logs.text()).toMatch(/no Telegram identity/);
+      expect(logs.text()).toMatch(/no Telegram identity|dropping delivery/);
     } finally {
       logs.restore();
     }
@@ -103,30 +95,24 @@ describe('buildGoalRunner', () => {
   it('does not send when the goal completed with empty text', async () => {
     const agent = passingAgent({ text: '', toolsUsed: ['HassTurnOn'] });
     const { senderFor, sentByChat } = makeSenderFactory();
-    const defaultTelegram = fakeTelegram();
     const runner = buildGoalRunner({
       agent,
       identities: fakeIdentities({ 7: '555' }),
       senderFor,
-      defaultTelegram,
     });
-    await runner.fire('включи свет на кухне', 7);
+    await runner.fire('turn on the kitchen light', 7);
     expect(sentByChat).toEqual({});
-    expect(defaultTelegram.sent).toEqual([]);
   });
 
   it('rethrows when agent.respond throws, without delivering anything', async () => {
     const { senderFor, sentByChat } = makeSenderFactory();
-    const defaultTelegram = fakeTelegram();
     const runner = buildGoalRunner({
       agent: throwingAgent(new Error('llm boom')),
       identities: fakeIdentities({ 7: '555' }),
       senderFor,
-      defaultTelegram,
     });
     await expect(runner.fire('break it', 7)).rejects.toThrow(/llm boom/);
     expect(sentByChat).toEqual({});
-    expect(defaultTelegram.sent).toEqual([]);
   });
 
   it('does not rethrow when delivery itself fails', async () => {
@@ -139,7 +125,6 @@ describe('buildGoalRunner', () => {
           throw new Error('tg down');
         },
       }),
-      defaultTelegram: fakeTelegram(),
     });
     await expect(runner.fire('do thing', 7)).resolves.toBeUndefined();
   });
@@ -153,7 +138,6 @@ describe('buildGoalRunner', () => {
         agent,
         identities: fakeIdentities({ 7: '555' }),
         senderFor,
-        defaultTelegram: fakeTelegram(),
       });
       await runner.fire('greet the world', 7);
       const messages = logs.spy.mock.calls.map((c) => String(c[0]));

@@ -59,9 +59,10 @@ npm install
 
 # 2. .env
 cp .env.example .env
-# Fill HA_URL, HA_TOKEN, OPENAI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
-# HTTP/Telegram auth is DB-backed — create users/tokens with `npm run users`
-# (see below); there is no HTTP_API_KEYS / TELEGRAM_ALLOWED_CHAT_IDS env.
+# Fill HA_URL, HA_TOKEN, OPENAI_API_KEY, TELEGRAM_BOT_TOKEN.
+# HTTP/Telegram auth and outbound recipients are DB-backed — create
+# users/tokens and bind chats with `npm run users` (see below). There is no
+# HTTP_API_KEYS / TELEGRAM_ALLOWED_CHAT_IDS / TELEGRAM_CHAT_ID env.
 
 # 3. Sanity check — list HA's MCP tools
 npm run mcp:call -- list
@@ -80,7 +81,8 @@ The agent runs a Telegram bot that accepts text, voice, and photo input.
 
 Setup:
 
-1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token.
+1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token,
+   set `TELEGRAM_BOT_TOKEN` in `.env`.
 2. Find your chat ID by messaging the bot once and running:
 
    ```bash
@@ -88,12 +90,17 @@ Setup:
      | jq '.result[].message.chat.id' | sort -u
    ```
 
-3. Set in `.env`:
+3. Bind that chat to a user with the `users` CLI (this both allow-lists the
+   chat and makes it the delivery target for that user's reminders and
+   `send_to_telegram`):
 
+   ```bash
+   npm run users -- add-user --name me
+   npm run users -- attach-telegram --user <id> --chat <chatId>
    ```
-   TELEGRAM_BOT_TOKEN=...
-   TELEGRAM_CHAT_ID=123456789               # default outbound chat for the bot
-   ```
+
+   There is no fixed outbound `TELEGRAM_CHAT_ID` — `send_to_telegram` and the
+   reminder scheduler resolve the recipient's chat from these identities.
 
 4. `npm run start` runs the bot alongside the HTTP server. Or
    `AGENT_MODE=telegram npm run start` for bot-only.

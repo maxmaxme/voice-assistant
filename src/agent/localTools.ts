@@ -29,11 +29,14 @@ import { buildWeatherTool, executeWeatherTool, WEATHER_TOOL_NAME } from './weath
 export interface LocalToolDeps {
   profile?: ScopedProfile;
   scheduledActions?: ScheduledActionsAdapter;
-  telegram?: TelegramSender;
-  /** Owner-aware scheduled-action context. Required for the scheduled-action
-   *  tools to know who is scheduling (author of reminders, owner-scoped
-   *  list/cancel). When `scheduledActions` is provided without this, the
-   *  caller is treated as unidentified (`ownerUserId: null`). */
+  /** Builds a Telegram sender bound to a chat id. `send_to_telegram` resolves
+   *  a recipient (the current principal by default) to a chat via `identities`
+   *  and delivers through this. Requires `identities` to be wired too. */
+  telegram?: { senderFor: (chatId: string) => TelegramSender };
+  /** Owner-aware context. Required for the scheduled-action tools (author of
+   *  reminders, owner-scoped list/cancel) and for `send_to_telegram` recipient
+   *  resolution. When omitted, the caller is treated as unidentified
+   *  (`ownerUserId: null`). */
   identities?: IdentitiesAdapter;
   ownerUserId?: number | null;
 }
@@ -82,11 +85,18 @@ function buildRegistry(deps: LocalToolDeps): Record<string, LocalTool> {
       };
     }
   }
-  if (deps.telegram) {
-    const telegram = deps.telegram;
+  // send_to_telegram resolves a recipient via identities, so both must be wired.
+  if (deps.telegram && deps.identities) {
+    const senderFor = deps.telegram.senderFor;
+    const identities = deps.identities;
+    const scopeUserId = deps.ownerUserId ?? null;
     registry[TELEGRAM_TOOL_NAME] = {
       tool: buildTelegramTool(),
-      execute: (args) => executeTelegramTool(telegram, args),
+      execute: (args) =>
+        executeTelegramTool(
+          { scope: scopeUserId === null ? null : { userId: scopeUserId }, identities, senderFor },
+          args,
+        ),
     };
   }
   return registry;

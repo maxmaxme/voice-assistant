@@ -11,7 +11,8 @@ import type { McpClient } from '../../src/mcp/types.ts';
 import type { MemoryStore } from '../../src/memory/types.ts';
 import type { TelegramSender } from '../../src/telegram/types.ts';
 
-const noopTelegram: TelegramSender = { send: async () => {} };
+const noopSender: TelegramSender = { send: async () => {} };
+const noopTelegram = { senderFor: () => noopSender };
 
 /** A no-op MemoryStore for tests that don't care about memory state. */
 function emptyMemory(): MemoryStore {

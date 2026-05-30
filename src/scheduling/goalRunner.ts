@@ -22,9 +22,6 @@ export interface GoalRunnerOptions {
   identities: IdentitiesAdapter;
   /** Build a sender targeting a specific Telegram chat id. */
   senderFor: (chatId: string) => TelegramSender;
-  /** Fallback sender, used when the author has no resolvable Telegram chat
-   * (shouldn't happen — validated at scheduling time). */
-  defaultTelegram: TelegramSender;
 }
 
 function truncate(s: string, max = 80): string {
@@ -36,18 +33,19 @@ function truncate(s: string, max = 80): string {
 }
 
 export function buildGoalRunner(opts: GoalRunnerOptions): GoalRunner {
-  const { agent, identities, senderFor, defaultTelegram } = opts;
+  const { agent, identities, senderFor } = opts;
 
-  // Resolve the author's Telegram chat to a sender, falling back to the
-  // default when they have none (defensive — scheduling validates this).
-  const senderForOwner = (ownerUserId: number, goal: string): TelegramSender => {
+  // Resolve the author's Telegram chat to a sender. null when they have no
+  // Telegram identity (shouldn't happen — scheduling validates it) → we log
+  // and skip delivery rather than misrouting to some default chat.
+  const senderForOwner = (ownerUserId: number, goal: string): TelegramSender | null => {
     const chatId = identities.identityFor('telegram', ownerUserId);
     if (chatId === null) {
       log.warn(
         { ownerUserId, goal },
-        `goal "${truncate(goal)}" owner ${ownerUserId} has no Telegram identity; using default sender`,
+        `goal "${truncate(goal)}" owner ${ownerUserId} has no Telegram identity; dropping delivery`,
       );
-      return defaultTelegram;
+      return null;
     }
     return senderFor(chatId);
   };
@@ -70,6 +68,9 @@ export function buildGoalRunner(opts: GoalRunnerOptions): GoalRunner {
         // delivery, sending the agent's reply to the action's author.
         if (text.length > 0) {
           const sender = senderForOwner(ownerUserId, goal);
+          if (sender === null) {
+            return;
+          }
           try {
             await sender.send(text);
             log.info({ goal, ownerUserId }, `goal "${truncate(goal)}" delivered to author`);

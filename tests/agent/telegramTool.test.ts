@@ -6,12 +6,13 @@ import { runMigrations } from '../../src/memory/migrate.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import { IdentitiesStore } from '../../src/memory/identities.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
-import type { MemoryStore } from '../../src/memory/types.ts';
+import type { Channel, IdentitiesAdapter, MemoryStore } from '../../src/memory/types.ts';
 import type { TelegramSender } from '../../src/telegram/types.ts';
 import {
   buildTelegramTool,
   executeTelegramTool,
   TELEGRAM_TOOL_NAME,
+  type TelegramToolContext,
 } from '../../src/agent/telegramTool.ts';
 import { BotTelegramSender } from '../../src/telegram/telegramSender.ts';
 
@@ -44,6 +45,50 @@ function emptyMemory(): MemoryStore {
   };
 }
 
+/** Identities whose telegram chat id per user comes from the map. */
+function fakeIdentities(telegramByUser: Record<number, string>): IdentitiesAdapter {
+  return {
+    resolve: () => null,
+    identityFor: (channel: Channel, userId: number) =>
+      channel === 'telegram' ? (telegramByUser[userId] ?? null) : null,
+    listTelegramUsers: () =>
+      Object.entries(telegramByUser).map(([userId, chatId]) => ({
+        userId: Number(userId),
+        name: `user${userId}`,
+        chatId,
+      })),
+    addUser: () => 0,
+    attachIdentity: () => {},
+    isEmpty: () => false,
+  };
+}
+
+/** A senderFor that records what each chat id received. */
+function recordingSenders(): {
+  senderFor: (chatId: string) => TelegramSender;
+  byChat: Record<string, string[]>;
+} {
+  const byChat: Record<string, string[]> = {};
+  return {
+    byChat,
+    senderFor: (chatId) => ({
+      send: async (t) => {
+        (byChat[chatId] ??= []).push(t);
+      },
+    }),
+  };
+}
+
+function ctx(over: Partial<TelegramToolContext> = {}): TelegramToolContext {
+  const senders = recordingSenders();
+  return {
+    scope: { userId: 1 },
+    identities: fakeIdentities({ 1: '42' }),
+    senderFor: senders.senderFor,
+    ...over,
+  };
+}
+
 function fakeMcp(): McpClient {
   return {
     connect: vi.fn().mockResolvedValue(undefined),
@@ -68,22 +113,54 @@ describe('telegramTool', () => {
     expect(buildTelegramTool().name).toBe(TELEGRAM_TOOL_NAME);
   });
 
-  it('executeTelegramTool delegates to the sender', async () => {
-    const sent: string[] = [];
-    const sender: TelegramSender = {
-      send: async (t) => {
-        sent.push(t);
-      },
-    };
-    const r = await executeTelegramTool(sender, { text: 'hi' });
-    expect(r).toEqual({ ok: true });
-    expect(sent).toEqual(['hi']);
+  it('delivers to the current user (self) when no recipient is given', async () => {
+    const senders = recordingSenders();
+    const c = ctx({
+      scope: { userId: 1 },
+      identities: fakeIdentities({ 1: '42' }),
+      senderFor: senders.senderFor,
+    });
+    const r = await executeTelegramTool(c, { text: 'hi' });
+    expect(r).toEqual({ ok: true, recipientUserId: 1 });
+    expect(senders.byChat['42']).toEqual(['hi']);
   });
 
-  it('executeTelegramTool rejects empty text', async () => {
-    const sender: TelegramSender = { send: vi.fn() };
-    await expect(executeTelegramTool(sender, { text: '   ' })).rejects.toThrow();
-    expect(sender.send).not.toHaveBeenCalled();
+  it('delivers to an explicit recipient user id', async () => {
+    const senders = recordingSenders();
+    const c = ctx({
+      scope: { userId: 1 },
+      identities: fakeIdentities({ 1: '42', 2: '99' }),
+      senderFor: senders.senderFor,
+    });
+    const r = await executeTelegramTool(c, { text: 'yo', recipient: 2 });
+    expect(r).toEqual({ ok: true, recipientUserId: 2 });
+    expect(senders.byChat['99']).toEqual(['yo']);
+    expect(senders.byChat['42']).toBeUndefined();
+  });
+
+  it('errors (listing recipients) when the current user has no Telegram', async () => {
+    const senders = recordingSenders();
+    const c = ctx({
+      scope: { userId: 5 }, // not in the map
+      identities: fakeIdentities({ 1: '42' }),
+      senderFor: senders.senderFor,
+    });
+    await expect(executeTelegramTool(c, { text: 'hi' })).rejects.toThrow(
+      /no Telegram linked|1=user1/,
+    );
+    expect(senders.byChat).toEqual({});
+  });
+
+  it('errors when there is no current user and no recipient', async () => {
+    const c = ctx({ scope: null, identities: fakeIdentities({ 1: '42' }) });
+    await expect(executeTelegramTool(c, { text: 'hi' })).rejects.toThrow(/no recipient/i);
+  });
+
+  it('rejects empty text', async () => {
+    const senders = recordingSenders();
+    const c = ctx({ senderFor: senders.senderFor });
+    await expect(executeTelegramTool(c, { text: '   ' })).rejects.toThrow();
+    expect(senders.byChat).toEqual({});
   });
 });
 
@@ -100,13 +177,11 @@ describe('BotTelegramSender', () => {
 });
 
 describe('OpenAiAgent + telegram', () => {
-  it('routes send_to_telegram tool calls to the telegram adapter, not MCP', async () => {
-    const sent: string[] = [];
-    const telegram: TelegramSender = {
-      send: async (t) => {
-        sent.push(t);
-      },
-    };
+  it('routes send_to_telegram to the caller’s chat via identities, not MCP', async () => {
+    const memory = emptyMemory();
+    const uid = memory.identities.addUser('me');
+    memory.identities.attachIdentity('telegram', '42', uid);
+    const senders = recordingSenders();
     const mcp = fakeMcp();
     const llm = fakeLlm([
       {
@@ -135,16 +210,16 @@ describe('OpenAiAgent + telegram', () => {
     ]);
     const agent = new OpenAiAgent({
       mcp,
-      memory: emptyMemory(),
+      memory,
       session: new Session({ idleTimeoutMs: 60_000 }),
       systemPrompt: 'sys',
       model: 'gpt-4o',
       llmClient: llm as never,
-      telegram,
+      telegram: { senderFor: senders.senderFor },
     });
-    const res = await agent.respond('send the recipe to telegram');
+    const res = await agent.respond('send the recipe to telegram', { scope: { userId: uid } });
     expect(res.text).toBe('Sent.');
-    expect(sent).toEqual(['Pancake recipe: ...']);
+    expect(senders.byChat['42']).toEqual(['Pancake recipe: ...']);
     expect(mcp.callTool).not.toHaveBeenCalled();
   });
 });

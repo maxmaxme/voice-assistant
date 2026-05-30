@@ -38,7 +38,10 @@ export interface OpenAiAgentOptions {
   model: string;
   maxToolIterations?: number;
   llmClient: OpenAI;
-  telegram: TelegramSender;
+  /** Builds a Telegram sender bound to a chat id. `send_to_telegram` resolves
+   *  its recipient (the current scope's user by default) to a chat via
+   *  `memory.identities` and delivers through this. */
+  telegram: { senderFor: (chatId: string) => TelegramSender };
   /** Structured-output format for the final agent reply. CHAT_TEXT_FORMAT
    * (speak required, no direction) is the default for the active channels
    * (Telegram, HTTP). VOICE_TEXT_FORMAT is kept around for parity with the
@@ -359,7 +362,14 @@ export class OpenAiAgent implements Agent {
               }
             } else if (tc.name === TELEGRAM_TOOL_NAME) {
               try {
-                const r = await executeTelegramTool(this.opts.telegram, args);
+                const r = await executeTelegramTool(
+                  {
+                    scope: ownerUserId === null ? null : { userId: ownerUserId },
+                    identities: this.opts.memory.identities,
+                    senderFor: this.opts.telegram.senderFor,
+                  },
+                  args,
+                );
                 resultText = JSON.stringify(r);
               } catch (e) {
                 resultText = e instanceof Error ? e.message : String(e);

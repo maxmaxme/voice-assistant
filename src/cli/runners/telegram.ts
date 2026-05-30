@@ -16,9 +16,10 @@ const log = createLogger('telegram');
 
 export interface TelegramRunnerDeps {
   receiver: TelegramReceiver;
-  /** Sender used to reply to the *originating* chat. The default factory uses
-   * the configured chat_id; the runner overrides it per-message via `replyTo`. */
-  sender: TelegramSender;
+  /** Optional fallback sender. The runner normally replies per-message via
+   * `replyTo(msg.chatId)`; `sender` is only used when `replyTo` is absent
+   * (e.g. some tests). At least one of the two must be provided. */
+  sender?: TelegramSender;
   agent: OpenAiAgent;
   memory: MemoryStore;
   /** Resolves the (self-persisting) Session for a chat. The default impl in
@@ -69,6 +70,10 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
       reqLog.info('inbound message');
     }
     const replyer = deps.replyTo ? deps.replyTo(msg.chatId) : deps.sender;
+    if (!replyer) {
+      reqLog.error('no replyTo factory or fallback sender configured; dropping message');
+      continue;
+    }
     const scope = resolveTelegramScope(deps.identities, msg.chatId);
     if (!scope) {
       reqLog.warn(`dropped message from chat=${msg.chatId} (no identity)`);

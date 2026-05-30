@@ -74,6 +74,12 @@ function fakeIdentities(telegramByUser: Record<number, string>): IdentitiesAdapt
     resolve: () => null,
     identityFor: (channel: Channel, userId: number) =>
       channel === 'telegram' ? (telegramByUser[userId] ?? null) : null,
+    listTelegramUsers: () =>
+      Object.entries(telegramByUser).map(([userId, chatId]) => ({
+        userId: Number(userId),
+        name: `user${userId}`,
+        chatId,
+      })),
     addUser: () => 0,
     attachIdentity: () => {},
     isEmpty: () => false,

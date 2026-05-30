@@ -16,7 +16,6 @@ const ConfigSchema = z.object({
   }),
   telegram: z.object({
     botToken: z.string().min(1),
-    chatId: z.string().min(1),
   }),
   realtime: z.object({
     enabled: z.boolean().default(false),
@@ -43,7 +42,6 @@ const PATH_TO_ENV: Record<string, string> = {
   'openai.reasoningEffort': 'OPENAI_REASONING_EFFORT',
   'memory.dbPath': 'MEMORY_DB_PATH',
   'telegram.botToken': 'TELEGRAM_BOT_TOKEN',
-  'telegram.chatId': 'TELEGRAM_CHAT_ID',
   'realtime.enabled': 'REALTIME_ENABLED',
   'realtime.port': 'REALTIME_PORT',
   'realtime.token': 'VA_DEVICE_TOKEN',
@@ -69,7 +67,6 @@ export function loadConfig(): Config {
     },
     telegram: {
       botToken: process.env.TELEGRAM_BOT_TOKEN,
-      chatId: process.env.TELEGRAM_CHAT_ID,
     },
     realtime: {
       enabled: process.env.REALTIME_ENABLED === '1',

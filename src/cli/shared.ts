@@ -9,7 +9,7 @@ import { openMemoryStore } from '../memory/memoryStore.ts';
 import type { MemoryStore } from '../memory/types.ts';
 import { loadPrompt } from '../agent/prompts/load.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
-import { telegramFromConfig, receiverFromConfig } from '../telegram/fromConfig.ts';
+import { receiverFromConfig } from '../telegram/fromConfig.ts';
 import { BotTelegramSender } from '../telegram/telegramSender.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
 import { CHAT_TEXT_FORMAT } from '../agent/agentOutput.ts';
@@ -108,7 +108,10 @@ export interface CommonDeps {
   llm: OpenAI;
   mcp: HaMcpClient;
   memory: MemoryStore;
-  telegram: TelegramSender;
+  /** Build a Telegram sender bound to a chat id. The single outbound primitive
+   * now that there is no fixed default chat — `send_to_telegram` and the goal
+   * runner resolve a recipient's chat via identities and build a sender here. */
+  senderFor: (chatId: string) => TelegramSender;
   /** Build a fresh agent for a given channel. Each channel gets its own
    * Session so they don't trample each other's `previous_response_id` chain. */
   buildAgent(channel: PromptChannel): OpenAiAgent;
@@ -127,7 +130,8 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   const llm = new OpenAI({ apiKey: config.openai.apiKey });
   const mcp = new HaMcpClient({ url: config.ha.url, token: config.ha.token });
   const memory = openMemoryStore(config.memory.dbPath);
-  const telegram = telegramFromConfig(config);
+  const senderFor = (chatId: string): TelegramSender =>
+    new BotTelegramSender({ botToken: config.telegram.botToken, chatId });
 
   await connectMcpWithRetry(mcp);
 
@@ -142,14 +146,13 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     model: config.openai.model,
     reasoningEffort: config.openai.reasoningEffort,
     llmClient: llm,
-    telegram,
+    telegram: { senderFor },
     textFormat: CHAT_TEXT_FORMAT,
   });
   const goalRunner: GoalRunner = buildGoalRunner({
     agent: goalAgent,
     identities: memory.identities,
-    senderFor: (chatId) => new BotTelegramSender({ botToken: config.telegram.botToken, chatId }),
-    defaultTelegram: telegram,
+    senderFor,
   });
 
   const buildAgent = (channel: PromptChannel): OpenAiAgent =>
@@ -161,7 +164,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       model: config.openai.model,
       reasoningEffort: config.openai.reasoningEffort,
       llmClient: llm,
-      telegram,
+      telegram: { senderFor },
       textFormat: CHAT_TEXT_FORMAT,
       // `ask` is only worth exposing where a positive expectsFollowUp
       // actually reopens the mic for the user. The `assist` channel sits
@@ -191,5 +194,5 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     memory.close();
   };
 
-  return { config, llm, mcp, memory, telegram, buildAgent, dispose, telegramReceiver, goalRunner };
+  return { config, llm, mcp, memory, senderFor, buildAgent, dispose, telegramReceiver, goalRunner };
 }

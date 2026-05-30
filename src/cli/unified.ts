@@ -78,7 +78,6 @@ export async function dispatch(
     tasks.push(
       runners.telegram({
         receiver: deps.telegramReceiver(),
-        sender: deps.telegram,
         agent,
         sessionFor,
         memory: deps.memory,
@@ -196,7 +195,7 @@ export async function main(): Promise<void> {
           scheduledActions: deps.memory.scheduledActions,
           identities: deps.memory.identities,
           ownerUserId: speakerRes?.userId ?? null,
-          telegram: deps.telegram,
+          telegram: { senderFor: deps.senderFor },
         });
         return {
           apiKey: deps.config.openai.apiKey,

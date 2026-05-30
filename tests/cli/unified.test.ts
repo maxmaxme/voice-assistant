@@ -50,7 +50,7 @@ function makeDeps(): CommonDeps {
     llm: {} as unknown as OpenAI,
     mcp: {} as unknown as HaMcpClient,
     memory: makeMemoryStore(),
-    telegram: {} as unknown as TelegramSender,
+    senderFor: () => ({ send: async () => {} }) as TelegramSender,
     goalRunner: { fire: vi.fn(async () => {}) } satisfies GoalRunner,
     buildAgent: vi.fn(
       () =>

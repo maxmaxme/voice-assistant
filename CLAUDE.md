@@ -126,7 +126,7 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
      - If the model emits `ask` _in parallel_ with other tools, the other tools are executed and their outputs are stashed on the session; the next user turn replays them along with the user's answer.
      - `pendingAskCallId` has a TTL (`PENDING_ASK_TTL_MS = 30s`). If the user takes longer than that to reply, the next message is treated as a fresh request — the ask's call_id is closed with a placeholder output to keep the chain valid.
    - Memory / scheduled-action tools execute locally against the SQLite adapter.
-   - `send_to_telegram` goes to the `TelegramSender`.
+   - `send_to_telegram(text, recipient?)` is recipient-aware: it resolves the target user (the `recipient` user id, or the current `scope.userId` when omitted) to a Telegram chat via `identities.identityFor('telegram', …)` and delivers there. No telegram linked → it throws an error listing valid recipients (`id=name`), which the model relays / re-asks. There is no fixed outbound chat.
    - Everything else goes to MCP.
 6. Loop, advancing `previousResponseId` to `response.id` each turn, until plain text comes back or `maxToolIterations` is hit.
 7. On success → `Session.commit(response.id)`. On thrown error → no commit, so the next turn naturally starts fresh from the last successful chain point.
@@ -249,8 +249,12 @@ Server timezone: `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). The `[unifi
 ### Telegram (`src/telegram/`)
 
 Bidirectional. **Outbound:** `TelegramSender` interface, `BotTelegramSender`
-posts to `https://api.telegram.org/bot<token>/sendMessage`. Wired into the
-agent as the `send_to_telegram` tool.
+posts to `https://api.telegram.org/bot<token>/sendMessage` for one chat id.
+There is **no fixed default chat** — `shared.ts` exposes a
+`senderFor(chatId)` factory, and both the `send_to_telegram` tool and the
+goal runner resolve a recipient's chat via DB identities
+(`identities.identityFor` / `listTelegramUsers`) before building a sender.
+`TELEGRAM_CHAT_ID` is **no longer used** (removed from config).
 
 **Inbound:** `TelegramReceiver` interface, `PollingTelegramReceiver` long-polls
 `getUpdates`. Persisted offset in `data/telegram-offset.json`. Voice messages

@@ -9,7 +9,6 @@ describe('loadConfig', () => {
     delete process.env.HA_TOKEN;
     delete process.env.OPENAI_API_KEY;
     delete process.env.TELEGRAM_BOT_TOKEN;
-    delete process.env.TELEGRAM_CHAT_ID;
     delete process.env.REALTIME_ENABLED;
     delete process.env.REALTIME_PORT;
     delete process.env.VA_DEVICE_TOKEN;
@@ -23,7 +22,6 @@ describe('loadConfig', () => {
     process.env.HA_TOKEN = 'tok_abc';
     process.env.OPENAI_API_KEY = 'sk-xxx';
     process.env.TELEGRAM_BOT_TOKEN = 'tg_tok';
-    process.env.TELEGRAM_CHAT_ID = '42';
   }
 
   afterEach(() => {
@@ -61,23 +59,16 @@ describe('loadConfig', () => {
     expect(() => loadConfig()).toThrow(/openai/i);
   });
 
-  it('reads telegram bot token and chat id', () => {
+  it('reads telegram bot token', () => {
     setRequired();
     const cfg = loadConfig();
     expect(cfg.telegram.botToken).toBe('tg_tok');
-    expect(cfg.telegram.chatId).toBe('42');
   });
 
   it('throws when TELEGRAM_BOT_TOKEN is missing', () => {
     setRequired();
     delete process.env.TELEGRAM_BOT_TOKEN;
     expect(() => loadConfig()).toThrow(/TELEGRAM_BOT_TOKEN/);
-  });
-
-  it('throws when TELEGRAM_CHAT_ID is missing', () => {
-    setRequired();
-    delete process.env.TELEGRAM_CHAT_ID;
-    expect(() => loadConfig()).toThrow(/TELEGRAM_CHAT_ID/);
   });
 
   it('realtime defaults: disabled with default port/model/voice/reasoning', () => {
