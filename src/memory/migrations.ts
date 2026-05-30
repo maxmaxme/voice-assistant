@@ -158,4 +158,30 @@ export const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO schema_version (version) VALUES (7);
     `,
   },
+  {
+    version: 8,
+    sql: `
+      -- Drop the now-unused role column (member/shared). Every principal is
+      -- uniform now. SQLite can't DROP a column used in a CHECK, so rebuild.
+      -- We build the new table under a temp name and DROP+RENAME into place
+      -- (rather than renaming the live users table away): renaming the
+      -- *referenced* table rewrites identities.user_id's REFERENCES users(id)
+      -- text to point at the temp name, which then dangles after the drop.
+      -- Dropping and recreating under the same name keeps that FK reference
+      -- intact.
+      -- foreign_keys is off, so the FK is unenforced regardless; ids are
+      -- preserved by the explicit copy.
+      CREATE TABLE users_new (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO users_new (id, name, created_at)
+        SELECT id, name, created_at FROM users;
+      DROP TABLE users;
+      ALTER TABLE users_new RENAME TO users;
+
+      INSERT OR IGNORE INTO schema_version (version) VALUES (8);
+    `,
+  },
 ];
