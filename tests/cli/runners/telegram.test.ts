@@ -32,7 +32,7 @@ function fakeMemory(attachChats: number[] = []): FakeMemory {
   const profileStore = new SqliteProfileMemory({ db });
   const identities = new IdentitiesStore(db);
   for (const chatId of attachChats) {
-    const u = identities.addUser('test', 'member');
+    const u = identities.addUser('test');
     identities.attachIdentity('telegram', String(chatId), u);
   }
   const memory: MemoryStore = {

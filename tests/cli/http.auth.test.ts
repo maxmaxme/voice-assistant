@@ -13,7 +13,7 @@ function ids(): IdentitiesStore {
 describe('httpTokenAllowed (DB-backed HTTP auth)', () => {
   it('allows a token whose hash has an http identity', () => {
     const s = ids();
-    const u = s.addUser('Max', 'member');
+    const u = s.addUser('Max');
     s.attachIdentity('http', hashToken('k1'), u);
     expect(httpTokenAllowed(s, 'Bearer k1')).toBe(true);
   });

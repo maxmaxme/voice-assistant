@@ -11,11 +11,11 @@ function ids(): IdentitiesStore {
 }
 
 describe('resolveTelegramScope', () => {
-  it('returns a member scope for an attached chat', () => {
+  it('returns a scope for an attached chat', () => {
     const s = ids();
-    const max = s.addUser('Max', 'member');
+    const max = s.addUser('Max');
     s.attachIdentity('telegram', '111', max);
-    expect(resolveTelegramScope(s, 111)).toEqual({ role: 'member', userId: max });
+    expect(resolveTelegramScope(s, 111)).toEqual({ userId: max });
   });
 
   it('returns null for an unknown chat (dropped)', () => {

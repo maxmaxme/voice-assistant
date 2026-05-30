@@ -11,21 +11,21 @@ function ids(): IdentitiesStore {
 }
 
 describe('resolveHttpScope', () => {
-  it('maps a member token to its user scope', () => {
+  it('maps a token to its user scope', () => {
     const s = ids();
-    const max = s.addUser('Max', 'member');
+    const max = s.addUser('Max');
     s.attachIdentity('http', hashToken('k1'), max);
-    expect(resolveHttpScope(s, 'Bearer k1')).toEqual({ role: 'member', userId: max });
+    expect(resolveHttpScope(s, 'Bearer k1')).toEqual({ userId: max });
   });
 
-  it('falls back to shared/household for an unknown token', () => {
+  it('falls back to userId 0 (household) for an unknown token', () => {
     const s = ids();
-    expect(resolveHttpScope(s, 'Bearer mystery')).toEqual({ role: 'shared', userId: 0 });
+    expect(resolveHttpScope(s, 'Bearer mystery')).toEqual({ userId: 0 });
   });
 
-  it('falls back to shared for a missing/malformed header', () => {
+  it('falls back to userId 0 for a missing/malformed header', () => {
     const s = ids();
-    expect(resolveHttpScope(s, null)).toEqual({ role: 'shared', userId: 0 });
-    expect(resolveHttpScope(s, 'Basic xyz')).toEqual({ role: 'shared', userId: 0 });
+    expect(resolveHttpScope(s, null)).toEqual({ userId: 0 });
+    expect(resolveHttpScope(s, 'Basic xyz')).toEqual({ userId: 0 });
   });
 });

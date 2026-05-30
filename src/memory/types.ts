@@ -2,17 +2,15 @@ import type { Schedule } from '../scheduling/types.ts';
 
 export type ProfileFacts = Record<string, unknown>;
 
-export type Role = 'shared' | 'member';
 export type Channel = 'telegram' | 'http' | 'voice';
 
 export interface IdentityResolution {
   userId: number;
-  role: Role;
 }
 
 export interface IdentitiesAdapter {
   resolve(channel: Channel, identity: string): IdentityResolution | null;
-  addUser(name: string, role: Role): number;
+  addUser(name: string): number;
   attachIdentity(channel: Channel, identity: string, userId: number): void;
   isEmpty(): boolean;
 }

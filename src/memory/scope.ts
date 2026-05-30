@@ -7,20 +7,18 @@ export function personalOwner(userId: number): string {
   return `user:${userId}`;
 }
 
-export type Role = 'shared' | 'member';
 export type WriteScope = 'personal' | 'household';
 
 export interface Scope {
-  role: Role;
-  /** The resolved principal's user id. For `shared` it is the `home` user;
-   *  its value is unused for ownership (shared always maps to household). */
+  /** The resolved principal's user id. Every principal — person or speaker —
+   *  reads `household ∪ personal(userId)` and writes `personal` by default. */
   userId: number;
 }
 
 /** A scope-bound view over the profile store. `remember`/`forget` take an
- *  optional write scope; for `shared` principals it is always forced to
- *  household. Reads merge the scope's owner-set (personal overrides
- *  household on key collision). */
+ *  optional write scope; writes go to the principal's personal owner by
+ *  default, or to household when `scope='household'`. Reads merge the
+ *  scope's owner-set (personal overrides household on key collision). */
 export interface ScopedProfile {
   recall(key?: string): ProfileFacts;
   remember(key: string, value: unknown, scope?: WriteScope): void;
@@ -29,14 +27,10 @@ export interface ScopedProfile {
 
 export function makeScopedProfile(store: SqliteProfileMemory, scope: Scope): ScopedProfile {
   const personal = personalOwner(scope.userId);
-  const readOwners = scope.role === 'shared' ? [HOUSEHOLD_OWNER] : [HOUSEHOLD_OWNER, personal];
+  const readOwners = [HOUSEHOLD_OWNER, personal];
 
-  const writeOwner = (req?: WriteScope): string => {
-    if (scope.role === 'shared') {
-      return HOUSEHOLD_OWNER;
-    }
-    return req === 'household' ? HOUSEHOLD_OWNER : personal;
-  };
+  const writeOwner = (req?: WriteScope): string =>
+    req === 'household' ? HOUSEHOLD_OWNER : personal;
 
   return {
     recall: (key) => store.recallFor(readOwners, key),
@@ -45,10 +39,15 @@ export function makeScopedProfile(store: SqliteProfileMemory, scope: Scope): Sco
   };
 }
 
-/** Convenience for callers with no per-user identity (speaker, /assist
- *  system token, goal runner). Equivalent to a `shared` scope. */
+/** Convenience for callers with no per-user identity (goal runner, realtime
+ *  fallback). A household-ONLY view: reads and writes `household`, ignoring
+ *  any write-scope argument. */
 export function householdProfile(store: SqliteProfileMemory): ScopedProfile {
-  return makeScopedProfile(store, { role: 'shared', userId: 0 });
+  return {
+    recall: (key) => store.recallFor([HOUSEHOLD_OWNER], key),
+    remember: (key, value) => store.rememberFor(HOUSEHOLD_OWNER, key, value),
+    forget: (key) => store.forgetFor(HOUSEHOLD_OWNER, key),
+  };
 }
 
 /** Wrap a plain household-backed MemoryAdapter (recall/remember/forget with

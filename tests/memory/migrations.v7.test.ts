@@ -24,7 +24,8 @@ describe('migration v7', () => {
     runMigrations(db);
     const userCols = db.prepare(`PRAGMA table_info(users)`).all() as { name: string }[];
     const idCols = db.prepare(`PRAGMA table_info(identities)`).all() as { name: string }[];
-    expect(userCols.map((c) => c.name).sort()).toEqual(['created_at', 'id', 'name', 'role']);
+    // v8 (run as part of the full chain here) drops the role column.
+    expect(userCols.map((c) => c.name).sort()).toEqual(['created_at', 'id', 'name']);
     expect(idCols.map((c) => c.name).sort()).toEqual([
       'channel',
       'created_at',
@@ -32,7 +33,7 @@ describe('migration v7', () => {
       'identity',
       'user_id',
     ]);
-    db.prepare(`INSERT INTO users (name, role, created_at) VALUES ('home','shared',1)`).run();
+    db.prepare(`INSERT INTO users (name, created_at) VALUES ('home',1)`).run();
     db.prepare(
       `INSERT INTO identities (channel, identity, user_id, created_at) VALUES ('voice','h1',1,1)`,
     ).run();

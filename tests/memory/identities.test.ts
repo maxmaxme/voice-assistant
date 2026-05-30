@@ -16,14 +16,14 @@ describe('IdentitiesStore', () => {
     expect(hashToken('secret')).toHaveLength(64);
   });
 
-  it('resolves an attached identity to its user + role', () => {
+  it('resolves an attached identity to its user', () => {
     const s = store();
-    const home = s.addUser('home', 'shared');
-    const max = s.addUser('Max', 'member');
+    const home = s.addUser('home');
+    const max = s.addUser('Max');
     s.attachIdentity('voice', 'devhash', home);
     s.attachIdentity('telegram', '12345', max);
-    expect(s.resolve('voice', 'devhash')).toEqual({ userId: home, role: 'shared' });
-    expect(s.resolve('telegram', '12345')).toEqual({ userId: max, role: 'member' });
+    expect(s.resolve('voice', 'devhash')).toEqual({ userId: home });
+    expect(s.resolve('telegram', '12345')).toEqual({ userId: max });
   });
 
   it('returns null for unknown identity', () => {
@@ -34,14 +34,14 @@ describe('IdentitiesStore', () => {
   it('isEmpty reflects whether any identity exists', () => {
     const s = store();
     expect(s.isEmpty()).toBe(true);
-    const u = s.addUser('home', 'shared');
+    const u = s.addUser('home');
     s.attachIdentity('voice', 'h', u);
     expect(s.isEmpty()).toBe(false);
   });
 
   it('attaching a duplicate (channel, identity) throws', () => {
     const s = store();
-    const u = s.addUser('Max', 'member');
+    const u = s.addUser('Max');
     s.attachIdentity('telegram', '1', u);
     expect(() => s.attachIdentity('telegram', '1', u)).toThrow();
   });

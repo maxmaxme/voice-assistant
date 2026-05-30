@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { loadConfig } from '../config.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
 import { hashToken } from '../memory/identities.ts';
-import type { IdentitiesAdapter, Role } from '../memory/types.ts';
+import type { IdentitiesAdapter } from '../memory/types.ts';
 
 export interface UsersCommandResult {
   userId?: number;
@@ -23,16 +23,11 @@ export function runUsersCommand(identities: IdentitiesAdapter, args: string[]): 
   switch (cmd) {
     case 'add-user': {
       const name = flag(args, 'name');
-      const roleArg = flag(args, 'role') ?? 'member';
       if (!name) {
         throw new Error('add-user requires --name');
       }
-      if (roleArg !== 'member' && roleArg !== 'shared') {
-        throw new Error('--role must be member|shared');
-      }
-      const role: Role = roleArg;
-      const userId = identities.addUser(name, role);
-      return { userId, message: `created user ${userId} (${name}, ${role})` };
+      const userId = identities.addUser(name);
+      return { userId, message: `created user ${userId} (${name})` };
     }
     case 'attach-telegram': {
       const userId = Number(flag(args, 'user'));

@@ -36,9 +36,10 @@ export interface HttpRunnerDeps {
   profileStore: SqliteProfileMemory;
 }
 
-/** Resolve the Bearer token to a memory scope. Authenticated-but-unmapped
- *  tokens get the shared/household scope — never another user's personal
- *  memory. */
+/** Resolve the Bearer token to a memory scope. HTTP auth is DB-gated
+ *  (`httpTokenAllowed` rejects unmapped tokens before this is reached), so the
+ *  fallback is effectively unreachable; we keep a defensive `{ userId: 0 }`
+ *  (personalOwner(0)='user:0' is empty → behaves as household). */
 export function resolveHttpScope(
   identities: IdentitiesAdapter,
   authHeader: string | null | undefined,
@@ -46,7 +47,7 @@ export function resolveHttpScope(
   const header = authHeader ?? '';
   const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
   const res = token ? identities.resolve('http', hashToken(token)) : null;
-  return res ? { role: res.role, userId: res.userId } : { role: 'shared', userId: 0 };
+  return res ? { userId: res.userId } : { userId: 0 };
 }
 
 /** DB-backed HTTP auth: the Bearer token is allowed iff its hash has an

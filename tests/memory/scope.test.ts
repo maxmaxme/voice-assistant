@@ -22,33 +22,37 @@ describe('scope', () => {
     expect(HOUSEHOLD_OWNER).toBe('household');
   });
 
-  it('member scope reads household ∪ personal, writes personal by default', () => {
+  it('scope reads household ∪ personal, writes personal by default', () => {
     const m = store();
     m.rememberFor(HOUSEHOLD_OWNER, 'tv', 'Samsung');
-    const p = makeScopedProfile(m, { role: 'member', userId: 7 });
+    const p = makeScopedProfile(m, { userId: 7 });
     p.remember('snack', 'olives');
     expect(p.recall()).toEqual({ tv: 'Samsung', snack: 'olives' });
     expect(m.recallFor([personalOwner(7)])).toEqual({ snack: 'olives' });
     expect(m.recallFor([HOUSEHOLD_OWNER])).toEqual({ tv: 'Samsung' });
   });
 
-  it('member scope writes household when scope=household', () => {
+  it('scope writes household when scope=household', () => {
     const m = store();
-    const p = makeScopedProfile(m, { role: 'member', userId: 7 });
+    const p = makeScopedProfile(m, { userId: 7 });
     p.remember('quiet_hours', '22-7', 'household');
     expect(m.recallFor([HOUSEHOLD_OWNER])).toEqual({ quiet_hours: '22-7' });
     expect(m.recallFor([personalOwner(7)])).toEqual({});
   });
 
-  it('shared scope reads/writes household only; scope arg is ignored', () => {
+  it('a second principal does not see the first principal’s personal; household is shared', () => {
     const m = store();
-    const p = makeScopedProfile(m, { role: 'shared', userId: 1 });
-    p.remember('tv', 'Samsung', 'personal');
-    expect(m.recallFor([HOUSEHOLD_OWNER])).toEqual({ tv: 'Samsung' });
-    expect(m.recallFor([personalOwner(1)])).toEqual({});
+    m.rememberFor(HOUSEHOLD_OWNER, 'tv', 'Samsung');
+    const a = makeScopedProfile(m, { userId: 7 });
+    const b = makeScopedProfile(m, { userId: 8 });
+    a.remember('snack', 'olives');
+    // user 8 sees the shared household fact but not user 7's personal one.
+    expect(b.recall()).toEqual({ tv: 'Samsung' });
+    // user 7 still sees both.
+    expect(a.recall()).toEqual({ tv: 'Samsung', snack: 'olives' });
   });
 
-  it('householdProfile is a shared-scope convenience', () => {
+  it('householdProfile is a household-only convenience', () => {
     const m = store();
     const p = householdProfile(m);
     p.remember('x', 1);

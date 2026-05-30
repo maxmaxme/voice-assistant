@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import type { Channel, IdentitiesAdapter, IdentityResolution, Role } from './types.ts';
+import type { Channel, IdentitiesAdapter, IdentityResolution } from './types.ts';
 
 /** Full sha256 hex of a bearer/device token. Raw tokens are never stored. */
 export function hashToken(raw: string): string {
@@ -16,19 +16,18 @@ export class IdentitiesStore implements IdentitiesAdapter {
 
   resolve(channel: Channel, identity: string): IdentityResolution | null {
     const row = this.db
-      .prepare<[string, string], { user_id: number; role: Role }>(
-        `SELECT i.user_id AS user_id, u.role AS role
-           FROM identities i JOIN users u ON u.id = i.user_id
-          WHERE i.channel = ? AND i.identity = ?`,
-      )
+      .prepare<
+        [string, string],
+        { user_id: number }
+      >(`SELECT user_id FROM identities WHERE channel = ? AND identity = ?`)
       .get(channel, identity);
-    return row ? { userId: row.user_id, role: row.role } : null;
+    return row ? { userId: row.user_id } : null;
   }
 
-  addUser(name: string, role: Role): number {
+  addUser(name: string): number {
     const info = this.db
-      .prepare(`INSERT INTO users (name, role, created_at) VALUES (?, ?, ?)`)
-      .run(name, role, Date.now());
+      .prepare(`INSERT INTO users (name, created_at) VALUES (?, ?)`)
+      .run(name, Date.now());
     return Number(info.lastInsertRowid);
   }
 
