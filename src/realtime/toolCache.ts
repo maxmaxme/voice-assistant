@@ -13,8 +13,8 @@ const log = createLogger('tool-cache');
  * etc.) — not just a static device list. Within a single turn the model
  * often calls GetLiveContext immediately before an action; the next
  * user-visible turn lands seconds later. 5 s catches the in-turn repeat
- * and the typical "и в спальне тоже" follow-up without going so stale
- * that "проверь температуру" returns yesterday's data.
+ * and the typical "and in the bedroom too" follow-up without going so stale
+ * that "check the temperature" returns yesterday's data.
  *
  * Any non-cached tool call (e.g. HassTurnOff) invalidates the cache via
  * {@link clear} — once the model has *acted* on state, the next read

@@ -92,7 +92,7 @@ export class OpenAiRealtimeClient {
           turn_detection: {
             type: 'server_vad',
             // Default silence_duration_ms is 500 — short enough that a
-            // natural pause mid-sentence ("Выключи… свет в гостиной")
+            // natural pause mid-sentence ("Turn off… the living-room light")
             // splits the turn in two. Whisper then hallucinates random
             // text from the silence-only second chunk (we've seen Korean
             // onomatopoeia "뿅!" appear). 900 ms holds the turn open

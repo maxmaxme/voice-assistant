@@ -117,10 +117,10 @@ export function buildWeatherTool(): OpenAiFunctionTool {
     name: WEATHER_TOOL_NAME,
     description:
       'Get the weather forecast for a place on a specific day. ' +
-      'Use whenever the user asks about weather ("погода завтра в Мадриде", ' +
-      '"what\'s the weather like on Friday in Paris", "будет ли дождь в выходные"). ' +
+      'Use whenever the user asks about weather ("weather in Madrid tomorrow", ' +
+      '"what\'s the weather like on Friday in Paris", "will it rain this weekend"). ' +
       'Resolve relative days against the server timezone shown in the system prompt: ' +
-      '"сегодня"/"today" → that date, "завтра"/"tomorrow" → +1 day, etc. ' +
+      '"today" → that date, "tomorrow" → +1 day, etc. ' +
       'DEFAULTS — do NOT ask the user for these, fill them in yourself: ' +
       'if the user did not name a day, use today (server TZ); ' +
       'if the user did not name a place, look in the `Known user profile` block of ' +
@@ -134,7 +134,8 @@ export function buildWeatherTool(): OpenAiFunctionTool {
       properties: {
         location: {
           type: 'string',
-          description: 'Free-form place name, e.g. "Madrid", "Санкт-Петербург", "Berlin, Germany".',
+          description:
+            'Free-form place name in any language, e.g. "Madrid", "Saint Petersburg", "Berlin, Germany".',
         },
         date: {
           type: 'string',
@@ -192,9 +193,9 @@ export async function executeWeatherTool(
     throw new Error('get_weather: `date` must be ISO YYYY-MM-DD');
   }
 
-  // Open-Meteo geocoding is language-sensitive: "Мадрид" only matches with
-  // `language=ru`, "Madrid" with `language=en`. Pick by script, then fall
-  // back to the other language so the model doesn't have to retry.
+  // Open-Meteo geocoding is language-sensitive: a Cyrillic-script name only
+  // matches with `language=ru`, a Latin one with `language=en`. Pick by script,
+  // then fall back to the other language so the model doesn't have to retry.
   const isCyrillic = /[Ѐ-ӿ]/.test(location);
   const langOrder = isCyrillic ? ['ru', 'en'] : ['en', 'ru'];
   let place: NonNullable<GeocodeResult['results']>[number] | undefined;

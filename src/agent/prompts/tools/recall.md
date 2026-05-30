@@ -1,6 +1,6 @@
 Read the persistent user profile saved by `remember`.
 
-Pass `null` to get the full profile. Pass a specific key (e.g. `"name"`, `"comfort_temp"`, `"alias_кондей"`) to read
+Pass `null` to get the full profile. Pass a specific key (e.g. `"name"`, `"comfort_temp"`, `"alias_ac"`) to read
 just that one.
 
 Call this BEFORE asking the user something they may have already told you — name, address, preferred temperature, device

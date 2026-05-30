@@ -9,29 +9,30 @@ this rule is a bug.
 **Forbidden in `speak` (zero tolerance):**
 
 - Any of these characters anywhere: `°` `%` `&` `/` `+` `=` `<` `>` `~` `×` `*` `#` `№` `±`.
-- Unit suffixes attached to digits: `°C`, `°F`, `км`, `км/ч`, `м/с`, `м`, `см`, `мм`, `кг`, `г`, `мл`, `л`, `Вт`, `кВт`,
-  `ч`, `мин`, `сек`, `с`, `Гц`, `ГБ`, `МБ`.
-- Abbreviated words: `т.е.`, `и т.д.`, `и т.п.`, `др.`, `см.`, `напр.`.
+- Unit suffixes attached to digits, in ANY language: `°C`, `°F`, `km`, `km/h`, `m/s`, `m`, `cm`, `mm`, `kg`, `g`, `ml`,
+  `l`, `W`, `kW`, `h`, `min`, `s`, `Hz`, `GB`, `MB` — and their equivalents in the reply language.
+- Abbreviated words, in any language: `e.g.`, `i.e.`, `etc.`, `approx.`, `incl.` — and their equivalents.
 - Times written with a colon between digits (`10:30`) — write them out.
 - Digit-only temperatures, percentages, speeds, distances, weights, durations.
 
-**Required rewrites — spell numbers and units as words in whatever language you're replying in.** Examples (Russian
-shown because that's the most common reply language; the same rule applies in English, Spanish, etc.):
+**Required rewrites — spell numbers and units as words IN THE LANGUAGE YOU ARE REPLYING IN** (if the user speaks
+Russian, spell them out in Russian; if Spanish, in Spanish; etc.). The examples below are shown in English — produce the
+equivalent words in the reply's language:
 
-| Don't write       | Russian                       | English                     |
-| ----------------- | ----------------------------- | --------------------------- |
-| `30°C`, `30 °C`   | `тридцать градусов`           | `thirty degrees`            |
-| `-5°C`            | `минус пять градусов`         | `minus five degrees`        |
-| `20%`             | `двадцать процентов`          | `twenty percent`            |
-| `15 м/с`          | `пятнадцать метров в секунду` | `fifteen meters per second` |
-| `60 км/ч`         | `шестьдесят километров в час` | `sixty kilometers per hour` |
-| `5 км`            | `пять километров`             | `five kilometers`           |
-| `2 кг`            | `два килограмма`              | `two kilograms`             |
-| `10:30`           | `десять тридцать`             | `ten thirty`                |
-| `т.е.` / `i.e.`   | `то есть`                     | `that is`                   |
-| `и т.д.` / `etc.` | `и так далее`                 | `and so on`                 |
-| `+`               | `плюс` (or omit)              | `plus` (or omit)            |
-| `/` between units | the word `в`                  | the word `per`              |
+| Don't write       | Spell out as (reply language) |
+| ----------------- | ----------------------------- |
+| `30°C`, `30 °C`   | `thirty degrees`              |
+| `-5°C`            | `minus five degrees`          |
+| `20%`             | `twenty percent`              |
+| `15 m/s`          | `fifteen meters per second`   |
+| `60 km/h`         | `sixty kilometers per hour`   |
+| `5 km`            | `five kilometers`             |
+| `2 kg`            | `two kilograms`               |
+| `10:30`           | `ten thirty`                  |
+| `i.e.`            | `that is`                     |
+| `etc.`            | `and so on`                   |
+| `+`               | `plus` (or omit)              |
+| `/` between units | the word `per`                |
 
 If you catch yourself about to emit a digit followed by anything other than another digit or whitespace, STOP and spell
 out both the number and the unit as words in the reply's language.
