@@ -34,7 +34,15 @@ describe('runMigrations', () => {
     expect(() => runMigrations(db)).not.toThrow();
   });
 
-  it('creates reminders and timers tables', () => {
+  it('records version 3', () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    const max = db.prepare<[], { v: number }>('SELECT MAX(version) AS v FROM schema_version').get();
+    expect(max?.v).toBeGreaterThanOrEqual(3);
+    db.close();
+  });
+
+  it('drops the dead kv/reminders/timers tables by the end of the chain (v9)', () => {
     const db = new Database(':memory:');
     runMigrations(db);
     const tables = db
@@ -44,46 +52,9 @@ describe('runMigrations', () => {
       >("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all();
     const names = tables.map((t) => t.name);
-    expect(names).toContain('reminders');
-    expect(names).toContain('timers');
-    db.close();
-  });
-
-  it('records version 3', () => {
-    const db = new Database(':memory:');
-    runMigrations(db);
-    const max = db.prepare<[], { v: number }>('SELECT MAX(version) AS v FROM schema_version').get();
-    expect(max?.v).toBeGreaterThanOrEqual(3);
-    db.close();
-  });
-
-  it('reminders has expected columns', () => {
-    const db = new Database(':memory:');
-    runMigrations(db);
-    const cols = db.prepare<[], { name: string }>('PRAGMA table_info(reminders)').all();
-    const names = new Set(cols.map((c) => c.name));
-    for (const c of [
-      'id',
-      'text',
-      'fire_at',
-      'status',
-      'created_at',
-      'fired_at',
-      'repeat_pattern',
-    ]) {
-      expect(names.has(c)).toBe(true);
-    }
-    db.close();
-  });
-
-  it('timers has expected columns', () => {
-    const db = new Database(':memory:');
-    runMigrations(db);
-    const cols = db.prepare<[], { name: string }>('PRAGMA table_info(timers)').all();
-    const names = new Set(cols.map((c) => c.name));
-    for (const c of ['id', 'label', 'fire_at', 'duration_ms', 'status', 'created_at', 'fired_at']) {
-      expect(names.has(c)).toBe(true);
-    }
+    expect(names).not.toContain('kv');
+    expect(names).not.toContain('reminders');
+    expect(names).not.toContain('timers');
     db.close();
   });
 });

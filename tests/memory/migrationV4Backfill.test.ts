@@ -101,8 +101,15 @@ describe('migration v4 back-fill', () => {
     expect(max?.v).toBeGreaterThanOrEqual(4);
   });
 
-  it('does NOT drop reminders or timers tables', () => {
-    runMigrations(db);
+  it('v4 keeps reminders/timers around long enough to back-fill (dropped later in v9)', () => {
+    // Run only up to v4: the back-fill source tables must still exist at this
+    // point. They are dropped later by v9, which is fine — v4 has already
+    // copied their rows into scheduled_actions.
+    for (const m of sortedMigrations()) {
+      if (m.version <= 4) {
+        db.exec(m.sql);
+      }
+    }
     const tables = db
       .prepare<[], { name: string }>("SELECT name FROM sqlite_master WHERE type='table'")
       .all();
