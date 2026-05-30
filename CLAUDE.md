@@ -46,8 +46,9 @@ npm run start                      # default — telegram + http (AGENT_MODE=bot
 npm run telegram                   # telegram only
 npm run http                       # http only
 
-npm run users -- add-user --name Alex [--role member|shared]   # create a user (default member)
+npm run users -- add-user --name Alex                          # create a principal (person or speaker)
 npm run users -- attach-telegram --user <id> --chat <chatId>   # bind a Telegram chat to a user
+npm run users -- attach-voice --user <id> --token <token>      # bind a speaker's device token (VA_DEVICE_TOKEN)
 npm run users -- mint-http --user <id>                         # mint an HTTP token (printed once; only its hash is stored)
 ```
 
@@ -149,45 +150,47 @@ When adding a new tool with tool-specific rules, put those rules in a sibling `.
 
 Long-term profile. SQLite via `better-sqlite3`. `MemoryAdapter` interface; `SqliteProfileMemory` implementation; migrations live as **TS string constants** in `migrations.ts`. The runner skips migrations whose version is already in `schema_version` so DDL like `ALTER TABLE ADD COLUMN` is safe on repeated opens. The connection sets `busy_timeout = 5000` (`memoryStore.ts`) so a brief external write lock (e.g. an out-of-repo sqlite-web admin) doesn't make the app throw.
 
-**Two memory scopes, DB-backed per-user identities.** Memory is split into a
-shared `household` scope and per-person `personal` scopes.
+**Two memory scopes, DB-backed identities.** Memory is split into a shared
+`household` scope and per-principal `personal` scopes. **Every principal — a
+person OR a speaker — is uniform; there is no `member`/`shared` role.**
 
 - **`profile` table** has an `owner` column with composite PK `(owner, key)`.
-  `owner` is `'household'` or `'user:<id>'`. Migration v7 rebuilds the old
-  single-PK table and migrates all existing rows to `household`.
-- **`users(id, name, role, created_at)`** — `role ∈ {shared, member}`. There
-  is exactly ONE `shared` user, `home`, which owns the speaker (`voice`)
-  token(s). Each person is a `member`.
+  `owner` is `'household'` or `'user:<id>'`. Migration v7 introduced it
+  (existing rows → `household`).
+- **`users(id, name, created_at)`** — principals (people and speakers).
+  Migration v8 dropped the old `role` column.
 - **`identities(id, channel, identity, user_id, created_at, UNIQUE(channel, identity))`**
   — `channel ∈ {telegram, http, voice}`. `identity` is a Telegram chatId
   (raw) or the **sha256 hash** of an HTTP/voice bearer token. Raw tokens are
   never stored (`identities.ts::hashToken`).
 
-**Scope is a property of the principal (user), not the channel** (`scope.ts`).
-A request's identity resolves to a user → role → `Scope`, which `makeScopedProfile`
-turns into a `ScopedProfile` (`recall`/`remember`/`forget`):
+**Scope is a property of the principal (user)** (`scope.ts`). A request's
+identity resolves to a `userId` → `Scope = { userId }` → `makeScopedProfile`
+gives a `ScopedProfile` (`recall`/`remember`/`forget`). The rule is the same
+for everyone:
 
-- `role='shared'` → reads/writes `household` only (write scope forced).
-- `role='member'` → reads `household ∪ personal(user)` (personal **overrides**
-  household on key collision), writes `personal` by default.
+- **reads** `household ∪ personal(user)` — `personal` **overrides** household
+  on key collision;
+- **writes** `personal(user)` by default, `household` only when the call passes
+  `scope: 'household'`.
 
-`householdProfile` / `householdFromAdapter` give a household-only view for
-callers with no per-user identity (goal runner, fallback).
+`householdProfile` / `householdFromAdapter` give a **household-only** view
+(reads/writes household, no personal) for principal-less callers — the goal
+runner and the realtime fallback.
 
 **`remember` tool** takes an optional `scope` enum (`personal`|`household`),
-default `personal`. The model is told to pick `household` only for clearly-shared
-facts and to ask when ambiguous (`prompts/tools/remember.md`); for `shared`
-principals the write scope is forced to household regardless. `recall` always
-merges per the read rules above.
+default `personal`. The model is told to pick `household` only for
+clearly-shared facts and to ask when ambiguous (`prompts/tools/remember.md`).
+`recall` always merges per the read rule above.
 
 **Per-request scope resolution.** `OpenAiAgent.respond()` takes an optional
 `profile: ScopedProfile` (falls back to a household view). The HTTP runner
-resolves the Bearer token → scope (`resolveHttpScope`) and the Telegram runner
-resolves the chatId → scope (`resolveTelegramScope`); each passes the scoped
-profile in. A person's Telegram chat or HTTP token resolves to their `member`
-personal scope (reads household∪personal, writes personal); everything else
-lands in household. See the per-channel auth breakdown below for exactly how
-each path reaches household.
+resolves the Bearer token → `{ userId }` (`resolveHttpScope`), the Telegram
+runner resolves the chatId (`resolveTelegramScope`), and the realtime bridge
+resolves the device token (`speakerProfile` in `unified.ts`) — each passes the
+scoped profile in. So your Telegram chat, your HTTP token, and the speaker each
+read `household ∪ their own personal` and write personal by default; none sees
+another principal's personal.
 
 **Auth & scope are DB-backed. There is no env allow-list and no seed** —
 identities are created and managed entirely via the `users` CLI (below).
@@ -196,34 +199,35 @@ identities are created and managed entirely via the `users` CLI (below).
   identity exists (`resolveTelegramScope`); unknown chats are dropped, no
   auto-provisioning.
 - **HTTP** (`/text`, `/audio`, `/assist`) is DB-gated: allowed iff the Bearer
-  token's sha256 hash has an `http` identity (`httpTokenAllowed` →
-  `identities.resolve('http', …) !== null`); unknown/missing → 401. Scope =
-  the resolved identity's role via `resolveHttpScope` (member →
-  household∪personal; shared → household). `/assist` resolves to whatever token
-  the caller presents — to make it household, mint its token against a `shared`
-  user.
+  token's sha256 hash has an `http` identity (`httpTokenAllowed`);
+  unknown/missing → 401. Scope = the resolved identity's `personal` + household.
+  `/assist` resolves to whatever token the caller presents.
 - **Realtime `/voice`** authenticates the WS handshake against `VA_DEVICE_TOKEN`
-  (`wsServer.ts`), then uses `householdProfile` **unconditionally** — it does
-  not consult `identities` (the speaker is always household by design).
+  (`wsServer.ts`); the bridge then resolves that token as a `voice` identity
+  (`speakerProfile`) so the **speaker has its own personal memory** (e.g.
+  "you are in the living room" → the speaker's personal, biasing its tool
+  choices). If the device token isn't registered as an identity, it falls back
+  to a household-only view.
 
 **Bootstrap (fresh DB).** A new DB has zero identities, so nobody can
-authenticate until you add yourself via the CLI:
+authenticate until you add principals via the CLI:
 
 ```
-npm run users -- add-user --name me --role member
+npm run users -- add-user --name me                          # a person
 npm run users -- attach-telegram --user <id> --chat <chatId>
-npm run users -- mint-http --user <id>          # prints the token once
+npm run users -- mint-http --user <id>                       # prints the token once
+
+npm run users -- add-user --name living-room                 # the speaker
+npm run users -- attach-voice --user <id> --token <VA_DEVICE_TOKEN>
 ```
 
-For a shared/household principal (e.g. the `/assist` token), create a `shared`
-user and mint/attach its tokens the same way. `VA_DEVICE_TOKEN` is still read
-for the WS handshake; `HTTP_API_KEYS` and `TELEGRAM_ALLOWED_CHAT_IDS` are **no
-longer used at all** (removed from config).
+`VA_DEVICE_TOKEN` is still read for the WS handshake; `HTTP_API_KEYS` and
+`TELEGRAM_ALLOWED_CHAT_IDS` are **no longer used at all** (removed from config).
 
 **Management CLI:** `npm run users -- <cmd>` (`cli/users.ts`): `add-user`,
-`attach-telegram`, `mint-http`. `mint-http` prints the token once and stores
-only its hash. Editing/merging existing users & identities is done directly in
-the DB (or a future sqlite-web admin, out of this repo's scope).
+`attach-telegram`, `attach-voice`, `mint-http`. `mint-http` prints the token
+once and stores only its hash. Editing/merging existing users & identities is
+done directly in the DB (or a future sqlite-web admin, out of this repo's scope).
 
 ### Scheduled actions
 
@@ -294,12 +298,11 @@ Auth is DB-backed (`checkAuthAndRate` → `httpTokenAllowed`): the
 `Authorization: Bearer <key>` token's sha256 hash must have an `http` identity
 in the `identities` table, else **401**. Tokens are created with the `users`
 CLI (`npm run users -- mint-http`); `HTTP_API_KEYS` is no longer used. Scope follows from the
-same lookup: `resolveHttpScope` maps the token hash to its identity's role and
-the resulting `ScopedProfile` is passed into the agent so the response
-reads/writes the caller's scope (member → household∪personal; shared →
-household). `/assist` is **not** automatically household — it resolves to
-whatever token the caller presents (see the residual note in the Memory
-section). Two rate-limit layers: per-IP for failed auths (10 / 5 min) and
+same lookup: `resolveHttpScope` maps the token hash to its `{ userId }` and the
+resulting `ScopedProfile` is passed into the agent so the response reads
+`household ∪ personal(user)` and writes personal by default. `/assist` resolves
+to whatever token the caller presents — its own principal's scope. Two
+rate-limit layers: per-IP for failed auths (10 / 5 min) and
 per-token (30 / min). `/audio` also has a concurrency semaphore (2) to bound
 Whisper spend on a Pi.
 

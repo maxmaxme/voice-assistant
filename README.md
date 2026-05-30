@@ -100,7 +100,7 @@ Setup:
 
 Authorisation is DB-backed: a chat is accepted only if it has a matching
 identity row. Add yourself with the `users` CLI —
-`npm run users -- add-user --name me --role member` then
+`npm run users -- add-user --name me` then
 `npm run users -- attach-telegram --user <id> --chat <chatId>`. A fresh DB
 has no identities, so do this once before the bot will respond.
 
@@ -132,8 +132,10 @@ All non-health endpoints require `Authorization: Bearer <key>`, and auth is
 identity table, otherwise the request gets a 401. Raw tokens are never stored
 — only their hash. Mint tokens with `npm run users -- mint-http --user <id>`
 (printed once); there is no `HTTP_API_KEYS` env. The same lookup also picks the
-request's **memory scope** from the resolved identity's role (member →
-household∪personal; shared → household).
+request's **memory scope**: every principal reads `household ∪ personal(user)`
+and writes personal by default. The Voice PE speaker is a principal too — bind
+its `VA_DEVICE_TOKEN` with `npm run users -- attach-voice` to give it its own
+personal memory (e.g. its room location).
 
 ## Tests
 
