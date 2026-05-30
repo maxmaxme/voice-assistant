@@ -127,6 +127,15 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       return { error: 'Unauthorized' };
     }
 
+    // Valid token → stamp last-used on its identity. The token is present and
+    // mapped (httpTokenAllowed just confirmed it), so the hash always matches a
+    // row; touch is a no-op otherwise.
+    const header = authHeader ?? '';
+    const bearer = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+    if (bearer) {
+      identities.touch('http', hashToken(bearer));
+    }
+
     const tokenState = tokenLimiter.check(`tok:${tokenKey(authHeader)}`);
     if (!tokenState.allowed) {
       event.res.status = 429;

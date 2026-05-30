@@ -32,6 +32,7 @@ describe('migration v7', () => {
       'created_at',
       'id',
       'identity',
+      'last_used_at', // added in v11 (run as part of the full chain here)
       'user_id',
     ]);
     db.prepare(`INSERT INTO users (name, created_at) VALUES ('home',1)`).run();

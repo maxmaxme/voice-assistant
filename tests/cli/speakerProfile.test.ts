@@ -9,7 +9,7 @@ import { speakerProfile } from '../../src/cli/unified.ts';
 function setup() {
   const db = new Database(':memory:');
   runMigrations(db);
-  return { store: new SqliteProfileMemory({ db }), ids: new IdentitiesStore(db) };
+  return { db, store: new SqliteProfileMemory({ db }), ids: new IdentitiesStore(db) };
 }
 
 describe('speakerProfile', () => {
@@ -34,5 +34,23 @@ describe('speakerProfile', () => {
     expect(p.recall()).toEqual({ tv: 'Samsung' });
     p.remember('x', 1); // household-only view writes to household
     expect(store.recallFor([HOUSEHOLD_OWNER])).toEqual({ tv: 'Samsung', x: 1 });
+  });
+
+  it('stamps last_used on a registered speaker, not on an unknown token', () => {
+    const { db, store, ids } = setup();
+    const uid = ids.addUser('living-room');
+    ids.attachIdentity('voice', hashToken('dev-tok'), uid);
+
+    speakerProfile(ids, store, 'unknown-tok'); // no matching voice identity → no touch
+    const before = Date.now();
+    speakerProfile(ids, store, 'dev-tok'); // registered → touched
+    const used = db
+      .prepare<
+        [string],
+        { last_used_at: number | null }
+      >(`SELECT last_used_at FROM identities WHERE channel='voice' AND identity=?`)
+      .get(hashToken('dev-tok'));
+    expect(used?.last_used_at).not.toBeNull();
+    expect(used!.last_used_at!).toBeGreaterThanOrEqual(before);
   });
 });

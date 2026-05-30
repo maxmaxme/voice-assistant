@@ -11,6 +11,10 @@ export interface IdentityResolution {
 
 export interface IdentitiesAdapter {
   resolve(channel: Channel, identity: string): IdentityResolution | null;
+  /** Stamp `last_used_at = now` on a `(channel, identity)` row after a
+   *  successful authorization. A miss updates nothing (no-op). Kept separate
+   *  from `resolve` so that read stays pure — see migration v11. */
+  touch(channel: Channel, identity: string): void;
   /** Reverse of `resolve`: the identity string for a user on a channel (e.g.
    *  their Telegram chat id), or null if none. Returns the earliest-attached
    *  one when a user has several. */

@@ -72,6 +72,7 @@ function memScheduled(): ScheduledActionsAdapter {
 function fakeIdentities(telegramByUser: Record<number, string>): IdentitiesAdapter {
   return {
     resolve: () => null,
+    touch: () => {},
     identityFor: (channel: Channel, userId: number) =>
       channel === 'telegram' ? (telegramByUser[userId] ?? null) : null,
     listTelegramUsers: () =>

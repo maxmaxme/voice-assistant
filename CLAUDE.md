@@ -161,10 +161,14 @@ person OR a speaker — is uniform; there is no `member`/`shared` role.**
   (existing rows → `household`).
 - **`users(id, name, created_at)`** — principals (people and speakers).
   Migration v8 dropped the old `role` column.
-- **`identities(id, channel, identity, user_id, created_at, UNIQUE(channel, identity))`**
+- **`identities(id, channel, identity, user_id, created_at, last_used_at, UNIQUE(channel, identity))`**
   — `channel ∈ {telegram, http, voice}`. `identity` is a Telegram chatId
   (raw) or the **sha256 hash** of an HTTP/voice bearer token. Raw tokens are
-  never stored (`identities.ts::hashToken`).
+  never stored (`identities.ts::hashToken`). `last_used_at` (nullable, v11) is
+  stamped via `identities.touch(...)` on each successful authorization — once
+  per request at each channel's auth chokepoint (`checkAuthAndRate` for HTTP,
+  `resolveTelegramScope` for Telegram, `speakerProfile` for voice). `resolve()`
+  stays a pure read; `NULL` means unused since v11.
 
 **Scope is a property of the principal (user)** (`scope.ts`). A request's
 identity resolves to a `userId` → `Scope = { userId }` → `makeScopedProfile`

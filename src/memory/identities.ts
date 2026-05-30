@@ -24,6 +24,12 @@ export class IdentitiesStore implements IdentitiesAdapter {
     return row ? { userId: row.user_id } : null;
   }
 
+  touch(channel: Channel, identity: string): void {
+    this.db
+      .prepare(`UPDATE identities SET last_used_at = ? WHERE channel = ? AND identity = ?`)
+      .run(Date.now(), channel, identity);
+  }
+
   identityFor(channel: Channel, userId: number): string | null {
     const row = this.db
       .prepare<

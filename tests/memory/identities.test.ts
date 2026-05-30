@@ -9,6 +9,22 @@ function store(): IdentitiesStore {
   return new IdentitiesStore(db);
 }
 
+function withDb(): { db: Database.Database; s: IdentitiesStore } {
+  const db = new Database(':memory:');
+  runMigrations(db);
+  return { db, s: new IdentitiesStore(db) };
+}
+
+function lastUsed(db: Database.Database, channel: string, identity: string): number | null {
+  const row = db
+    .prepare<
+      [string, string],
+      { last_used_at: number | null }
+    >(`SELECT last_used_at FROM identities WHERE channel = ? AND identity = ?`)
+    .get(channel, identity);
+  return row ? row.last_used_at : null;
+}
+
 describe('IdentitiesStore', () => {
   it('hashToken is stable and not the raw token', () => {
     expect(hashToken('secret')).toBe(hashToken('secret'));
@@ -44,5 +60,40 @@ describe('IdentitiesStore', () => {
     const u = s.addUser('Max');
     s.attachIdentity('telegram', '1', u);
     expect(() => s.attachIdentity('telegram', '1', u)).toThrow();
+  });
+
+  it('last_used_at starts NULL and resolve does not write it', () => {
+    const { db, s } = withDb();
+    const u = s.addUser('Max');
+    s.attachIdentity('telegram', '1', u);
+    expect(lastUsed(db, 'telegram', '1')).toBeNull();
+    s.resolve('telegram', '1');
+    expect(lastUsed(db, 'telegram', '1')).toBeNull();
+  });
+
+  it('touch stamps last_used_at and a later touch advances it', () => {
+    const { db, s } = withDb();
+    const u = s.addUser('Max');
+    s.attachIdentity('telegram', '1', u);
+
+    const before = Date.now();
+    s.touch('telegram', '1');
+    const first = lastUsed(db, 'telegram', '1');
+    expect(first).not.toBeNull();
+    expect(first!).toBeGreaterThanOrEqual(before);
+
+    // Force a strictly-later timestamp so the advance is observable even on a
+    // fast clock, then confirm touch moves it forward (>=, never backwards).
+    db.prepare(
+      `UPDATE identities SET last_used_at = 1 WHERE channel='telegram' AND identity='1'`,
+    ).run();
+    s.touch('telegram', '1');
+    expect(lastUsed(db, 'telegram', '1')!).toBeGreaterThan(1);
+  });
+
+  it('touch on an unknown identity is a silent no-op', () => {
+    const { db, s } = withDb();
+    expect(() => s.touch('telegram', 'nope')).not.toThrow();
+    expect(lastUsed(db, 'telegram', 'nope')).toBeNull();
   });
 });

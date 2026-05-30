@@ -42,10 +42,13 @@ export function speakerProfile(
   profileStore: SqliteProfileMemory,
   deviceToken: string,
 ): ScopedProfile {
-  const res = deviceToken ? identities.resolve('voice', hashToken(deviceToken)) : null;
-  return res
-    ? makeScopedProfile(profileStore, { userId: res.userId })
-    : householdProfile(profileStore);
+  const hash = deviceToken ? hashToken(deviceToken) : null;
+  const res = hash ? identities.resolve('voice', hash) : null;
+  if (!res || !hash) {
+    return householdProfile(profileStore);
+  }
+  identities.touch('voice', hash);
+  return makeScopedProfile(profileStore, { userId: res.userId });
 }
 
 /** Dispatch logic, exported for tests. Does NOT call initializeCommonDependencies

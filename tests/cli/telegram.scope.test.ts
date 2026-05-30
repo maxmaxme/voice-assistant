@@ -10,6 +10,12 @@ function ids(): IdentitiesStore {
   return new IdentitiesStore(db);
 }
 
+function idsWithDb(): { db: Database.Database; s: IdentitiesStore } {
+  const db = new Database(':memory:');
+  runMigrations(db);
+  return { db, s: new IdentitiesStore(db) };
+}
+
 describe('resolveTelegramScope', () => {
   it('returns a scope for an attached chat', () => {
     const s = ids();
@@ -21,5 +27,23 @@ describe('resolveTelegramScope', () => {
   it('returns null for an unknown chat (dropped)', () => {
     const s = ids();
     expect(resolveTelegramScope(s, 999)).toBeNull();
+  });
+
+  it('stamps last_used on a successful resolve, not on a miss', () => {
+    const { db, s } = idsWithDb();
+    const max = s.addUser('Max');
+    s.attachIdentity('telegram', '111', max);
+
+    resolveTelegramScope(s, 999); // miss → no row touched
+    const before = Date.now();
+    resolveTelegramScope(s, 111); // hit → touched
+    const used = db
+      .prepare<
+        [],
+        { last_used_at: number | null }
+      >(`SELECT last_used_at FROM identities WHERE channel='telegram' AND identity='111'`)
+      .get();
+    expect(used?.last_used_at).not.toBeNull();
+    expect(used!.last_used_at!).toBeGreaterThanOrEqual(before);
   });
 });

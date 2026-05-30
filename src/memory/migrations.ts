@@ -211,4 +211,14 @@ export const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO schema_version (version) VALUES (10);
     `,
   },
+  {
+    version: 11,
+    sql: `
+      -- Record when each identity last successfully authorized. Nullable, no
+      -- backfill: NULL means "not used since this column shipped" — created_at
+      -- already records provenance, and faking a past last-used would lie.
+      ALTER TABLE identities ADD COLUMN last_used_at INTEGER;
+      INSERT OR IGNORE INTO schema_version (version) VALUES (11);
+    `,
+  },
 ];

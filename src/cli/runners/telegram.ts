@@ -48,7 +48,11 @@ Commands:
 
 export function resolveTelegramScope(identities: IdentitiesAdapter, chatId: number): Scope | null {
   const res = identities.resolve('telegram', String(chatId));
-  return res ? { userId: res.userId } : null;
+  if (!res) {
+    return null;
+  }
+  identities.touch('telegram', String(chatId));
+  return { userId: res.userId };
 }
 
 export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
