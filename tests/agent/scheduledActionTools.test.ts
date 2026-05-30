@@ -121,7 +121,7 @@ describe('scheduledActionTools — surface', () => {
 });
 
 describe('scheduledActionTools — ownership / delivery preconditions', () => {
-  it('schedule_action refuses when there is no identified user', () => {
+  it('schedule_action refuses when there is no current user and no recipient', () => {
     const a = memScheduled();
     expect(() =>
       executeScheduledActionTool(
@@ -130,10 +130,10 @@ describe('scheduledActionTools — ownership / delivery preconditions', () => {
         { goal: 'x', schedule_kind: 'once', schedule_expr: '2099-06-15 09:00' },
         { ownerUserId: null, identities: fakeIdentities({ 1: '555' }) },
       ),
-    ).toThrow(/no identified user/i);
+    ).toThrow(/no recipient|no current user/i);
   });
 
-  it('schedule_action refuses when the user has no Telegram linked', () => {
+  it('schedule_action refuses when the current user has no Telegram linked', () => {
     const a = memScheduled();
     expect(() =>
       executeScheduledActionTool(
@@ -145,7 +145,7 @@ describe('scheduledActionTools — ownership / delivery preconditions', () => {
     ).toThrow(/Telegram/i);
   });
 
-  it('schedule_action stores the caller as owner', () => {
+  it('schedule_action stores the caller as owner by default', () => {
     const a = memScheduled();
     const out = executeScheduledActionTool(
       a,
@@ -154,6 +154,29 @@ describe('scheduledActionTools — ownership / delivery preconditions', () => {
       ctx(),
     );
     expect(a.get(out.id)?.ownerUserId).toBe(1);
+  });
+
+  it('schedule_action sets owner = explicit recipient', () => {
+    const a = memScheduled();
+    const out = executeScheduledActionTool(
+      a,
+      'schedule_action',
+      { goal: 'x', schedule_kind: 'once', schedule_expr: '2099-06-15 09:00', recipient: 2 },
+      { ownerUserId: 1, identities: fakeIdentities({ 1: '555', 2: '999' }) },
+    );
+    expect(a.get(out.id)?.ownerUserId).toBe(2);
+  });
+
+  it('schedule_action refuses a recipient with no Telegram (even if the caller has one)', () => {
+    const a = memScheduled();
+    expect(() =>
+      executeScheduledActionTool(
+        a,
+        'schedule_action',
+        { goal: 'x', schedule_kind: 'once', schedule_expr: '2099-06-15 09:00', recipient: 3 },
+        { ownerUserId: 1, identities: fakeIdentities({ 1: '555' }) },
+      ),
+    ).toThrow(/Telegram/i);
   });
 
   it('list_scheduled is scoped to the caller', () => {

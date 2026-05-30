@@ -33,5 +33,12 @@ There is no "send" tool at fire time — do NOT wrap the goal in one, and do NOT
   - ✅ RIGHT: `goal: "turn on the kitchen light"`
   - ✅ RIGHT: `goal: "set the thermostat to 22"`
 
-Scheduling requires the scheduling user to have a Telegram chat to deliver to. If they don't (e.g. a request made on the
-speaker), `schedule_action` fails with a clear error — relay it to the user (in their language); do not retry.
+## Recipient
+
+The reminder fires to a user over Telegram. By default that is the current user — OMIT `recipient`. To remind someone
+else, pass their user id as `recipient`.
+
+The recipient must have a Telegram chat linked. If they don't — including the common case where the request is made on
+the shared speaker, which has no Telegram of its own — `schedule_action` fails with an error listing valid recipients
+(`id = name`). On such a device, ask the user who to remind BEFORE claiming you've set anything, then pass that id as
+`recipient`. Do not promise a reminder until the tool call succeeds.

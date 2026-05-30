@@ -21,6 +21,18 @@ export const SCHEDULED_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set([
   'cancel_scheduled',
 ]);
 
+function recipientsHint(identities: IdentitiesAdapter): string {
+  const users = identities.listTelegramUsers();
+  if (users.length === 0) {
+    return 'No users have a Telegram chat linked.';
+  }
+  return (
+    'Valid recipients (user id = name): ' +
+    users.map((u) => `${u.userId}=${u.name}`).join(', ') +
+    '.'
+  );
+}
+
 export function buildScheduledActionTools(): OpenAiFunctionTool[] {
   return [
     {
@@ -46,6 +58,12 @@ export function buildScheduledActionTools(): OpenAiFunctionTool[] {
             description:
               'For "once": wall-clock string "YYYY-MM-DD HH:mm[:ss]" in the SERVER timezone (no offset). ' +
               'For "cron": POSIX 5-field cron ("minute hour day-of-month month day-of-week").',
+          },
+          recipient: {
+            type: 'integer',
+            description:
+              'User id who the reminder fires to. Omit to remind the current user. ' +
+              'If the current user has no Telegram linked (e.g. on the shared speaker), scheduling fails with an error listing valid recipients (id = name) — ask who to remind, then pass that id.',
           },
         },
         required: ['goal', 'schedule_kind', 'schedule_expr'],
@@ -195,21 +213,33 @@ export function executeScheduledActionTool(
       if (!goal) {
         throw new Error('schedule_action: goal is required');
       }
-      // Reminders fire back to the author over Telegram, so an action can
-      // only be scheduled by an identified user who has a Telegram chat to
-      // deliver to. The speaker (voice principal, no Telegram) hits this.
-      if (ctx.ownerUserId === null) {
+      // Reminders fire to a user over Telegram. The recipient is the explicit
+      // `recipient` user id, or the current user by default — and must have a
+      // Telegram chat to deliver to. The speaker (voice principal, no Telegram)
+      // hits this unless it names a Telegram-linked recipient.
+      const recipientArg = args.recipient;
+      let ownerUserId: number | null;
+      if (recipientArg === undefined || recipientArg === null) {
+        ownerUserId = ctx.ownerUserId;
+      } else if (typeof recipientArg === 'number' && Number.isInteger(recipientArg)) {
+        ownerUserId = recipientArg;
+      } else {
         throw new Error(
-          'schedule_action: cannot schedule — no identified user to deliver the reminder to',
+          'schedule_action: `recipient` must be a user id (integer), or omit it to remind yourself',
         );
       }
-      if (ctx.identities.identityFor('telegram', ctx.ownerUserId) === null) {
+      if (ownerUserId === null) {
         throw new Error(
-          'schedule_action: cannot schedule — you have no Telegram linked, so the reminder could not be delivered',
+          `schedule_action: no recipient — there is no current user, specify who to remind. ${recipientsHint(ctx.identities)}`,
+        );
+      }
+      if (ctx.identities.identityFor('telegram', ownerUserId) === null) {
+        throw new Error(
+          `schedule_action: user ${ownerUserId} has no Telegram linked, so the reminder cannot be delivered. ${recipientsHint(ctx.identities)}`,
         );
       }
       const { schedule, nextFireAt } = buildSchedule(args.schedule_kind, args.schedule_expr);
-      const created = adapter.add({ goal, schedule, nextFireAt, ownerUserId: ctx.ownerUserId });
+      const created = adapter.add({ goal, schedule, nextFireAt, ownerUserId });
       return {
         id: created.id,
         goal: created.goal,
