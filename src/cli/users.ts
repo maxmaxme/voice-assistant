@@ -47,9 +47,18 @@ export function runUsersCommand(identities: IdentitiesAdapter, args: string[]): 
       identities.attachIdentity('http', hashToken(token), userId);
       return { userId, token, message: `minted http token for user ${userId}` };
     }
+    case 'attach-voice': {
+      const userId = Number(flag(args, 'user'));
+      const token = flag(args, 'token');
+      if (!Number.isFinite(userId) || !token) {
+        throw new Error('attach-voice requires --user and --token');
+      }
+      identities.attachIdentity('voice', hashToken(token), userId);
+      return { userId, message: `attached voice device to user ${userId}` };
+    }
     default:
       throw new Error(
-        `unknown command "${cmd ?? ''}". Use: add-user | attach-telegram | mint-http`,
+        `unknown command "${cmd ?? ''}". Use: add-user | attach-telegram | attach-voice | mint-http`,
       );
   }
 }

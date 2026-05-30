@@ -32,6 +32,20 @@ describe('runUsersCommand', () => {
     expect(s.resolve('http', hashToken(out.token!))).toEqual({ userId });
   });
 
+  it('attach-voice binds the device token to a user as a voice identity', () => {
+    const s = ids();
+    const { userId } = runUsersCommand(s, ['add-user', '--name', 'living-room']);
+    runUsersCommand(s, ['attach-voice', '--user', String(userId), '--token', 'dev-tok']);
+    expect(s.resolve('voice', hashToken('dev-tok'))).toEqual({ userId });
+  });
+
+  it('attach-voice requires --user and --token', () => {
+    const s = ids();
+    const { userId } = runUsersCommand(s, ['add-user', '--name', 'living-room']);
+    expect(() => runUsersCommand(s, ['attach-voice', '--user', String(userId)])).toThrow();
+    expect(() => runUsersCommand(s, ['attach-voice', '--token', 'x'])).toThrow();
+  });
+
   it('throws on unknown command', () => {
     const s = ids();
     expect(() => runUsersCommand(s, ['frobnicate'])).toThrow();
