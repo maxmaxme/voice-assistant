@@ -184,4 +184,18 @@ export const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO schema_version (version) VALUES (8);
     `,
   },
+  {
+    version: 9,
+    sql: `
+      -- Drop dead tables. 'kv' (v2) was never read/written by any code.
+      -- 'reminders'/'timers' (v3) were superseded by 'scheduled_actions':
+      -- v4 already carried their rows forward, and nothing reads them since.
+      -- Dropping a table also drops its indexes (idx_reminders_due,
+      -- idx_timers_due). IF EXISTS so a hand-cleaned DB still migrates.
+      DROP TABLE IF EXISTS kv;
+      DROP TABLE IF EXISTS reminders;
+      DROP TABLE IF EXISTS timers;
+      INSERT OR IGNORE INTO schema_version (version) VALUES (9);
+    `,
+  },
 ];
