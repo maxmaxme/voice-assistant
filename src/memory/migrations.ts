@@ -198,4 +198,17 @@ export const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO schema_version (version) VALUES (9);
     `,
   },
+  {
+    version: 10,
+    sql: `
+      -- Give every scheduled action an author so reminders fire back to the
+      -- person who set them (resolved to their Telegram at fire time) instead
+      -- of a hard-coded chat id. NOT NULL DEFAULT 1 backfills the single
+      -- existing row to user 1 (the only user today) and forbids nulls going
+      -- forward; new rows always supply owner_user_id explicitly, so the
+      -- DEFAULT only ever applies to a raw insert that omits the column.
+      ALTER TABLE scheduled_actions ADD COLUMN owner_user_id INTEGER NOT NULL DEFAULT 1;
+      INSERT OR IGNORE INTO schema_version (version) VALUES (10);
+    `,
+  },
 ];

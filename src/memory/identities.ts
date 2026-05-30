@@ -24,6 +24,16 @@ export class IdentitiesStore implements IdentitiesAdapter {
     return row ? { userId: row.user_id } : null;
   }
 
+  identityFor(channel: Channel, userId: number): string | null {
+    const row = this.db
+      .prepare<
+        [string, number],
+        { identity: string }
+      >(`SELECT identity FROM identities WHERE channel = ? AND user_id = ? ORDER BY id LIMIT 1`)
+      .get(channel, userId);
+    return row ? row.identity : null;
+  }
+
   addUser(name: string): number {
     const info = this.db
       .prepare(`INSERT INTO users (name, created_at) VALUES (?, ?)`)

@@ -1,4 +1,5 @@
 import type { Schedule } from '../scheduling/types.ts';
+import type { SqliteProfileMemory } from './sqliteProfileMemory.ts';
 
 export type ProfileFacts = Record<string, unknown>;
 
@@ -10,6 +11,10 @@ export interface IdentityResolution {
 
 export interface IdentitiesAdapter {
   resolve(channel: Channel, identity: string): IdentityResolution | null;
+  /** Reverse of `resolve`: the identity string for a user on a channel (e.g.
+   *  their Telegram chat id), or null if none. Returns the earliest-attached
+   *  one when a user has several. */
+  identityFor(channel: Channel, userId: number): string | null;
   addUser(name: string): number;
   attachIdentity(channel: Channel, identity: string, userId: number): void;
   isEmpty(): boolean;
@@ -30,17 +35,22 @@ export interface ScheduledAction {
   nextFireAt: number;
   lastFiredAt: number | null;
   createdAt: number;
+  /** The user who created this action. Reminders fire back to this user's
+   *  Telegram. Non-nullable since migration v10 (legacy rows backfilled). */
+  ownerUserId: number;
 }
 
 export interface NewScheduledAction {
   goal: string;
   schedule: Schedule;
   nextFireAt: number;
+  ownerUserId: number;
 }
 
 export interface ScheduledActionsAdapter {
   add(input: NewScheduledAction): ScheduledAction;
-  listActive(): ScheduledAction[];
+  /** Active actions owned by `userId` (for per-user list/cancel). */
+  listActiveForOwner(userId: number): ScheduledAction[];
   listDue(now: number): ScheduledAction[];
   /** When `nextFireAt` is null, mark `status='done'` (one-shot complete).
    *  When non-null, update `next_fire_at` (cron rescheduling) and set `last_fired_at = at`. */
@@ -51,7 +61,9 @@ export interface ScheduledActionsAdapter {
    *  advancing once-rows BEFORE firing. Cancelled and already-error rows
    *  are left alone. */
   markError(id: number): void;
-  cancel(id: number): boolean;
+  /** Cancel an active action, but only if it is owned by `userId`. Returns
+   *  true iff a row was cancelled. */
+  cancel(id: number, userId: number): boolean;
   get(id: number): ScheduledAction | null;
 }
 
@@ -80,7 +92,7 @@ export interface TelegramSessionsAdapter {
 export interface MemoryStore {
   profile: MemoryAdapter;
   /** The raw owner-aware profile store, for scope-aware callers. */
-  profileStore: import('./sqliteProfileMemory.ts').SqliteProfileMemory;
+  profileStore: SqliteProfileMemory;
   identities: IdentitiesAdapter;
   scheduledActions: ScheduledActionsAdapter;
   telegramSessions: TelegramSessionsAdapter;

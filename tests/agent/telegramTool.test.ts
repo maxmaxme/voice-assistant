@@ -28,7 +28,7 @@ function emptyMemory(): MemoryStore {
       add: () => {
         throw new Error('not used');
       },
-      listActive: () => [],
+      listActiveForOwner: () => [],
       listDue: () => [],
       markFired: () => {},
       markError: () => {},

@@ -1,3 +1,6 @@
+import type { Session } from './session.ts';
+import type { Scope, ScopedProfile } from '../memory/scope.ts';
+
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
 export interface Message {
@@ -38,11 +41,15 @@ export interface AgentRespondOptions {
   images?: AgentImage[];
   /** Per-call session override. Lets callers swap in a per-conversation
    * Session (e.g. one per Telegram chat) without rebuilding the agent. */
-  session?: import('./session.ts').Session;
+  session?: Session;
   /** Per-call scope for the profile. Used for BOTH memory-tool execution
    * and the profile facts injected into the system prompt. When omitted,
    * the agent falls back to a household view of its own MemoryAdapter. */
-  profile?: import('../memory/scope.ts').ScopedProfile;
+  profile?: ScopedProfile;
+  /** The resolved principal for this call. Threaded into owner-aware tools
+   * (scheduled actions: author of new reminders, owner-scoped list/cancel).
+   * Omitted on goal-mode fires and other unscoped callers. */
+  scope?: Scope;
 }
 
 export interface Agent {

@@ -185,9 +185,17 @@ export async function main(): Promise<void> {
           deps.memory.profileStore,
           deps.config.realtime.token,
         );
+        // The speaker's own principal (its voice identity), so scheduled-action
+        // tools are owner-aware. A speaker has no Telegram, so scheduling from
+        // it is refused by the tool — correct until speaker-side delivery exists.
+        const speakerRes = deps.config.realtime.token
+          ? deps.memory.identities.resolve('voice', hashToken(deps.config.realtime.token))
+          : null;
         const localToolset = buildLocalToolset({
           profile,
           scheduledActions: deps.memory.scheduledActions,
+          identities: deps.memory.identities,
+          ownerUserId: speakerRes?.userId ?? null,
           telegram: deps.telegram,
         });
         return {

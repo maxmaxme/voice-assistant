@@ -2,10 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../src/memory/migrate.ts';
 import { SqliteScheduledActions } from '../../src/memory/sqliteScheduledActions.ts';
+import type { NewScheduledAction } from '../../src/memory/types.ts';
 
 describe('SqliteScheduledActions', () => {
   let db: Database.Database;
   let s: SqliteScheduledActions;
+
+  // Default owner for the single-user cases; owner-scoping has its own tests.
+  const add = (input: Omit<NewScheduledAction, 'ownerUserId'> & { ownerUserId?: number }) =>
+    s.add({ ownerUserId: 1, ...input });
 
   beforeEach(() => {
     db = new Database(':memory:');
@@ -15,11 +20,11 @@ describe('SqliteScheduledActions', () => {
   afterEach(() => db.close());
 
   it('starts empty', () => {
-    expect(s.listActive()).toEqual([]);
+    expect(s.listActiveForOwner(1)).toEqual([]);
   });
 
   it('round-trips a once schedule', () => {
-    const out = s.add({
+    const out = add({
       goal: 'do thing',
       schedule: { kind: 'once', at: 1000 },
       nextFireAt: 1000,
@@ -30,13 +35,15 @@ describe('SqliteScheduledActions', () => {
     expect(out.nextFireAt).toBe(1000);
     expect(out.status).toBe('active');
     expect(out.lastFiredAt).toBeNull();
+    expect(out.ownerUserId).toBe(1);
 
     const re = s.get(out.id);
     expect(re?.schedule).toEqual({ kind: 'once', at: 1000 });
+    expect(re?.ownerUserId).toBe(1);
   });
 
   it('round-trips a cron schedule', () => {
-    const out = s.add({
+    const out = add({
       goal: 'morning ping',
       schedule: { kind: 'cron', expr: '0 8 * * *' },
       nextFireAt: 12345,
@@ -48,22 +55,56 @@ describe('SqliteScheduledActions', () => {
     expect(re?.nextFireAt).toBe(12345);
   });
 
-  it('listActive returns only active rows ordered by next_fire_at asc', () => {
-    s.add({ goal: 'b', schedule: { kind: 'once', at: 200 }, nextFireAt: 200 });
-    s.add({ goal: 'a', schedule: { kind: 'once', at: 100 }, nextFireAt: 100 });
-    const c = s.add({ goal: 'c', schedule: { kind: 'once', at: 50 }, nextFireAt: 50 });
-    s.cancel(c.id);
-    expect(s.listActive().map((x) => x.goal)).toEqual(['a', 'b']);
+  it('listActiveForOwner returns only active rows ordered by next_fire_at asc', () => {
+    add({ goal: 'b', schedule: { kind: 'once', at: 200 }, nextFireAt: 200 });
+    add({ goal: 'a', schedule: { kind: 'once', at: 100 }, nextFireAt: 100 });
+    const c = add({ goal: 'c', schedule: { kind: 'once', at: 50 }, nextFireAt: 50 });
+    s.cancel(c.id, 1);
+    expect(s.listActiveForOwner(1).map((x) => x.goal)).toEqual(['a', 'b']);
   });
 
-  it('listDue filters by next_fire_at <= now and status=active', () => {
-    s.add({ goal: 'past', schedule: { kind: 'once', at: 100 }, nextFireAt: 100 });
-    s.add({ goal: 'future', schedule: { kind: 'once', at: 1000 }, nextFireAt: 1000 });
-    expect(s.listDue(500).map((x) => x.goal)).toEqual(['past']);
+  it('listActiveForOwner is scoped per owner', () => {
+    add({ goal: 'mine', schedule: { kind: 'once', at: 100 }, nextFireAt: 100, ownerUserId: 1 });
+    add({ goal: 'theirs', schedule: { kind: 'once', at: 100 }, nextFireAt: 100, ownerUserId: 2 });
+    expect(s.listActiveForOwner(1).map((x) => x.goal)).toEqual(['mine']);
+    expect(s.listActiveForOwner(2).map((x) => x.goal)).toEqual(['theirs']);
+  });
+
+  it('cancel only cancels rows owned by the caller', () => {
+    const mine = add({
+      goal: 'mine',
+      schedule: { kind: 'once', at: 100 },
+      nextFireAt: 100,
+      ownerUserId: 1,
+    });
+    const theirs = add({
+      goal: 'theirs',
+      schedule: { kind: 'once', at: 100 },
+      nextFireAt: 100,
+      ownerUserId: 2,
+    });
+    // User 2 cannot cancel user 1's action.
+    expect(s.cancel(mine.id, 2)).toBe(false);
+    expect(s.get(mine.id)?.status).toBe('active');
+    // Owner can.
+    expect(s.cancel(theirs.id, 2)).toBe(true);
+    expect(s.get(theirs.id)?.status).toBe('cancelled');
+  });
+
+  it('listDue filters by next_fire_at <= now and status=active (all owners)', () => {
+    add({ goal: 'past', schedule: { kind: 'once', at: 100 }, nextFireAt: 100, ownerUserId: 1 });
+    add({ goal: 'other', schedule: { kind: 'once', at: 200 }, nextFireAt: 200, ownerUserId: 2 });
+    add({ goal: 'future', schedule: { kind: 'once', at: 1000 }, nextFireAt: 1000 });
+    expect(s.listDue(500).map((x) => x.goal)).toEqual(['past', 'other']);
+  });
+
+  it('listDue carries ownerUserId for delivery routing', () => {
+    add({ goal: 'g', schedule: { kind: 'once', at: 100 }, nextFireAt: 100, ownerUserId: 3 });
+    expect(s.listDue(500)[0]?.ownerUserId).toBe(3);
   });
 
   it('markFired with null nextFireAt marks done and stamps last_fired_at', () => {
-    const x = s.add({
+    const x = add({
       goal: 'one',
       schedule: { kind: 'once', at: 100 },
       nextFireAt: 100,
@@ -75,7 +116,7 @@ describe('SqliteScheduledActions', () => {
   });
 
   it('markFired with nextFireAt updates next_fire_at, status stays active', () => {
-    const x = s.add({
+    const x = add({
       goal: 'cron',
       schedule: { kind: 'cron', expr: '0 8 * * *' },
       nextFireAt: 100,
@@ -88,7 +129,7 @@ describe('SqliteScheduledActions', () => {
   });
 
   it('markError marks the row as error', () => {
-    const x = s.add({
+    const x = add({
       goal: 'bad',
       schedule: { kind: 'once', at: 100 },
       nextFireAt: 100,
@@ -99,12 +140,12 @@ describe('SqliteScheduledActions', () => {
   });
 
   it('markFired is a no-op on cancelled rows', () => {
-    const x = s.add({
+    const x = add({
       goal: 'x',
       schedule: { kind: 'once', at: 100 },
       nextFireAt: 100,
     });
-    s.cancel(x.id);
+    s.cancel(x.id, 1);
     s.markFired(x.id, 200, null);
     const out = s.get(x.id);
     expect(out?.status).toBe('cancelled');
@@ -112,7 +153,7 @@ describe('SqliteScheduledActions', () => {
   });
 
   it('markError on a done row transitions to error (override path)', () => {
-    const x = s.add({ goal: 'g', schedule: { kind: 'once', at: 100 }, nextFireAt: 100 });
+    const x = add({ goal: 'g', schedule: { kind: 'once', at: 100 }, nextFireAt: 100 });
     s.markFired(x.id, 200, null);
     expect(s.get(x.id)?.status).toBe('done');
     s.markError(x.id);
@@ -120,28 +161,28 @@ describe('SqliteScheduledActions', () => {
   });
 
   it('markError is a no-op on cancelled rows', () => {
-    const x = s.add({
+    const x = add({
       goal: 'x',
       schedule: { kind: 'once', at: 100 },
       nextFireAt: 100,
     });
-    s.cancel(x.id);
+    s.cancel(x.id, 1);
     s.markError(x.id);
     expect(s.get(x.id)?.status).toBe('cancelled');
   });
 
   it('cancel returns true on active and false on second call', () => {
-    const x = s.add({
+    const x = add({
       goal: 'x',
       schedule: { kind: 'once', at: 100 },
       nextFireAt: 100,
     });
-    expect(s.cancel(x.id)).toBe(true);
-    expect(s.cancel(x.id)).toBe(false);
+    expect(s.cancel(x.id, 1)).toBe(true);
+    expect(s.cancel(x.id, 1)).toBe(false);
   });
 
   it('cancel non-existent id returns false', () => {
-    expect(s.cancel(99999)).toBe(false);
+    expect(s.cancel(99999, 1)).toBe(false);
   });
 
   it('get on missing id returns null', () => {

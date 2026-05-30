@@ -15,7 +15,8 @@ function makeAdapter(initial: ScheduledAction[]): ScheduledActionsAdapter & {
     add: (): ScheduledAction => {
       throw new Error('not used');
     },
-    listActive: () => rows.filter((r) => r.status === 'active'),
+    listActiveForOwner: (userId: number) =>
+      rows.filter((r) => r.status === 'active' && r.ownerUserId === userId),
     listDue: (now: number) =>
       rows
         .filter((r) => r.status === 'active' && r.nextFireAt <= now)
@@ -38,8 +39,8 @@ function makeAdapter(initial: ScheduledAction[]): ScheduledActionsAdapter & {
         r.status = 'error';
       }
     },
-    cancel: (id: number) => {
-      const r = rows.find((x) => x.id === id);
+    cancel: (id: number, userId: number) => {
+      const r = rows.find((x) => x.id === id && x.ownerUserId === userId);
       if (!r) {
         return false;
       }
@@ -74,6 +75,7 @@ function onceRow(over: Partial<ScheduledAction> = {}): ScheduledAction {
     nextFireAt: 1000,
     lastFiredAt: null,
     createdAt: 0,
+    ownerUserId: 1,
     ...over,
   };
 }
@@ -87,6 +89,7 @@ function cronRow(over: Partial<ScheduledAction> = {}): ScheduledAction {
     nextFireAt: 1000,
     lastFiredAt: null,
     createdAt: 0,
+    ownerUserId: 1,
     ...over,
   };
 }
@@ -201,7 +204,7 @@ describe('Scheduler', () => {
       add: () => {
         throw new Error('not used');
       },
-      listActive: () => [],
+      listActiveForOwner: () => [],
       listDue: () => {
         throw new Error('db gone');
       },

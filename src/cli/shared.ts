@@ -10,6 +10,7 @@ import type { MemoryStore } from '../memory/types.ts';
 import { loadPrompt } from '../agent/prompts/load.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
 import { telegramFromConfig, receiverFromConfig } from '../telegram/fromConfig.ts';
+import { BotTelegramSender } from '../telegram/telegramSender.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
 import { CHAT_TEXT_FORMAT } from '../agent/agentOutput.ts';
 import { buildGoalRunner, type GoalRunner } from '../scheduling/goalRunner.ts';
@@ -144,7 +145,12 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     telegram,
     textFormat: CHAT_TEXT_FORMAT,
   });
-  const goalRunner: GoalRunner = buildGoalRunner({ agent: goalAgent, telegram });
+  const goalRunner: GoalRunner = buildGoalRunner({
+    agent: goalAgent,
+    identities: memory.identities,
+    senderFor: (chatId) => new BotTelegramSender({ botToken: config.telegram.botToken, chatId }),
+    defaultTelegram: telegram,
+  });
 
   const buildAgent = (channel: PromptChannel): OpenAiAgent =>
     new OpenAiAgent({

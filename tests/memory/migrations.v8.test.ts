@@ -51,6 +51,7 @@ describe('migration v8 — drop users.role', () => {
              CREATE TABLE profile (owner TEXT NOT NULL DEFAULT 'household', key TEXT NOT NULL, value TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(owner,key));
              CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('shared','member')), created_at INTEGER NOT NULL);
              CREATE TABLE identities (id INTEGER PRIMARY KEY AUTOINCREMENT, channel TEXT NOT NULL, identity TEXT NOT NULL, user_id INTEGER NOT NULL, created_at INTEGER NOT NULL, UNIQUE(channel, identity));
+             CREATE TABLE scheduled_actions (id INTEGER PRIMARY KEY AUTOINCREMENT, goal TEXT NOT NULL, schedule_kind TEXT NOT NULL, schedule_expr TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', next_fire_at INTEGER NOT NULL, last_fired_at INTEGER, created_at INTEGER NOT NULL);
              INSERT INTO users (id, name, role, created_at) VALUES (7, 'home', 'shared', 100);`);
     runMigrations(db); // should apply only v8
     const cols = (db.prepare(`PRAGMA table_info(users)`).all() as { name: string }[])

@@ -11,6 +11,7 @@ interface Row {
   next_fire_at: number;
   last_fired_at: number | null;
   created_at: number;
+  owner_user_id: number;
 }
 
 const toSchedule = (kind: Row['schedule_kind'], expr: string): Schedule =>
@@ -24,6 +25,7 @@ const toScheduledAction = (r: Row): ScheduledAction => ({
   nextFireAt: r.next_fire_at,
   lastFiredAt: r.last_fired_at,
   createdAt: r.created_at,
+  ownerUserId: r.owner_user_id,
 });
 
 export class SqliteScheduledActions implements ScheduledActionsAdapter {
@@ -40,20 +42,20 @@ export class SqliteScheduledActions implements ScheduledActionsAdapter {
     const result = this.db
       .prepare(
         `INSERT INTO scheduled_actions
-           (goal, schedule_kind, schedule_expr, status, next_fire_at, created_at)
-         VALUES (?, ?, ?, 'active', ?, ?)`,
+           (goal, schedule_kind, schedule_expr, status, next_fire_at, created_at, owner_user_id)
+         VALUES (?, ?, ?, 'active', ?, ?, ?)`,
       )
-      .run(input.goal, kind, expr, input.nextFireAt, now);
+      .run(input.goal, kind, expr, input.nextFireAt, now, input.ownerUserId);
     return this.get(Number(result.lastInsertRowid))!;
   }
 
-  listActive(): ScheduledAction[] {
+  listActiveForOwner(userId: number): ScheduledAction[] {
     const rows = this.db
       .prepare<
-        [],
+        [number],
         Row
-      >(`SELECT * FROM scheduled_actions WHERE status = 'active' ORDER BY next_fire_at ASC`)
-      .all();
+      >(`SELECT * FROM scheduled_actions WHERE status = 'active' AND owner_user_id = ? ORDER BY next_fire_at ASC`)
+      .all(userId);
     return rows.map(toScheduledAction);
   }
 
@@ -96,12 +98,13 @@ export class SqliteScheduledActions implements ScheduledActionsAdapter {
       .run(id);
   }
 
-  cancel(id: number): boolean {
+  cancel(id: number, userId: number): boolean {
     const res = this.db
       .prepare(
-        `UPDATE scheduled_actions SET status = 'cancelled' WHERE id = ? AND status = 'active'`,
+        `UPDATE scheduled_actions SET status = 'cancelled'
+         WHERE id = ? AND owner_user_id = ? AND status = 'active'`,
       )
-      .run(id);
+      .run(id, userId);
     return res.changes > 0;
   }
 

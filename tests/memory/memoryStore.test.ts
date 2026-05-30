@@ -18,9 +18,10 @@ describe('openMemoryStore', () => {
       goal: 'water plants',
       schedule: { kind: 'once', at: 1000 },
       nextFireAt: 1000,
+      ownerUserId: 1,
     });
     expect(m.profile.recall('name')).toEqual({ name: 'Maxim' });
-    expect(m.scheduledActions.listActive()[0].id).toBe(created.id);
+    expect(m.scheduledActions.listActiveForOwner(1)[0].id).toBe(created.id);
     m.close();
   });
 
@@ -32,12 +33,13 @@ describe('openMemoryStore', () => {
         goal: 'persist me',
         schedule: { kind: 'once', at: 5 },
         nextFireAt: 5,
+        ownerUserId: 1,
       });
       m.close();
     }
     const m2 = openMemoryStore(dbPath);
     expect(m2.profile.recall('x')).toEqual({ x: 1 });
-    expect(m2.scheduledActions.listActive()[0].goal).toBe('persist me');
+    expect(m2.scheduledActions.listActiveForOwner(1)[0].goal).toBe('persist me');
     m2.close();
   });
 });

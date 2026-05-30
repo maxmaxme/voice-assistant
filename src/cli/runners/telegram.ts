@@ -80,6 +80,7 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
         session: sessionFor(msg.chatId),
         memory,
         profile: makeScopedProfile(deps.profileStore, scope),
+        scope,
         sender: replyer,
         voiceTranscriber,
         photoLoader,
@@ -104,6 +105,7 @@ async function handleMessage(
     session: Session;
     memory: MemoryStore;
     profile: ScopedProfile;
+    scope: Scope;
     sender: TelegramSender;
     voiceTranscriber?: TelegramVoiceTranscriber;
     photoLoader?: TelegramPhotoLoader;
@@ -137,7 +139,11 @@ async function handleMessage(
     }
     let reply;
     try {
-      reply = await ctx.agent.respond(transcript, { session, profile: ctx.profile });
+      reply = await ctx.agent.respond(transcript, {
+        session,
+        profile: ctx.profile,
+        scope: ctx.scope,
+      });
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       ctx.log.error({ err }, `agent error on voice transcript: ${m}`);
@@ -171,6 +177,7 @@ async function handleMessage(
         images: [image],
         session,
         profile: ctx.profile,
+        scope: ctx.scope,
       });
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
@@ -214,7 +221,7 @@ async function handleMessage(
 
   let reply;
   try {
-    reply = await ctx.agent.respond(text, { session, profile: ctx.profile });
+    reply = await ctx.agent.respond(text, { session, profile: ctx.profile, scope: ctx.scope });
   } catch (err) {
     const m = err instanceof Error ? err.message : String(err);
     ctx.log.error({ err }, `agent error: ${m}`);

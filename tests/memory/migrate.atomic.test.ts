@@ -57,9 +57,9 @@ describe('runMigrations atomicity', () => {
     expect(versions(db)).toEqual([1]);
   });
 
-  it('applies the real migration chain fully (through v9)', () => {
+  it('applies the real migration chain fully (through v10)', () => {
     const db = new Database(':memory:');
     runMigrations(db);
-    expect(versions(db)).toContain(9);
+    expect(versions(db)).toContain(10);
   });
 });

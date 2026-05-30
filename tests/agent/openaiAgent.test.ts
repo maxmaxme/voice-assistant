@@ -19,7 +19,7 @@ function emptyMemory(): MemoryStore {
     add: () => {
       throw new Error('not used');
     },
-    listActive: () => [],
+    listActiveForOwner: () => [],
     listDue: () => [],
     markFired: () => {},
     markError: () => {},
@@ -605,13 +605,16 @@ describe('OpenAiAgent', () => {
   });
 
   it('routes schedule_action to the scheduledActions adapter', async () => {
-    const added: Array<{ goal: string }> = [];
+    const added: Array<{ goal: string; ownerUserId: number }> = [];
     const memory = emptyMemory();
+    // schedule_action requires an identified user with a Telegram chat.
+    const uid = memory.identities.addUser('me');
+    memory.identities.attachIdentity('telegram', '555', uid);
     const now = Date.now();
     memory.scheduledActions = {
       ...memory.scheduledActions,
-      add: ({ goal, schedule, nextFireAt }) => {
-        added.push({ goal });
+      add: ({ goal, schedule, nextFireAt, ownerUserId }) => {
+        added.push({ goal, ownerUserId });
         return {
           id: 1,
           goal,
@@ -620,6 +623,7 @@ describe('OpenAiAgent', () => {
           status: 'active',
           createdAt: now,
           lastFiredAt: null,
+          ownerUserId,
         };
       },
     };
@@ -644,10 +648,11 @@ describe('OpenAiAgent', () => {
       llmClient: llm as unknown as OpenAI,
       telegram: noopTelegram,
     });
-    const result = await agent.respond('schedule a call to mom');
+    const result = await agent.respond('schedule a call to mom', { scope: { userId: uid } });
     expect(result.text).toBe('Scheduled.');
     expect(added).toHaveLength(1);
     expect(added[0].goal).toBe('call mom');
+    expect(added[0].ownerUserId).toBe(uid);
   });
 });
 

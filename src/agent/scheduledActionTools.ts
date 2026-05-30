@@ -1,4 +1,4 @@
-import type { ScheduledActionsAdapter } from '../memory/types.ts';
+import type { IdentitiesAdapter, ScheduledActionsAdapter } from '../memory/types.ts';
 import { nextFireAt as computeNextFireAt, validateSchedule } from '../scheduling/cron.ts';
 import type { Schedule } from '../scheduling/types.ts';
 import { parseLocalWallClock, toLocalIso } from '../utils/time.ts';
@@ -151,30 +151,43 @@ function scheduleToExprString(schedule: Schedule): string {
   return schedule.kind === 'once' ? toLocalIso(schedule.at) : schedule.expr;
 }
 
+/** The principal context for owner-aware scheduled-action tools. `ownerUserId`
+ *  is the resolved caller (null when unscoped, e.g. a goal-mode fire);
+ *  `identities` resolves whether that user can actually receive a reminder. */
+export interface ScheduledActionToolContext {
+  ownerUserId: number | null;
+  identities: IdentitiesAdapter;
+}
+
 export function executeScheduledActionTool(
   adapter: ScheduledActionsAdapter,
   name: 'schedule_action',
   args: Record<string, unknown>,
+  ctx: ScheduledActionToolContext,
 ): ScheduleActionResult;
 export function executeScheduledActionTool(
   adapter: ScheduledActionsAdapter,
   name: 'list_scheduled',
   args: Record<string, unknown>,
+  ctx: ScheduledActionToolContext,
 ): ListScheduledItem[];
 export function executeScheduledActionTool(
   adapter: ScheduledActionsAdapter,
   name: 'cancel_scheduled',
   args: Record<string, unknown>,
+  ctx: ScheduledActionToolContext,
 ): CancelScheduledResult;
 export function executeScheduledActionTool(
   adapter: ScheduledActionsAdapter,
   name: string,
   args: Record<string, unknown>,
+  ctx: ScheduledActionToolContext,
 ): ScheduledActionToolResult;
 export function executeScheduledActionTool(
   adapter: ScheduledActionsAdapter,
   name: string,
   args: Record<string, unknown>,
+  ctx: ScheduledActionToolContext,
 ): ScheduledActionToolResult {
   switch (name) {
     case 'schedule_action': {
@@ -182,8 +195,21 @@ export function executeScheduledActionTool(
       if (!goal) {
         throw new Error('schedule_action: goal is required');
       }
+      // Reminders fire back to the author over Telegram, so an action can
+      // only be scheduled by an identified user who has a Telegram chat to
+      // deliver to. The speaker (voice principal, no Telegram) hits this.
+      if (ctx.ownerUserId === null) {
+        throw new Error(
+          'schedule_action: cannot schedule — no identified user to deliver the reminder to',
+        );
+      }
+      if (ctx.identities.identityFor('telegram', ctx.ownerUserId) === null) {
+        throw new Error(
+          'schedule_action: cannot schedule — you have no Telegram linked, so the reminder could not be delivered',
+        );
+      }
       const { schedule, nextFireAt } = buildSchedule(args.schedule_kind, args.schedule_expr);
-      const created = adapter.add({ goal, schedule, nextFireAt });
+      const created = adapter.add({ goal, schedule, nextFireAt, ownerUserId: ctx.ownerUserId });
       return {
         id: created.id,
         goal: created.goal,
@@ -194,7 +220,10 @@ export function executeScheduledActionTool(
       };
     }
     case 'list_scheduled': {
-      return adapter.listActive().map((row) => ({
+      if (ctx.ownerUserId === null) {
+        return [];
+      }
+      return adapter.listActiveForOwner(ctx.ownerUserId).map((row) => ({
         id: row.id,
         goal: row.goal,
         schedule_kind: row.schedule.kind,
@@ -210,7 +239,10 @@ export function executeScheduledActionTool(
       if (!Number.isFinite(id)) {
         throw new Error('cancel_scheduled: id must be a number');
       }
-      return { ok: adapter.cancel(id) };
+      if (ctx.ownerUserId === null) {
+        return { ok: false };
+      }
+      return { ok: adapter.cancel(id, ctx.ownerUserId) };
     }
     default:
       throw new Error(`Unknown scheduled action tool: ${name}`);

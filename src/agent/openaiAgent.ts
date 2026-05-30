@@ -84,6 +84,9 @@ export class OpenAiAgent implements Agent {
     const { mcp, model, llmClient } = this.opts;
     const session = opts.session ?? this.opts.session;
     const profile: ScopedProfile = opts.profile ?? householdFromAdapter(this.opts.memory.profile);
+    // Owner for scheduled-action tools (author of new reminders, owner-scoped
+    // list/cancel). Goal-mode fires and unscoped callers have no principal.
+    const ownerUserId = opts.scope?.userId ?? null;
     const images = opts.images ?? [];
     const respondStartedAt = Date.now();
 
@@ -116,11 +119,16 @@ export class OpenAiAgent implements Agent {
     // inside `speak`. Goal-fire mode never has a user.
     const askEnabled = this.mode !== 'goal' && (this.opts.enableAsk ?? true);
     const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
+    // In goal mode there's no live user and delivery is owned by the goal
+    // runner (it sends the agent's reply to the action's author). Exposing
+    // send_to_telegram there would let the fire deliver to the wrong, fixed
+    // chat — so omit it and let the runner route the reply.
+    const telegramTools = this.mode === 'goal' ? [] : [buildTelegramTool()];
     const localTools = [
       ...buildMemoryTools(),
       ...buildScheduledActionTools(),
       ...(askEnabled ? [buildAskTool()] : []),
-      buildTelegramTool(),
+      ...telegramTools,
       ...buildLocalTools(),
     ];
     // Our function-tool shape (`OpenAiFunctionTool`-derived) matches the
@@ -339,6 +347,7 @@ export class OpenAiAgent implements Agent {
                   this.opts.memory.scheduledActions,
                   tc.name,
                   args,
+                  { ownerUserId, identities: this.opts.memory.identities },
                 );
                 resultText = JSON.stringify(r);
               } catch (e) {
@@ -477,7 +486,7 @@ export class OpenAiAgent implements Agent {
     const base = this.buildSystemMessage(householdFromAdapter(this.opts.memory.profile));
     return (
       base +
-      `\n\nYou are running a previously-scheduled goal. There is NO USER PRESENT — do NOT call the 'ask' tool. Execute the goal end-to-end using your tools, then return a one-sentence summary of what you did.\n\nThe goal: ${goal}`
+      `\n\nYou are running a previously-scheduled goal. There is NO USER PRESENT — do NOT call the 'ask' tool, and you have no way to message the user mid-task. Execute the goal end-to-end using your tools. Your final reply text is automatically delivered to the user who scheduled this (over Telegram), so write it AS the message to that user: for a reminder, output the reminder content itself; for an action, a short confirmation of what you did. Plain text, no preamble.\n\nThe goal: ${goal}`
     );
   }
 

@@ -122,7 +122,7 @@ export class Scheduler {
       }
 
       try {
-        await this.goalRunner.fire(row.goal);
+        await this.goalRunner.fire(row.goal, row.ownerUserId);
       } catch (err) {
         assertError(err);
         log.error({ actionId: row.id, err }, `action ${row.id} fire failed: ${err.message}`);

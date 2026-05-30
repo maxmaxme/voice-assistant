@@ -13,7 +13,7 @@
  * send_to_telegram, ask) still live in their own modules and are wired
  * per-channel. */
 
-import type { ScheduledActionsAdapter } from '../memory/types.ts';
+import type { IdentitiesAdapter, ScheduledActionsAdapter } from '../memory/types.ts';
 import type { ScopedProfile } from '../memory/scope.ts';
 import type { TelegramSender } from '../telegram/types.ts';
 import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
@@ -30,6 +30,12 @@ export interface LocalToolDeps {
   profile?: ScopedProfile;
   scheduledActions?: ScheduledActionsAdapter;
   telegram?: TelegramSender;
+  /** Owner-aware scheduled-action context. Required for the scheduled-action
+   *  tools to know who is scheduling (author of reminders, owner-scoped
+   *  list/cancel). When `scheduledActions` is provided without this, the
+   *  caller is treated as unidentified (`ownerUserId: null`). */
+  identities?: IdentitiesAdapter;
+  ownerUserId?: number | null;
 }
 
 export interface LocalToolset {
@@ -59,12 +65,20 @@ function buildRegistry(deps: LocalToolDeps): Record<string, LocalTool> {
       };
     }
   }
-  if (deps.scheduledActions) {
+  // Scheduled-action tools are owner-aware: they need an identities adapter to
+  // validate/route reminders. Register them only when both are wired.
+  if (deps.scheduledActions && deps.identities) {
     const scheduledActions = deps.scheduledActions;
+    const identities = deps.identities;
+    const ownerUserId = deps.ownerUserId ?? null;
     for (const tool of buildScheduledActionTools()) {
       registry[tool.name] = {
         tool,
-        execute: (args) => executeScheduledActionTool(scheduledActions, tool.name, args),
+        execute: (args) =>
+          executeScheduledActionTool(scheduledActions, tool.name, args, {
+            ownerUserId,
+            identities,
+          }),
       };
     }
   }

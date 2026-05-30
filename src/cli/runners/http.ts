@@ -192,6 +192,7 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
           const scope = resolveHttpScope(identities, event.req.headers.get('authorization'));
           const reply = await agent.respond(transcript, {
             profile: makeScopedProfile(profileStore, scope),
+            scope,
           });
 
           return {
@@ -245,6 +246,7 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         const scope = resolveHttpScope(identities, event.req.headers.get('authorization'));
         const reply = await agent.respond(text, {
           profile: makeScopedProfile(profileStore, scope),
+          scope,
         });
         return { response: reply.text };
       } catch (err) {
@@ -309,6 +311,7 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         const reply = await assistAgent.respond(text, {
           session,
           profile: makeScopedProfile(profileStore, scope),
+          scope,
         });
         return {
           response: reply.text,

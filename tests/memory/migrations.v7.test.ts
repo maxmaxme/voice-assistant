@@ -7,6 +7,7 @@ describe('migration v7', () => {
     const db = new Database(':memory:');
     db.exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
              CREATE TABLE profile (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+             CREATE TABLE scheduled_actions (id INTEGER PRIMARY KEY AUTOINCREMENT, goal TEXT NOT NULL, schedule_kind TEXT NOT NULL, schedule_expr TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', next_fire_at INTEGER NOT NULL, last_fired_at INTEGER, created_at INTEGER NOT NULL);
              INSERT INTO schema_version (version) VALUES (1),(2),(3),(4),(5),(6);
              INSERT INTO profile (key, value, updated_at) VALUES ('name', '"Max"', 1);`);
     runMigrations(db);
