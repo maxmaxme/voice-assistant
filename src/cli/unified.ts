@@ -13,7 +13,10 @@ import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
 import { mcpToolsToRealtime, localToolsToRealtime } from '../realtime/toolAdapter.ts';
 import { applyHaToolSuffixes } from '../agent/toolBridge.ts';
 import { buildLocalToolset } from '../agent/localTools.ts';
-import { householdProfile } from '../memory/scope.ts';
+import { householdProfile, makeScopedProfile, type ScopedProfile } from '../memory/scope.ts';
+import { hashToken } from '../memory/identities.ts';
+import type { IdentitiesAdapter } from '../memory/types.ts';
+import type { SqliteProfileMemory } from '../memory/sqliteProfileMemory.ts';
 import { appendUserContext } from '../agent/systemPrompt.ts';
 import { ToolResultCache, CACHEABLE_TOOLS } from '../realtime/toolCache.ts';
 import { Session } from '../agent/session.ts';
@@ -29,6 +32,20 @@ const log = createLogger('unified');
 export interface RunnerSet {
   telegram: (deps: TelegramRunnerDeps) => Promise<void>;
   http: (deps: HttpRunnerDeps) => Promise<void>;
+}
+
+/** The memory profile for the Voice PE speaker: its own personal scope
+ *  (household ∪ personal) when the device token is a registered `voice`
+ *  identity, else a household-only view. */
+export function speakerProfile(
+  identities: IdentitiesAdapter,
+  profileStore: SqliteProfileMemory,
+  deviceToken: string,
+): ScopedProfile {
+  const res = deviceToken ? identities.resolve('voice', hashToken(deviceToken)) : null;
+  return res
+    ? makeScopedProfile(profileStore, { userId: res.userId })
+    : householdProfile(profileStore);
 }
 
 /** Dispatch logic, exported for tests. Does NOT call initializeCommonDependencies
@@ -163,8 +180,13 @@ export async function main(): Promise<void> {
       port: deps.config.realtime.port,
       token: deps.config.realtime.token,
       buildBridgeDeps: async () => {
+        const profile = speakerProfile(
+          deps.memory.identities,
+          deps.memory.profileStore,
+          deps.config.realtime.token,
+        );
         const localToolset = buildLocalToolset({
-          profile: householdProfile(deps.memory.profileStore),
+          profile,
           scheduledActions: deps.memory.scheduledActions,
           telegram: deps.telegram,
         });
@@ -174,10 +196,7 @@ export async function main(): Promise<void> {
           voice: deps.config.realtime.voice,
           reasoningEffort: deps.config.realtime.reasoningEffort,
           idleResetMs: deps.config.realtime.idleResetMs,
-          instructions: appendUserContext(
-            buildSystemPromptFor('realtime'),
-            deps.memory.profile.recall(),
-          ),
+          instructions: appendUserContext(buildSystemPromptFor('realtime'), profile.recall()),
           tools: [
             ...mcpToolsToRealtime(applyHaToolSuffixes(await deps.mcp.listTools())),
             ...localToolsToRealtime(localToolset.tools),
