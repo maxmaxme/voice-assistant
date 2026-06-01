@@ -102,6 +102,24 @@ export class RealtimeBridge {
   // `conversation_already_has_active_response`.
   private pendingToolCalls: Promise<void>[] = [];
 
+  // --- Audio delivery diagnostics --------------------------------------------
+  // Mirror of the firmware's ws-gap / underrun detectors, but on the
+  // OpenAI→bridge edge. The device stutters when audio arrives slower than it
+  // plays; this tells us whether that slowness originates upstream (OpenAI
+  // streaming sub-realtime) or on our side. Tracked per response: delta count,
+  // total PCM bytes, first/last arrival, and inter-delta gaps. At response.done
+  // we log the effective delivery rate vs real time — PCM16 mono @24kHz is
+  // 48000 bytes/sec, so rate < 1.0 means upstream can't keep up and no amount
+  // of client-side buffering can hide the stutter.
+  private audioDiagDeltas = 0;
+  private audioDiagBytes = 0;
+  private audioDiagFirstMs = 0;
+  private audioDiagLastMs = 0;
+  private audioDiagGapCount = 0;
+  private audioDiagMaxGapMs = 0;
+  private static readonly AUDIO_DIAG_GAP_WARN_MS = 150;
+  private static readonly REALTIME_BYTES_PER_SEC = 48_000; // PCM16 mono @ 24kHz
+
   constructor(deviceWs: WebSocket, deps: BridgeDeps) {
     this.deviceWs = deviceWs;
     this.deps = deps;
@@ -394,6 +412,7 @@ export class RealtimeBridge {
           const pcm24k = base64ToPcm16(ev.delta);
           this.deviceWs.send(pcm24k, { binary: true });
           this.setPhase('replying');
+          this.recordAudioDelta_(pcm24k.length);
         }
         break;
       }
@@ -402,6 +421,7 @@ export class RealtimeBridge {
         // deltas reach the device. Anything still queued from the previous
         // (cancelled) response has been ignored up to this point.
         this.dropResponseAudio = false;
+        this.resetAudioDiag_();
         log.info({ responseId: ev.response.id, sessionId: this.sessionId }, 'response.created');
         break;
       case 'response.function_call_arguments.done': {
@@ -454,6 +474,27 @@ export class RealtimeBridge {
           },
           'response.done',
         );
+        if (this.audioDiagDeltas > 0) {
+          const wallMs = this.audioDiagLastMs - this.audioDiagFirstMs;
+          const audioMs = (this.audioDiagBytes / RealtimeBridge.REALTIME_BYTES_PER_SEC) * 1000;
+          const rate = wallMs > 0 ? audioMs / wallMs : 0;
+          // rate < 1.0 ⇒ OpenAI streamed this response slower than real time
+          // (the device cannot help but stutter). rate ≥ 1.0 ⇒ upstream was
+          // fast enough and any stutter is downstream of here.
+          log.debug(
+            {
+              responseId,
+              deltas: this.audioDiagDeltas,
+              audioMs: Math.round(audioMs),
+              wallMs,
+              rate: Number(rate.toFixed(2)),
+              gaps: this.audioDiagGapCount,
+              maxGapMs: this.audioDiagMaxGapMs,
+              sessionId: this.sessionId,
+            },
+            'openai audio delivery',
+          );
+        }
         if (!hasRealToolCall) {
           // No follow-up response will be requested — drop back to idle, but
           // only if we're still in the turn this response.done belongs to
@@ -570,6 +611,42 @@ export class RealtimeBridge {
 
   private sendDevice(msg: ServerMessage): void {
     this.deviceWs.send(encodeServerMessage(msg));
+  }
+
+  /** Diagnostics only. Track one OpenAI→bridge audio delta (already past the
+   * drop filter) so response.done can report the effective delivery rate. */
+  private recordAudioDelta_(byteLength: number): void {
+    const now = Date.now();
+    if (this.audioDiagFirstMs === 0) {
+      this.audioDiagFirstMs = now;
+    } else {
+      const gap = now - this.audioDiagLastMs;
+      if (gap > RealtimeBridge.AUDIO_DIAG_GAP_WARN_MS) {
+        this.audioDiagGapCount++;
+        if (gap > this.audioDiagMaxGapMs) {
+          this.audioDiagMaxGapMs = gap;
+        }
+        log.debug(
+          { gapMs: gap, deltaBytes: byteLength, sessionId: this.sessionId },
+          'openai audio delta gap',
+        );
+      }
+    }
+    this.audioDiagLastMs = now;
+    this.audioDiagDeltas++;
+    this.audioDiagBytes += byteLength;
+  }
+
+  /** Reset the per-response audio diagnostics. Called on response.created so
+   * each response (preamble vs post-tool-call follow-up) is measured on its
+   * own. */
+  private resetAudioDiag_(): void {
+    this.audioDiagDeltas = 0;
+    this.audioDiagBytes = 0;
+    this.audioDiagFirstMs = 0;
+    this.audioDiagLastMs = 0;
+    this.audioDiagGapCount = 0;
+    this.audioDiagMaxGapMs = 0;
   }
 
   /** Update the phase LED on the device. Dedupes — repeated same-phase
