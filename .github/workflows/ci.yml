@@ -107,3 +107,32 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Telegram ping once the main build settles — green or red. Runs only on
+  # main (push / manual), never on PRs. `if: always()` so a failed upstream
+  # job still triggers it; we inspect needs.*.result to pick the message.
+  notify:
+    needs: [lint, typecheck, test, format, build]
+    if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Telegram
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$FAILED" = "true" ]; then
+            status="❌ voice-assistant CI failed"
+          else
+            status="✅ voice-assistant CI passed — image pushed to ghcr"
+          fi
+          first_line=$(printf '%s' "$COMMIT_MSG" | head -n1)
+          text=$(printf '%s\nmain @ %s — %s\n%s' "$status" "${GITHUB_SHA:0:7}" "$first_line" "$RUN_URL")
+          curl -sS --fail -X POST \
+            "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            --data-urlencode "text=${text}" \
+            --data-urlencode "disable_web_page_preview=true"
