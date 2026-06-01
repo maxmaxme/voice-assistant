@@ -36,27 +36,48 @@ function defaultSdkClientFactory({ url, token }: { url: string; token: string })
 }
 
 export class HaMcpClient implements McpClient {
-  private sdk: SdkLike;
+  private sdk: SdkLike | null = null;
+  private readonly factory: (opts: { url: string; token: string }) => SdkLike;
+  private readonly clientOpts: { url: string; token: string };
 
   constructor(opts: HaMcpClientOptions) {
-    const factory = opts.sdkClientFactory ?? defaultSdkClientFactory;
-    this.sdk = factory({ url: opts.url, token: opts.token });
+    this.factory = opts.sdkClientFactory ?? defaultSdkClientFactory;
+    this.clientOpts = { url: opts.url, token: opts.token };
   }
 
   async connect(): Promise<void> {
-    await this.sdk.connect();
+    // Build a FRESH client + transport on every attempt. The SDK's
+    // StreamableHTTPClientTransport can only be started once — calling
+    // connect() again on a transport whose first start failed throws
+    // "transport already started" / "Already connected to a transport".
+    // That made the retry loop in shared.ts unable to recover from ANY
+    // transient first-attempt failure (wrong HA_URL, or HA not up yet at
+    // boot): the first failure poisoned every subsequent retry. A new
+    // transport per attempt makes the retries actually retry.
+    const sdk = this.factory(this.clientOpts);
+    await sdk.connect();
+    this.sdk = sdk;
+  }
+
+  private requireSdk(): SdkLike {
+    if (this.sdk === null) {
+      throw new Error('HaMcpClient used before a successful connect()');
+    }
+    return this.sdk;
   }
 
   async listTools(): Promise<McpTool[]> {
-    const res = await this.sdk.listTools();
+    const res = await this.requireSdk().listTools();
     return res.tools;
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<McpToolResult> {
-    return this.sdk.callTool({ name, arguments: args });
+    return this.requireSdk().callTool({ name, arguments: args });
   }
 
   async disconnect(): Promise<void> {
-    await this.sdk.close();
+    if (this.sdk !== null) {
+      await this.sdk.close();
+    }
   }
 }
