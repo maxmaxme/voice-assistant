@@ -41,7 +41,7 @@ describe('mcpToolsToOpenAi', () => {
     ];
     const [out] = mcpToolsToOpenAi(mcp);
     expect(out!.description.startsWith('Set target temperature')).toBe(true);
-    expect(out!.description).toMatch(/automation/);
+    expect(out!.description).toMatch(/IR-controlled/);
   });
 
   it('handles empty list', () => {

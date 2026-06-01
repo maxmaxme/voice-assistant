@@ -1,10 +1,13 @@
-**For CLIMATE entities** (an `Air Conditioner` and similar): this resumes the unit's LAST `hvac_mode`. In this house
-there is an HA automation that auto-picks cool/heat based on the room-vs-target delta whenever the target temperature is
-changed — so the usual pattern "turn on the AC to 22" is:
+**For CLIMATE entities (air conditioners):** do NOT use `HassTurnOn` to "power it
+on in its last mode" — that leaves the HVAC mode to chance and can leave a unit
+heating a warm room. Each AC has dedicated per-mode intents that switch _that_
+unit to cool / heat / dry / fan-only / auto (you'll see them in your tools, with
+the room/unit named in each description); every one of them powers the unit on as
+a side effect. Prefer them over a bare `HassTurnOn`.
 
-1. `HassTurnOn` (powers it on, last mode for a moment)
-2. `HassClimateSetTemperature(22)` (target changes → automation switches to cool or heat as appropriate)
-
-Both calls in the same turn. The intermediate "last mode" is short-lived; do NOT warn the user about it.
-
-If the user said "just turn on the AC" with no temperature, just call `HassTurnOn` — last mode is the right default.
+- "Set the <room> AC to 22" → see `HassClimateSetTemperature`: pick cool or heat
+  from that room's temperature, then set the temperature.
+- "Just turn on the <room> AC" with no temperature and no hot/cold hint → still
+  prefer that AC's cool or heat mode intent based on the current room temperature
+  (read it with `GetLiveContext` if unsure). Fall back to a bare `HassTurnOn`
+  only if you truly cannot tell which is wanted.
