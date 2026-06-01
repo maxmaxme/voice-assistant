@@ -7,8 +7,8 @@
  * CPU (idle), and the bridge forwarding (immediate) are all healthy — which
  * leaves OpenAI's own generation pace as the suspect, governed by the model
  * id and `reasoning.effort`. Deploying the whole container to test that is slow
- * and the symptom flakes ("то норм, то нет"), so this script hammers the API
- * directly and prints the delivery rate per run.
+ * and the symptom flakes ("sometimes fine, sometimes not"), so this script
+ * hammers the API directly and prints the delivery rate per run.
  *
  * It sends a TEXT prompt and asks for an AUDIO response, then times the
  * `response.output_audio.delta` stream. Output-generation pace is what we're
@@ -88,7 +88,7 @@ const VOICE = env('VOICE', env('OPENAI_REALTIME_VOICE', 'marin'));
 const REASONING = process.env.REASONING; // undefined → don't set reasoning at all
 const PROMPT = env(
   'PROMPT',
-  'Расскажи подробную интересную историю про умный дом, примерно на минуту, без пауз.',
+  'Tell a detailed, engaging story about a smart home, roughly a minute long, without pauses.',
 );
 const RUNS = Number.parseInt(env('RUNS', '3'), 10);
 const MODE = env('MODE', 'cold'); // 'cold' | 'warm'
