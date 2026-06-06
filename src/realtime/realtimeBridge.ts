@@ -117,8 +117,16 @@ export class RealtimeBridge {
   private audioDiagLastMs = 0;
   private audioDiagGapCount = 0;
   private audioDiagMaxGapMs = 0;
+  // Loud-garbage detector: counts deltas where most samples sit near full
+  // scale. Real speech peaks but doesn't sustain near ±32767; white-noise
+  // garbage does. If the bridge logs noisy chunks, the corruption is upstream
+  // (OpenAI / this process); if it stays 0 while the speaker still hisses, the
+  // garbage is introduced device-side (firmware ring / resampler / DAC).
+  private audioDiagNoisyChunks = 0;
   private static readonly AUDIO_DIAG_GAP_WARN_MS = 150;
   private static readonly REALTIME_BYTES_PER_SEC = 48_000; // PCM16 mono @ 24kHz
+  private static readonly AUDIO_DIAG_NOISE_LEVEL = 19_660; // ~0.6 × 32767
+  private static readonly AUDIO_DIAG_NOISE_RATIO = 0.5; // share of samples above level
 
   constructor(deviceWs: WebSocket, deps: BridgeDeps) {
     this.deviceWs = deviceWs;
@@ -412,7 +420,7 @@ export class RealtimeBridge {
           const pcm24k = base64ToPcm16(ev.delta);
           this.deviceWs.send(pcm24k, { binary: true });
           this.setPhase('replying');
-          this.recordAudioDelta_(pcm24k.length);
+          this.recordAudioDelta_(pcm24k);
         }
         break;
       }
@@ -490,10 +498,25 @@ export class RealtimeBridge {
               rate: Number(rate.toFixed(2)),
               gaps: this.audioDiagGapCount,
               maxGapMs: this.audioDiagMaxGapMs,
+              noisyChunks: this.audioDiagNoisyChunks,
               sessionId: this.sessionId,
             },
             'openai audio delivery',
           );
+          if (this.audioDiagNoisyChunks > 0) {
+            // Visible at default (info) level: OpenAI actually streamed
+            // near-full-scale (noise-like) audio. If this fires while the
+            // speaker hisses, the garbage is upstream, not device-side.
+            log.warn(
+              {
+                responseId,
+                noisyChunks: this.audioDiagNoisyChunks,
+                deltas: this.audioDiagDeltas,
+                sessionId: this.sessionId,
+              },
+              'openai sent noise-like audio this response',
+            );
+          }
         }
         if (!hasRealToolCall) {
           // No follow-up response will be requested — drop back to idle, but
@@ -614,8 +637,10 @@ export class RealtimeBridge {
   }
 
   /** Diagnostics only. Track one OpenAI→bridge audio delta (already past the
-   * drop filter) so response.done can report the effective delivery rate. */
-  private recordAudioDelta_(byteLength: number): void {
+   * drop filter): inter-arrival gap for the delivery-rate metric, plus a
+   * loud-garbage check so we can tell whether noise originates upstream. */
+  private recordAudioDelta_(pcm: Buffer): void {
+    const byteLength = pcm.length;
     const now = Date.now();
     if (this.audioDiagFirstMs === 0) {
       this.audioDiagFirstMs = now;
@@ -635,6 +660,33 @@ export class RealtimeBridge {
     this.audioDiagLastMs = now;
     this.audioDiagDeltas++;
     this.audioDiagBytes += byteLength;
+
+    // Loud-garbage check. Sample every 4th PCM16 frame (stride 8 bytes) and
+    // count how many sit near full scale; a chunk that's mostly near-max is
+    // noise, not speech.
+    const samples = Math.floor(byteLength / 2);
+    if (samples > 0) {
+      let scanned = 0;
+      let loud = 0;
+      for (let i = 0; i + 1 < byteLength; i += 8) {
+        const s = pcm.readInt16LE(i);
+        scanned++;
+        if (
+          s > RealtimeBridge.AUDIO_DIAG_NOISE_LEVEL ||
+          s < -RealtimeBridge.AUDIO_DIAG_NOISE_LEVEL
+        ) {
+          loud++;
+        }
+      }
+      const ratio = scanned > 0 ? loud / scanned : 0;
+      if (ratio >= RealtimeBridge.AUDIO_DIAG_NOISE_RATIO) {
+        this.audioDiagNoisyChunks++;
+        log.debug(
+          { ratio: Number(ratio.toFixed(2)), bytes: byteLength, sessionId: this.sessionId },
+          'openai sent a near-full-scale (noise-like) audio chunk',
+        );
+      }
+    }
   }
 
   /** Reset the per-response audio diagnostics. Called on response.created so
@@ -647,6 +699,7 @@ export class RealtimeBridge {
     this.audioDiagLastMs = 0;
     this.audioDiagGapCount = 0;
     this.audioDiagMaxGapMs = 0;
+    this.audioDiagNoisyChunks = 0;
   }
 
   /** Update the phase LED on the device. Dedupes — repeated same-phase
