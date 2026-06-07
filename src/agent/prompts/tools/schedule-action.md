@@ -13,8 +13,9 @@ fire-time assistant will need (e.g. "turn on the kitchen light at 08:00").
   timezone. Examples: `"0 8 * * *"` (daily 08:00), `"30 7 * * 1-5"` (weekdays 07:30), `"*/15 * * * *"` (every 15
   minutes).
 
-NEVER guess the date/time. If the user says "tomorrow at 9am" / "in 5 minutes", translate to the actual calendar date
-based on the current time the system tells you.
+NEVER guess the date/time, and do NOT trust the current time in your context — it is set once when the session starts
+and may be stale by the time the user speaks. Before translating any relative or absolute time ("tomorrow at 9am",
+"in 5 minutes", "tonight"), call `GetDateTime` to read the real current time, then compute `schedule_expr` from that.
 
 ## Delivery at fire time — write `goal` as the content, NOT "send to Telegram"
 
