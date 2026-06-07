@@ -1,34 +1,32 @@
-import type Database from 'better-sqlite3';
+import { eq } from 'drizzle-orm';
+import type { Db } from './db.ts';
+import { telegramSessions } from './schema.ts';
 import type { PendingToolOutput, TelegramSessionRecord, TelegramSessionsAdapter } from './types.ts';
 
-interface Row {
-  chat_id: number;
-  last_response_id: string | null;
-  pending_ask_call_id: string | null;
-  pending_tool_outputs: string | null;
-}
-
 export class SqliteTelegramSessions implements TelegramSessionsAdapter {
-  private readonly db: Database.Database;
+  private readonly db: Db;
 
-  constructor(db: Database.Database) {
+  constructor(db: Db) {
     this.db = db;
   }
 
   get(chatId: number): TelegramSessionRecord | null {
     const row = this.db
-      .prepare<number, Row>(
-        `SELECT chat_id, last_response_id, pending_ask_call_id, pending_tool_outputs
-         FROM telegram_sessions WHERE chat_id = ?`,
-      )
-      .get(chatId);
+      .select({
+        lastResponseId: telegramSessions.lastResponseId,
+        pendingAskCallId: telegramSessions.pendingAskCallId,
+        pendingToolOutputs: telegramSessions.pendingToolOutputs,
+      })
+      .from(telegramSessions)
+      .where(eq(telegramSessions.chatId, chatId))
+      .get();
     if (!row) {
       return null;
     }
     return {
-      lastResponseId: row.last_response_id ?? undefined,
-      pendingAskCallId: row.pending_ask_call_id ?? undefined,
-      pendingToolOutputs: parsePendingOutputs(row.pending_tool_outputs),
+      lastResponseId: row.lastResponseId ?? undefined,
+      pendingAskCallId: row.pendingAskCallId ?? undefined,
+      pendingToolOutputs: parsePendingOutputs(row.pendingToolOutputs),
     };
   }
 
@@ -37,28 +35,30 @@ export class SqliteTelegramSessions implements TelegramSessionsAdapter {
       record.pendingToolOutputs && record.pendingToolOutputs.length > 0
         ? JSON.stringify(record.pendingToolOutputs)
         : null;
+    const values = {
+      chatId,
+      lastResponseId: record.lastResponseId ?? null,
+      pendingAskCallId: record.pendingAskCallId ?? null,
+      pendingToolOutputs: outputsJson,
+      updatedAt: Date.now(),
+    };
     this.db
-      .prepare(
-        `INSERT INTO telegram_sessions
-           (chat_id, last_response_id, pending_ask_call_id, pending_tool_outputs, updated_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(chat_id) DO UPDATE SET
-           last_response_id     = excluded.last_response_id,
-           pending_ask_call_id  = excluded.pending_ask_call_id,
-           pending_tool_outputs = excluded.pending_tool_outputs,
-           updated_at           = excluded.updated_at`,
-      )
-      .run(
-        chatId,
-        record.lastResponseId ?? null,
-        record.pendingAskCallId ?? null,
-        outputsJson,
-        Date.now(),
-      );
+      .insert(telegramSessions)
+      .values(values)
+      .onConflictDoUpdate({
+        target: telegramSessions.chatId,
+        set: {
+          lastResponseId: values.lastResponseId,
+          pendingAskCallId: values.pendingAskCallId,
+          pendingToolOutputs: values.pendingToolOutputs,
+          updatedAt: values.updatedAt,
+        },
+      })
+      .run();
   }
 
   delete(chatId: number): void {
-    this.db.prepare('DELETE FROM telegram_sessions WHERE chat_id = ?').run(chatId);
+    this.db.delete(telegramSessions).where(eq(telegramSessions.chatId, chatId)).run();
   }
 }
 
