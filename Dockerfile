@@ -18,6 +18,8 @@ RUN npm ci --omit=dev
 # no tsc, no dist).
 COPY src ./src
 COPY tsconfig.json ./
+# Drizzle migration files, read at runtime by applyMigrations().
+COPY drizzle ./drizzle
 
 # Persistent state lives on a host-mounted volume; create the mountpoint.
 RUN mkdir -p /app/data && chown -R node:node /app
