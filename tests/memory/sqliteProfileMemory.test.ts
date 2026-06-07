@@ -1,15 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import Database from 'better-sqlite3';
-import { runMigrations } from '../../src/memory/migrate.ts';
+import { freshTestDb, type TestDb } from './helpers.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 
 describe('SqliteProfileMemory', () => {
+  let h: TestDb;
   let m: SqliteProfileMemory;
 
   beforeEach(() => {
-    m = new SqliteProfileMemory({ dbPath: ':memory:' });
+    h = freshTestDb();
+    m = new SqliteProfileMemory(h.db);
   });
-  afterEach(() => m.close());
+  afterEach(() => h.sqlite.close());
 
   it('starts empty', () => {
     expect(m.recall()).toEqual({});
@@ -48,16 +49,14 @@ describe('SqliteProfileMemory', () => {
     expect(m.recall()).toEqual({ list: [1, 2, 3], flag: true });
   });
 
-  it('accepts an externally-owned Database', () => {
-    const db = new Database(':memory:');
-    db.pragma('journal_mode = WAL');
-    runMigrations(db);
-    const m = new SqliteProfileMemory({ db });
-    m.remember('x', 1);
-    expect(m.recall()).toEqual({ x: 1 });
+  it('accepts an externally-owned db; close() does not close it', () => {
+    const { sqlite, db } = freshTestDb();
+    const store = new SqliteProfileMemory(db);
+    store.remember('x', 1);
+    expect(store.recall()).toEqual({ x: 1 });
     // close() must NOT close the externally-owned db
-    m.close();
-    expect(() => db.prepare('SELECT 1').get()).not.toThrow();
-    db.close();
+    store.close();
+    expect(() => sqlite.prepare('SELECT 1').get()).not.toThrow();
+    sqlite.close();
   });
 });

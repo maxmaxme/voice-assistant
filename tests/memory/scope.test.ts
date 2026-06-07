@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import Database from 'better-sqlite3';
-import { runMigrations } from '../../src/memory/migrate.ts';
+import { freshTestDb } from './helpers.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import {
   makeScopedProfile,
@@ -11,9 +10,7 @@ import {
 } from '../../src/memory/scope.ts';
 
 function store(): SqliteProfileMemory {
-  const db = new Database(':memory:');
-  runMigrations(db);
-  return new SqliteProfileMemory({ db });
+  return new SqliteProfileMemory(freshTestDb().db);
 }
 
 describe('scope', () => {
@@ -40,7 +37,7 @@ describe('scope', () => {
     expect(m.recallFor([personalOwner(7)])).toEqual({});
   });
 
-  it('a second principal does not see the first principal’s personal; household is shared', () => {
+  it("a second principal does not see the first principal's personal; household is shared", () => {
     const m = store();
     m.rememberFor(HOUSEHOLD_OWNER, 'tv', 'Samsung');
     const a = makeScopedProfile(m, { userId: 7 });

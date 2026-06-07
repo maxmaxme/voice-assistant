@@ -1,12 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import Database from 'better-sqlite3';
-import { runMigrations } from '../../src/memory/migrate.ts';
+import { freshTestDb } from './helpers.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 
 function freshStore(): SqliteProfileMemory {
-  const db = new Database(':memory:');
-  runMigrations(db);
-  return new SqliteProfileMemory({ db });
+  return new SqliteProfileMemory(freshTestDb().db);
 }
 
 describe('SqliteProfileMemory owner-aware primitives', () => {

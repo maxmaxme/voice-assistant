@@ -1,36 +1,27 @@
-import Database from 'better-sqlite3';
-import { runMigrations } from './migrate.ts';
+import { and, eq } from 'drizzle-orm';
+import type { Db } from './db.ts';
+import { profile } from './schema.ts';
 import { HOUSEHOLD_OWNER } from './scope.ts';
 import type { MemoryAdapter, ProfileFacts } from './types.ts';
 
-export type SqliteProfileMemoryOptions =
-  | { dbPath: string; db?: undefined }
-  | { db: Database.Database; dbPath?: undefined };
-
 export class SqliteProfileMemory implements MemoryAdapter {
-  private readonly db: Database.Database;
-  private readonly ownsDb: boolean;
+  private readonly db: Db;
 
-  constructor(opts: SqliteProfileMemoryOptions) {
-    if (opts.db) {
-      this.db = opts.db;
-      this.ownsDb = false;
-    } else {
-      this.db = new Database(opts.dbPath);
-      this.db.pragma('journal_mode = WAL');
-      this.ownsDb = true;
-    }
-    runMigrations(this.db);
+  constructor(db: Db) {
+    this.db = db;
   }
 
   rememberFor(owner: string, key: string, value: unknown): void {
+    const json = JSON.stringify(value);
+    const now = Date.now();
     this.db
-      .prepare(
-        `INSERT INTO profile (owner, key, value, updated_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(owner, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-      )
-      .run(owner, key, JSON.stringify(value), Date.now());
+      .insert(profile)
+      .values({ owner, key, value: json, updatedAt: now })
+      .onConflictDoUpdate({
+        target: [profile.owner, profile.key],
+        set: { value: json, updatedAt: now },
+      })
+      .run();
   }
 
   /** Read the union of `owners`. Owners are applied in order, so a later
@@ -40,21 +31,19 @@ export class SqliteProfileMemory implements MemoryAdapter {
     for (const owner of owners) {
       if (key !== undefined) {
         const row = this.db
-          .prepare<
-            [string, string],
-            { value: string }
-          >('SELECT value FROM profile WHERE owner = ? AND key = ?')
-          .get(owner, key);
+          .select({ value: profile.value })
+          .from(profile)
+          .where(and(eq(profile.owner, owner), eq(profile.key, key)))
+          .get();
         if (row) {
           out[key] = JSON.parse(row.value);
         }
       } else {
         const rows = this.db
-          .prepare<
-            [string],
-            { key: string; value: string }
-          >('SELECT key, value FROM profile WHERE owner = ?')
-          .all(owner);
+          .select({ key: profile.key, value: profile.value })
+          .from(profile)
+          .where(eq(profile.owner, owner))
+          .all();
         for (const r of rows) {
           out[r.key] = JSON.parse(r.value);
         }
@@ -64,7 +53,10 @@ export class SqliteProfileMemory implements MemoryAdapter {
   }
 
   forgetFor(owner: string, key: string): void {
-    this.db.prepare('DELETE FROM profile WHERE owner = ? AND key = ?').run(owner, key);
+    this.db
+      .delete(profile)
+      .where(and(eq(profile.owner, owner), eq(profile.key, key)))
+      .run();
   }
 
   // --- back-compat MemoryAdapter: household scope ---
@@ -81,8 +73,6 @@ export class SqliteProfileMemory implements MemoryAdapter {
   }
 
   close(): void {
-    if (this.ownsDb) {
-      this.db.close();
-    }
+    // DB lifecycle is owned by openMemoryStore (memoryStore.ts); nothing to do.
   }
 }
