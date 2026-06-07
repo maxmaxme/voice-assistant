@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import Database from 'better-sqlite3';
-import { runMigrations } from '../../src/memory/migrate.ts';
+import { freshTestDb, type TestDb } from './helpers.ts';
 import { SqliteScheduledActions } from '../../src/memory/sqliteScheduledActions.ts';
 import type { NewScheduledAction } from '../../src/memory/types.ts';
 
 describe('SqliteScheduledActions', () => {
-  let db: Database.Database;
+  let h: TestDb;
   let s: SqliteScheduledActions;
 
   // Default owner for the single-user cases; owner-scoping has its own tests.
@@ -13,11 +12,10 @@ describe('SqliteScheduledActions', () => {
     s.add({ ownerUserId: 1, ...input });
 
   beforeEach(() => {
-    db = new Database(':memory:');
-    runMigrations(db);
-    s = new SqliteScheduledActions(db);
+    h = freshTestDb();
+    s = new SqliteScheduledActions(h.db);
   });
-  afterEach(() => db.close());
+  afterEach(() => h.sqlite.close());
 
   it('starts empty', () => {
     expect(s.listActiveForOwner(1)).toEqual([]);

@@ -1,37 +1,29 @@
-import type Database from 'better-sqlite3';
+import { and, asc, eq, inArray, lte } from 'drizzle-orm';
+import type { Db } from './db.ts';
+import { scheduledActions } from './schema.ts';
 import type { Schedule } from '../scheduling/types.ts';
 import type { NewScheduledAction, ScheduledAction, ScheduledActionsAdapter } from './types.ts';
 
-interface Row {
-  id: number;
-  goal: string;
-  schedule_kind: 'once' | 'cron';
-  schedule_expr: string;
-  status: ScheduledAction['status'];
-  next_fire_at: number;
-  last_fired_at: number | null;
-  created_at: number;
-  owner_user_id: number;
-}
+type Row = typeof scheduledActions.$inferSelect;
 
-const toSchedule = (kind: Row['schedule_kind'], expr: string): Schedule =>
+const toSchedule = (kind: Row['scheduleKind'], expr: string): Schedule =>
   kind === 'once' ? { kind: 'once', at: Number(expr) } : { kind: 'cron', expr };
 
 const toScheduledAction = (r: Row): ScheduledAction => ({
   id: r.id,
   goal: r.goal,
-  schedule: toSchedule(r.schedule_kind, r.schedule_expr),
+  schedule: toSchedule(r.scheduleKind, r.scheduleExpr),
   status: r.status,
-  nextFireAt: r.next_fire_at,
-  lastFiredAt: r.last_fired_at,
-  createdAt: r.created_at,
-  ownerUserId: r.owner_user_id,
+  nextFireAt: r.nextFireAt,
+  lastFiredAt: r.lastFiredAt,
+  createdAt: r.createdAt,
+  ownerUserId: r.ownerUserId,
 });
 
 export class SqliteScheduledActions implements ScheduledActionsAdapter {
-  private readonly db: Database.Database;
+  private readonly db: Db;
 
-  constructor(db: Database.Database) {
+  constructor(db: Db) {
     this.db = db;
   }
 
@@ -39,79 +31,83 @@ export class SqliteScheduledActions implements ScheduledActionsAdapter {
     const now = Date.now();
     const kind = input.schedule.kind;
     const expr = input.schedule.kind === 'once' ? String(input.schedule.at) : input.schedule.expr;
-    const result = this.db
-      .prepare(
-        `INSERT INTO scheduled_actions
-           (goal, schedule_kind, schedule_expr, status, next_fire_at, created_at, owner_user_id)
-         VALUES (?, ?, ?, 'active', ?, ?, ?)`,
-      )
-      .run(input.goal, kind, expr, input.nextFireAt, now, input.ownerUserId);
-    return this.get(Number(result.lastInsertRowid))!;
+    const row = this.db
+      .insert(scheduledActions)
+      .values({
+        goal: input.goal,
+        scheduleKind: kind,
+        scheduleExpr: expr,
+        status: 'active',
+        nextFireAt: input.nextFireAt,
+        createdAt: now,
+        ownerUserId: input.ownerUserId,
+      })
+      .returning()
+      .get();
+    return toScheduledAction(row);
   }
 
   listActiveForOwner(userId: number): ScheduledAction[] {
-    const rows = this.db
-      .prepare<
-        [number],
-        Row
-      >(`SELECT * FROM scheduled_actions WHERE status = 'active' AND owner_user_id = ? ORDER BY next_fire_at ASC`)
-      .all(userId);
-    return rows.map(toScheduledAction);
+    return this.db
+      .select()
+      .from(scheduledActions)
+      .where(and(eq(scheduledActions.status, 'active'), eq(scheduledActions.ownerUserId, userId)))
+      .orderBy(asc(scheduledActions.nextFireAt))
+      .all()
+      .map(toScheduledAction);
   }
 
   listDue(now: number): ScheduledAction[] {
-    const rows = this.db
-      .prepare<number, Row>(
-        `SELECT * FROM scheduled_actions
-         WHERE status = 'active' AND next_fire_at <= ?
-         ORDER BY next_fire_at ASC`,
-      )
-      .all(now);
-    return rows.map(toScheduledAction);
+    return this.db
+      .select()
+      .from(scheduledActions)
+      .where(and(eq(scheduledActions.status, 'active'), lte(scheduledActions.nextFireAt, now)))
+      .orderBy(asc(scheduledActions.nextFireAt))
+      .all()
+      .map(toScheduledAction);
   }
 
   markFired(id: number, at: number, nextFireAt: number | null): void {
     if (nextFireAt === null) {
       this.db
-        .prepare(
-          `UPDATE scheduled_actions
-           SET status = 'done', last_fired_at = ?
-           WHERE id = ? AND status = 'active'`,
-        )
-        .run(at, id);
+        .update(scheduledActions)
+        .set({ status: 'done', lastFiredAt: at })
+        .where(and(eq(scheduledActions.id, id), eq(scheduledActions.status, 'active')))
+        .run();
     } else {
       this.db
-        .prepare(
-          `UPDATE scheduled_actions
-           SET next_fire_at = ?, last_fired_at = ?
-           WHERE id = ? AND status = 'active'`,
-        )
-        .run(nextFireAt, at, id);
+        .update(scheduledActions)
+        .set({ nextFireAt, lastFiredAt: at })
+        .where(and(eq(scheduledActions.id, id), eq(scheduledActions.status, 'active')))
+        .run();
     }
   }
 
   markError(id: number): void {
     this.db
-      .prepare(
-        `UPDATE scheduled_actions SET status = 'error' WHERE id = ? AND status IN ('active', 'done')`,
-      )
-      .run(id);
+      .update(scheduledActions)
+      .set({ status: 'error' })
+      .where(and(eq(scheduledActions.id, id), inArray(scheduledActions.status, ['active', 'done'])))
+      .run();
   }
 
   cancel(id: number, userId: number): boolean {
     const res = this.db
-      .prepare(
-        `UPDATE scheduled_actions SET status = 'cancelled'
-         WHERE id = ? AND owner_user_id = ? AND status = 'active'`,
+      .update(scheduledActions)
+      .set({ status: 'cancelled' })
+      .where(
+        and(
+          eq(scheduledActions.id, id),
+          eq(scheduledActions.ownerUserId, userId),
+          eq(scheduledActions.status, 'active'),
+        ),
       )
-      .run(id, userId);
+      .run();
     return res.changes > 0;
   }
 
   get(id: number): ScheduledAction | null {
-    const row = this.db
-      .prepare<number, Row>(`SELECT * FROM scheduled_actions WHERE id = ?`)
-      .get(id);
+    const row = this.db.select().from(scheduledActions).where(eq(scheduledActions.id, id)).get();
     return row ? toScheduledAction(row) : null;
   }
 }
