@@ -1,12 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import Database from 'better-sqlite3';
-import { runMigrations } from '../../src/memory/migrate.ts';
 import { IdentitiesStore, hashToken } from '../../src/memory/identities.ts';
 import { resolveHttpScope } from '../../src/cli/runners/http.ts';
+import { freshTestDb } from '../memory/helpers.ts';
 
 function ids(): IdentitiesStore {
-  const db = new Database(':memory:');
-  runMigrations(db);
+  const { db } = freshTestDb();
   return new IdentitiesStore(db);
 }
 

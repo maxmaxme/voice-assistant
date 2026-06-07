@@ -1,19 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import Database from 'better-sqlite3';
-import { runMigrations } from '../../src/memory/migrate.ts';
 import { IdentitiesStore } from '../../src/memory/identities.ts';
 import { resolveTelegramScope } from '../../src/cli/runners/telegram.ts';
+import { freshTestDb } from '../memory/helpers.ts';
+import type Database from 'better-sqlite3';
 
 function ids(): IdentitiesStore {
-  const db = new Database(':memory:');
-  runMigrations(db);
+  const { db } = freshTestDb();
   return new IdentitiesStore(db);
 }
 
 function idsWithDb(): { db: Database.Database; s: IdentitiesStore } {
-  const db = new Database(':memory:');
-  runMigrations(db);
-  return { db, s: new IdentitiesStore(db) };
+  const { sqlite, db } = freshTestDb();
+  return { db: sqlite, s: new IdentitiesStore(db) };
 }
 
 describe('resolveTelegramScope', () => {

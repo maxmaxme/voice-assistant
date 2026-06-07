@@ -2,13 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type OpenAI from 'openai';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
 import { PENDING_ASK_TTL_MS, Session } from '../../src/agent/session.ts';
-import Database from 'better-sqlite3';
-import { runMigrations } from '../../src/memory/migrate.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import { IdentitiesStore } from '../../src/memory/identities.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
 import type { MemoryStore } from '../../src/memory/types.ts';
 import type { TelegramSender } from '../../src/telegram/types.ts';
+import { freshTestDb } from '../memory/helpers.ts';
 
 const noopSender: TelegramSender = { send: async () => {} };
 const noopTelegram = { senderFor: () => noopSender };
@@ -26,9 +25,8 @@ function emptyMemory(): MemoryStore {
     cancel: () => false,
     get: () => null,
   };
-  const db = new Database(':memory:');
-  runMigrations(db);
-  const profileStore = new SqliteProfileMemory({ db });
+  const { db } = freshTestDb();
+  const profileStore = new SqliteProfileMemory(db);
   const identities = new IdentitiesStore(db);
   return {
     profile: {
@@ -255,7 +253,7 @@ describe('OpenAiAgent', () => {
 
   it('routes memory-tool calls to MemoryAdapter, not MCP', async () => {
     const mcp = fakeMcp();
-    const profile = new SqliteProfileMemory({ dbPath: ':memory:' });
+    const profile = new SqliteProfileMemory(freshTestDb().db);
     const memory: MemoryStore = {
       ...emptyMemory(),
       profile,
@@ -387,7 +385,7 @@ describe('OpenAiAgent', () => {
       // Turn 2: after the user answers, model finalises with text.
       textResponse('Got it.', 'resp_2'),
     ]);
-    const profile = new SqliteProfileMemory({ dbPath: ':memory:' });
+    const profile = new SqliteProfileMemory(freshTestDb().db);
     const memory: MemoryStore = {
       ...emptyMemory(),
       profile,

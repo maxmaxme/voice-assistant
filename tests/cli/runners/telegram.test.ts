@@ -10,12 +10,11 @@ import type {
 } from '../../../src/telegram/types.ts';
 import type { OpenAiAgent } from '../../../src/agent/openaiAgent.ts';
 import { Session } from '../../../src/agent/session.ts';
-import Database from 'better-sqlite3';
-import { runMigrations } from '../../../src/memory/migrate.ts';
 import { SqliteProfileMemory } from '../../../src/memory/sqliteProfileMemory.ts';
 import { IdentitiesStore } from '../../../src/memory/identities.ts';
 import { HOUSEHOLD_OWNER } from '../../../src/memory/scope.ts';
 import type { MemoryStore } from '../../../src/memory/types.ts';
+import { freshTestDb } from '../../memory/helpers.ts';
 
 interface FakeMemory {
   memory: MemoryStore;
@@ -27,9 +26,8 @@ interface FakeMemory {
  *  attaches each chat id as a `member` so `resolveTelegramScope` resolves it
  *  (i.e. the chat is allow-listed). Chats not listed resolve to null → dropped. */
 function fakeMemory(attachChats: number[] = [], adminChats: number[] = []): FakeMemory {
-  const db = new Database(':memory:');
-  runMigrations(db);
-  const profileStore = new SqliteProfileMemory({ db });
+  const { db } = freshTestDb();
+  const profileStore = new SqliteProfileMemory(db);
   const identities = new IdentitiesStore(db);
   for (const chatId of attachChats) {
     const u = identities.addUser('test');

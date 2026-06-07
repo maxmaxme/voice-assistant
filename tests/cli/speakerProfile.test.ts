@@ -1,15 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import Database from 'better-sqlite3';
-import { runMigrations } from '../../src/memory/migrate.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import { IdentitiesStore, hashToken } from '../../src/memory/identities.ts';
 import { HOUSEHOLD_OWNER, personalOwner } from '../../src/memory/scope.ts';
 import { speakerProfile } from '../../src/cli/unified.ts';
+import { freshTestDb } from '../memory/helpers.ts';
 
 function setup() {
-  const db = new Database(':memory:');
-  runMigrations(db);
-  return { db, store: new SqliteProfileMemory({ db }), ids: new IdentitiesStore(db) };
+  const { sqlite, db } = freshTestDb();
+  return { db: sqlite, store: new SqliteProfileMemory(db), ids: new IdentitiesStore(db) };
 }
 
 describe('speakerProfile', () => {

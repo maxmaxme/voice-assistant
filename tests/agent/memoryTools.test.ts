@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildMemoryTools, executeMemoryTool } from '../../src/agent/memoryTools.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
+import { freshTestDb } from '../memory/helpers.ts';
 
 describe('memoryTools', () => {
   it('exposes three function tools with sensible names', () => {
@@ -10,7 +11,8 @@ describe('memoryTools', () => {
   });
 
   it('executeMemoryTool routes calls', () => {
-    const m = new SqliteProfileMemory({ dbPath: ':memory:' });
+    const { db } = freshTestDb();
+    const m = new SqliteProfileMemory(db);
     try {
       executeMemoryTool(m, 'remember', { key: 'name', value: 'Maxim' });
       const out = executeMemoryTool(m, 'recall', {});
@@ -23,7 +25,8 @@ describe('memoryTools', () => {
   });
 
   it('throws on unknown tool', () => {
-    const m = new SqliteProfileMemory({ dbPath: ':memory:' });
+    const { db } = freshTestDb();
+    const m = new SqliteProfileMemory(db);
     try {
       expect(() => executeMemoryTool(m, 'does_not_exist', {})).toThrow();
     } finally {
