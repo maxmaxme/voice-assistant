@@ -25,8 +25,8 @@ describe('migration v7', () => {
     runMigrations(db);
     const userCols = db.prepare(`PRAGMA table_info(users)`).all() as { name: string }[];
     const idCols = db.prepare(`PRAGMA table_info(identities)`).all() as { name: string }[];
-    // v8 (run as part of the full chain here) drops the role column.
-    expect(userCols.map((c) => c.name).sort()).toEqual(['created_at', 'id', 'name']);
+    // v8 (run as part of the full chain here) drops the role column; v12 adds is_admin.
+    expect(userCols.map((c) => c.name).sort()).toEqual(['created_at', 'id', 'is_admin', 'name']);
     expect(idCols.map((c) => c.name).sort()).toEqual([
       'channel',
       'created_at',

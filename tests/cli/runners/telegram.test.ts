@@ -26,7 +26,7 @@ interface FakeMemory {
 /** Build an in-memory MemoryStore over a single migrated db. `attachChats`
  *  attaches each chat id as a `member` so `resolveTelegramScope` resolves it
  *  (i.e. the chat is allow-listed). Chats not listed resolve to null → dropped. */
-function fakeMemory(attachChats: number[] = []): FakeMemory {
+function fakeMemory(attachChats: number[] = [], adminChats: number[] = []): FakeMemory {
   const db = new Database(':memory:');
   runMigrations(db);
   const profileStore = new SqliteProfileMemory({ db });
@@ -34,6 +34,9 @@ function fakeMemory(attachChats: number[] = []): FakeMemory {
   for (const chatId of attachChats) {
     const u = identities.addUser('test');
     identities.attachIdentity('telegram', String(chatId), u);
+    if (adminChats.includes(chatId)) {
+      identities.setAdmin(u, true);
+    }
   }
   const memory: MemoryStore = {
     profile: {
@@ -70,8 +73,9 @@ function fakeMemory(attachChats: number[] = []): FakeMemory {
  *  allow-listed); any other chat resolves to null and is dropped. */
 function memDeps(
   attachChats: number[] = [],
+  adminChats: number[] = [],
 ): Pick<TelegramRunnerDeps, 'memory' | 'identities' | 'profileStore'> {
-  const fm = fakeMemory(attachChats);
+  const fm = fakeMemory(attachChats, adminChats);
   return { memory: fm.memory, identities: fm.identities, profileStore: fm.profileStore };
 }
 
@@ -331,11 +335,33 @@ describe('runTelegramMode', () => {
         sender: cap.sender,
         agent: { respond } as unknown as OpenAiAgent,
         sessionFor: sessionFactory().sessionFor,
-        ...memDeps([42]),
+        ...memDeps([42], [42]),
       });
       expect(respond).not.toHaveBeenCalled();
       expect(cap.sent[0]).toMatch(/starting.*update|🔄/i);
       expect(exec).toHaveBeenCalledWith('echo trigger > /tmp/va-update');
+    } finally {
+      platformSpy.mockRestore();
+    }
+  });
+
+  it('rejects /update from a non-admin without touching the FIFO', async () => {
+    const respond = vi.fn();
+    const cap = captureSender();
+    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    try {
+      await runTelegramMode({
+        receiver: recvFromMessages([
+          { updateId: 1, chatId: 42, fromUserId: 7, kind: 'text', text: '/update', receivedAt: 0 },
+        ]),
+        sender: cap.sender,
+        agent: { respond } as unknown as OpenAiAgent,
+        sessionFor: sessionFactory().sessionFor,
+        ...memDeps([42]),
+      });
+      expect(respond).not.toHaveBeenCalled();
+      expect(exec).not.toHaveBeenCalled();
+      expect(cap.sent[0]).toMatch(/admin/i);
     } finally {
       platformSpy.mockRestore();
     }
@@ -467,7 +493,7 @@ describe('runTelegramMode', () => {
         sender: cap.sender,
         agent: { respond } as unknown as OpenAiAgent,
         sessionFor: sessionFactory().sessionFor,
-        ...memDeps([42]),
+        ...memDeps([42], [42]),
       });
       expect(respond).not.toHaveBeenCalled();
       expect(cap.sent[0]).toMatch(/update only works on the pi/i);

@@ -221,4 +221,14 @@ export const MIGRATIONS: Migration[] = [
       INSERT OR IGNORE INTO schema_version (version) VALUES (11);
     `,
   },
+  {
+    version: 12,
+    sql: `
+      -- Mark which principals may run privileged Telegram commands (currently
+      -- just /update). NOT NULL DEFAULT 0 so every existing and new user is a
+      -- non-admin until explicitly promoted via 'npm run users -- set-admin'.
+      ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0;
+      INSERT OR IGNORE INTO schema_version (version) VALUES (12);
+    `,
+  },
 ];

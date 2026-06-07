@@ -4,5 +4,7 @@ Pass `null` to get the full profile. Pass a specific key (e.g. `"name"`, `"comfo
 just that one.
 
 Call this BEFORE asking the user something they may have already told you — name, address, preferred temperature, device
-nicknames. The profile is also injected into the system prompt on every turn, so most of the time you do not need to
-call `recall` explicitly; use it when you need a specific value mid-turn or want to confirm a key exists.
+nicknames. A snapshot of the profile is injected into the system prompt at the start of each conversation, so usually you
+already have it — but that snapshot can be stale within a long-running conversation (e.g. a fact you saved with
+`remember` earlier in the same conversation will not be in it). Call `recall` when you need the current value of a
+specific key or want to confirm a key exists.

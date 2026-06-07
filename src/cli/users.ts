@@ -56,9 +56,22 @@ export function runUsersCommand(identities: IdentitiesAdapter, args: string[]): 
       identities.attachIdentity('voice', hashToken(token), userId);
       return { userId, message: `attached voice device to user ${userId}` };
     }
+    case 'set-admin': {
+      const userId = Number(flag(args, 'user'));
+      if (!Number.isFinite(userId)) {
+        throw new Error('set-admin requires --user');
+      }
+      // Default to promoting; pass --admin false to demote.
+      const isAdmin = flag(args, 'admin') !== 'false';
+      identities.setAdmin(userId, isAdmin);
+      return {
+        userId,
+        message: `user ${userId} is now ${isAdmin ? 'an admin' : 'a non-admin'}`,
+      };
+    }
     default:
       throw new Error(
-        `unknown command "${cmd ?? ''}". Use: add-user | attach-telegram | attach-voice | mint-http`,
+        `unknown command "${cmd ?? ''}". Use: add-user | attach-telegram | attach-voice | mint-http | set-admin`,
       );
   }
 }

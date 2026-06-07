@@ -24,6 +24,11 @@ export interface IdentitiesAdapter {
   listTelegramUsers(): { userId: number; name: string; chatId: string }[];
   addUser(name: string): number;
   attachIdentity(channel: Channel, identity: string, userId: number): void;
+  /** Whether a user is allowed to run privileged commands (e.g. /update).
+   *  Unknown user → false. */
+  isAdmin(userId: number): boolean;
+  /** Promote/demote a user as admin. Missing user → no-op. */
+  setAdmin(userId: number, isAdmin: boolean): void;
   isEmpty(): boolean;
 }
 

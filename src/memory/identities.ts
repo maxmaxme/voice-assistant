@@ -66,6 +66,17 @@ export class IdentitiesStore implements IdentitiesAdapter {
       .run(channel, identity, userId, Date.now());
   }
 
+  isAdmin(userId: number): boolean {
+    const row = this.db
+      .prepare<[number], { is_admin: number }>(`SELECT is_admin FROM users WHERE id = ?`)
+      .get(userId);
+    return row?.is_admin === 1;
+  }
+
+  setAdmin(userId: number, isAdmin: boolean): void {
+    this.db.prepare(`UPDATE users SET is_admin = ? WHERE id = ?`).run(isAdmin ? 1 : 0, userId);
+  }
+
   isEmpty(): boolean {
     const row = this.db.prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM identities`).get();
     return row?.n === 0;

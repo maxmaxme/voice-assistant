@@ -43,7 +43,7 @@ const HELP_TEXT = `Personal-agent bot ready. Just type — I forward to the agen
 Commands:
   /reset — clear conversation context
   /profile — dump remembered profile
-  /update — pull latest image and restart
+  /update — pull latest image and restart (admins only)
   /help — show this`;
 
 export function resolveTelegramScope(identities: IdentitiesAdapter, chatId: number): Scope | null {
@@ -90,6 +90,7 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
         memory,
         profile: makeScopedProfile(deps.profileStore, scope),
         scope,
+        isAdmin: deps.identities.isAdmin(scope.userId),
         sender: replyer,
         voiceTranscriber,
         photoLoader,
@@ -115,6 +116,8 @@ async function handleMessage(
     memory: MemoryStore;
     profile: ScopedProfile;
     scope: Scope;
+    /** Whether the resolved principal may run privileged commands (/update). */
+    isAdmin: boolean;
     sender: TelegramSender;
     voiceTranscriber?: TelegramVoiceTranscriber;
     photoLoader?: TelegramPhotoLoader;
@@ -217,6 +220,10 @@ async function handleMessage(
     return;
   }
   if (text === '/update') {
+    if (!ctx.isAdmin) {
+      await ctx.sender.send('Sorry, /update is restricted to admins.');
+      return;
+    }
     if (process.platform !== 'linux') {
       await ctx.sender.send('Update only works on the Pi. Locally, restart manually.');
       return;

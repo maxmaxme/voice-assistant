@@ -46,6 +46,26 @@ describe('runUsersCommand', () => {
     expect(() => runUsersCommand(s, ['attach-voice', '--token', 'x'])).toThrow();
   });
 
+  it('users are non-admin by default', () => {
+    const s = ids();
+    const { userId } = runUsersCommand(s, ['add-user', '--name', 'Max']);
+    expect(s.isAdmin(userId!)).toBe(false);
+  });
+
+  it('set-admin promotes a user, and --admin false demotes', () => {
+    const s = ids();
+    const { userId } = runUsersCommand(s, ['add-user', '--name', 'Max']);
+    runUsersCommand(s, ['set-admin', '--user', String(userId)]);
+    expect(s.isAdmin(userId!)).toBe(true);
+    runUsersCommand(s, ['set-admin', '--user', String(userId), '--admin', 'false']);
+    expect(s.isAdmin(userId!)).toBe(false);
+  });
+
+  it('set-admin requires --user', () => {
+    const s = ids();
+    expect(() => runUsersCommand(s, ['set-admin'])).toThrow();
+  });
+
   it('throws on unknown command', () => {
     const s = ids();
     expect(() => runUsersCommand(s, ['frobnicate'])).toThrow();

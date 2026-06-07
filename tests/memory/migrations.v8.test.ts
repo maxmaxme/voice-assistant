@@ -9,7 +9,7 @@ describe('migration v8 — drop users.role', () => {
     const cols = (db.prepare(`PRAGMA table_info(users)`).all() as { name: string }[])
       .map((c) => c.name)
       .sort();
-    expect(cols).toEqual(['created_at', 'id', 'name']);
+    expect(cols).toEqual(['created_at', 'id', 'is_admin', 'name']);
   });
 
   it('preserves existing user rows (id + name) across the rebuild', () => {
@@ -57,7 +57,7 @@ describe('migration v8 — drop users.role', () => {
     const cols = (db.prepare(`PRAGMA table_info(users)`).all() as { name: string }[])
       .map((c) => c.name)
       .sort();
-    expect(cols).toEqual(['created_at', 'id', 'name']);
+    expect(cols).toEqual(['created_at', 'id', 'is_admin', 'name']);
     const row = db
       .prepare<
         [],
