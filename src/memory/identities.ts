@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import { and, asc, eq } from 'drizzle-orm';
+import type { Db } from './db.ts';
+import { identities, users } from './schema.ts';
 import type { Channel, IdentitiesAdapter, IdentityResolution } from './types.ts';
 
 /** Full sha256 hex of a bearer/device token. Raw tokens are never stored. */
@@ -8,77 +10,82 @@ export function hashToken(raw: string): string {
 }
 
 export class IdentitiesStore implements IdentitiesAdapter {
-  private readonly db: Database.Database;
+  private readonly db: Db;
 
-  constructor(db: Database.Database) {
+  constructor(db: Db) {
     this.db = db;
   }
 
   resolve(channel: Channel, identity: string): IdentityResolution | null {
     const row = this.db
-      .prepare<
-        [string, string],
-        { user_id: number }
-      >(`SELECT user_id FROM identities WHERE channel = ? AND identity = ?`)
-      .get(channel, identity);
-    return row ? { userId: row.user_id } : null;
+      .select({ userId: identities.userId })
+      .from(identities)
+      .where(and(eq(identities.channel, channel), eq(identities.identity, identity)))
+      .get();
+    return row ? { userId: row.userId } : null;
   }
 
   touch(channel: Channel, identity: string): void {
     this.db
-      .prepare(`UPDATE identities SET last_used_at = ? WHERE channel = ? AND identity = ?`)
-      .run(Date.now(), channel, identity);
+      .update(identities)
+      .set({ lastUsedAt: Date.now() })
+      .where(and(eq(identities.channel, channel), eq(identities.identity, identity)))
+      .run();
   }
 
   identityFor(channel: Channel, userId: number): string | null {
     const row = this.db
-      .prepare<
-        [string, number],
-        { identity: string }
-      >(`SELECT identity FROM identities WHERE channel = ? AND user_id = ? ORDER BY id LIMIT 1`)
-      .get(channel, userId);
+      .select({ identity: identities.identity })
+      .from(identities)
+      .where(and(eq(identities.channel, channel), eq(identities.userId, userId)))
+      .orderBy(asc(identities.id))
+      .limit(1)
+      .get();
     return row ? row.identity : null;
   }
 
   listTelegramUsers(): { userId: number; name: string; chatId: string }[] {
     return this.db
-      .prepare<[], { userId: number; name: string; chatId: string }>(
-        `SELECT i.user_id AS userId, u.name AS name, i.identity AS chatId
-         FROM identities i JOIN users u ON u.id = i.user_id
-         WHERE i.channel = 'telegram'
-         ORDER BY i.id`,
-      )
+      .select({ userId: identities.userId, name: users.name, chatId: identities.identity })
+      .from(identities)
+      .innerJoin(users, eq(users.id, identities.userId))
+      .where(eq(identities.channel, 'telegram'))
+      .orderBy(asc(identities.id))
       .all();
   }
 
   addUser(name: string): number {
-    const info = this.db
-      .prepare(`INSERT INTO users (name, created_at) VALUES (?, ?)`)
-      .run(name, Date.now());
-    return Number(info.lastInsertRowid);
+    const row = this.db
+      .insert(users)
+      .values({ name, createdAt: Date.now() })
+      .returning({ id: users.id })
+      .get();
+    return Number(row.id);
   }
 
   attachIdentity(channel: Channel, identity: string, userId: number): void {
-    this.db
-      .prepare(
-        `INSERT INTO identities (channel, identity, user_id, created_at) VALUES (?, ?, ?, ?)`,
-      )
-      .run(channel, identity, userId, Date.now());
+    this.db.insert(identities).values({ channel, identity, userId, createdAt: Date.now() }).run();
   }
 
   isAdmin(userId: number): boolean {
     const row = this.db
-      .prepare<[number], { is_admin: number }>(`SELECT is_admin FROM users WHERE id = ?`)
-      .get(userId);
-    return row?.is_admin === 1;
+      .select({ isAdmin: users.isAdmin })
+      .from(users)
+      .where(eq(users.id, userId))
+      .get();
+    return row?.isAdmin === 1;
   }
 
   setAdmin(userId: number, isAdmin: boolean): void {
-    this.db.prepare(`UPDATE users SET is_admin = ? WHERE id = ?`).run(isAdmin ? 1 : 0, userId);
+    this.db
+      .update(users)
+      .set({ isAdmin: isAdmin ? 1 : 0 })
+      .where(eq(users.id, userId))
+      .run();
   }
 
   isEmpty(): boolean {
-    const row = this.db.prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM identities`).get();
-    return row?.n === 0;
+    const row = this.db.select({ id: identities.id }).from(identities).limit(1).get();
+    return row === undefined;
   }
 }
