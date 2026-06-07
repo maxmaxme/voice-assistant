@@ -150,17 +150,17 @@ When adding a new tool with tool-specific rules, put those rules in a sibling `.
 
 ### Memory (`src/memory/`)
 
-Long-term profile. SQLite via `better-sqlite3`. `MemoryAdapter` interface; `SqliteProfileMemory` implementation; migrations live as **TS string constants** in `migrations.ts`. The runner skips migrations whose version is already in `schema_version` so DDL like `ALTER TABLE ADD COLUMN` is safe on repeated opens. The connection sets `busy_timeout = 5000` (`memoryStore.ts`) so a brief external write lock (e.g. an out-of-repo sqlite-web admin) doesn't make the app throw.
+Long-term profile. SQLite via **Drizzle ORM** (synchronous `drizzle-orm/better-sqlite3` driver) behind the `MemoryAdapter` interface; tables are declared in `schema.ts` and each store (`SqliteProfileMemory` etc.) takes a Drizzle `Db`. Schema migrations are drizzle-kit `.sql` files under `drizzle/`, applied on open by `applyMigrations()` in `db.ts`: a fresh DB runs the `0000_init` snapshot; the pre-Drizzle prod DB (which has a `schema_version` table at v12 but no drizzle journal) is handled by a **baseline shim** that seeds `__drizzle_migrations` so `migrate()` skips `0000_init` without re-creating existing tables. Add a migration by editing `schema.ts` then `npm run db:generate`. The connection sets `journal_mode = WAL` + `busy_timeout = 5000` (`memoryStore.ts`) so a brief external write lock (e.g. an out-of-repo sqlite-web admin) doesn't make the app throw.
 
 **Two memory scopes, DB-backed identities.** Memory is split into a shared
 `household` scope and per-principal `personal` scopes. **Every principal — a
 person OR a speaker — is uniform; there is no `member`/`shared` role.**
 
 - **`profile` table** has an `owner` column with composite PK `(owner, key)`.
-  `owner` is `'household'` or `'user:<id>'`. Migration v7 introduced it
-  (existing rows → `household`).
-- **`users(id, name, created_at)`** — principals (people and speakers).
-  Migration v8 dropped the old `role` column.
+  `owner` is `'household'` or `'user:<id>'` (rows with no explicit owner
+  default to `household`).
+- **`users(id, name, created_at, is_admin)`** — principals (people and
+  speakers). There is no `role` column — every principal is uniform.
 - **`identities(id, channel, identity, user_id, created_at, last_used_at, UNIQUE(channel, identity))`**
   — `channel ∈ {telegram, http, voice}`. `identity` is a Telegram chatId
   (raw) or the **sha256 hash** of an HTTP/voice bearer token. Raw tokens are
