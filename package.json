@@ -18,7 +18,9 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio"
   },
   "lint-staged": {
     "*.{ts,js}": [
@@ -39,6 +41,7 @@
     "@types/node": "^25.6.2",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.7",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^10.4.1",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.6.0",
@@ -54,6 +57,7 @@
     "better-sqlite3": "^12.10.0",
     "cron-parser": "^5.5.0",
     "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.22",
     "openai": "^6.39.1",
     "pino": "^10.3.1",
