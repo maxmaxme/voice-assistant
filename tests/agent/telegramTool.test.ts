@@ -201,12 +201,12 @@ describe('OpenAiAgent + telegram', () => {
       },
       {
         id: 'resp_2',
-        output_parsed: { speak: 'Sent.', direction: null },
+        output_parsed: { speak: 'Sent.' },
         output: [
           {
             type: 'message',
             role: 'assistant',
-            content: [{ type: 'output_text', text: '{"speak":"Sent.","direction":null}' }],
+            content: [{ type: 'output_text', text: '{"speak":"Sent."}' }],
           },
         ],
       },

@@ -11,7 +11,7 @@ function passingAgent(response: Partial<AgentResponse> = {}): Agent & { calls: s
     calls,
     respond: async (text: string): Promise<AgentResponse> => {
       calls.push(text);
-      return { text: 'done', direction: null, toolsUsed: [], ...response };
+      return { text: 'done', toolsUsed: [], ...response };
     },
   };
 }

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type OpenAI from 'openai';
 import { OpenAiAgent } from '../../src/agent/openaiAgent.ts';
 import { PENDING_ASK_TTL_MS, Session } from '../../src/agent/session.ts';
-import { CHAT_TEXT_FORMAT } from '../../src/agent/agentOutput.ts';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../src/memory/migrate.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
@@ -93,12 +92,8 @@ function fakeLlm(scripted: Array<unknown>) {
   };
 }
 
-function textResponse(
-  speak: string,
-  id = `resp_${Math.random().toString(36).slice(2, 8)}`,
-  direction: 'on' | 'off' | 'neutral' | null = null,
-) {
-  const output_parsed = { speak, direction };
+function textResponse(speak: string, id = `resp_${Math.random().toString(36).slice(2, 8)}`) {
+  const output_parsed = { speak };
   return {
     id,
     output_parsed,
@@ -110,13 +105,6 @@ function textResponse(
       },
     ],
   };
-}
-
-function silentConfirmResponse(
-  direction: 'on' | 'off' | 'neutral',
-  id = `resp_${Math.random().toString(36).slice(2, 8)}`,
-) {
-  return textResponse('', id, direction);
 }
 
 function fnCallResponse(
@@ -153,7 +141,6 @@ describe('OpenAiAgent', () => {
     });
     const res = await agent.respond('hello');
     expect(res.text).toBe('Hi there');
-    expect(res.direction).toBeNull();
     expect(llm.responses.create).toHaveBeenCalledOnce();
     const args = llm.calls[0]!;
     // First call in a fresh session sends instructions and no previous_response_id.
@@ -237,7 +224,6 @@ describe('OpenAiAgent', () => {
     });
     const res = await agent.respond('turn on the lamp');
     expect(res.text).toBe('Lamp is on.');
-    expect(res.direction).toBeNull();
     expect(mcp.callTool).toHaveBeenCalledWith('HassTurnOn', { name: 'Test Lamp' });
     // Second call (the tool-result loop) chains from the function_call response id.
     const second = llm.calls[1]!;
@@ -290,7 +276,6 @@ describe('OpenAiAgent', () => {
     });
     const res = await agent.respond('my name is Maxim');
     expect(res.text).toBe('Got it.');
-    expect(res.direction).toBeNull();
     expect(profile.recall()).toEqual({ name: 'Maxim' });
     expect(mcp.callTool).not.toHaveBeenCalled();
     memory.close();
@@ -306,7 +291,6 @@ describe('OpenAiAgent', () => {
       model: 'gpt-4o',
       llmClient: llm as never,
       telegram: noopTelegram,
-      textFormat: CHAT_TEXT_FORMAT,
       enableAsk: false,
     });
     await agent.respond('hello');
@@ -314,7 +298,7 @@ describe('OpenAiAgent', () => {
     expect(tools.find((t) => t.name === 'ask')).toBeUndefined();
   });
 
-  it('keeps the ask tool when enableAsk=true on a CHAT_TEXT_FORMAT channel (HTTP / Voice PE bridge)', async () => {
+  it('keeps the ask tool when enableAsk=true (HTTP / Voice PE bridge)', async () => {
     const llm = fakeLlm([textResponse('Hi', 'resp_1')]);
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
@@ -324,7 +308,6 @@ describe('OpenAiAgent', () => {
       model: 'gpt-4o',
       llmClient: llm as never,
       telegram: noopTelegram,
-      textFormat: CHAT_TEXT_FORMAT,
       enableAsk: true,
     });
     await agent.respond('hello');
@@ -463,30 +446,9 @@ describe('OpenAiAgent', () => {
     });
     const res = await agent.respond('turn on the light');
     expect(res.text).toBe('Where should I turn it on — in the kitchen or bedroom?');
-    expect(res.direction).toBeNull();
     expect(res.expectsFollowUp).toBe(true);
     expect(mcp.callTool).not.toHaveBeenCalled();
     expect(llm.responses.create).toHaveBeenCalledOnce();
-  });
-
-  it('returns direction from silent confirm JSON response', async () => {
-    const mcp = fakeMcp();
-    const llm = fakeLlm([
-      fnCallResponse('HassTurnOn', '{"name":"Test Lamp"}', 'call_1', 'resp_1'),
-      silentConfirmResponse('on', 'resp_2'),
-    ]);
-    const agent = new OpenAiAgent({
-      mcp,
-      memory: emptyMemory(),
-      session: new Session({ idleTimeoutMs: 60_000 }),
-      systemPrompt: 'sys',
-      model: 'gpt-4o',
-      llmClient: llm as never,
-      telegram: noopTelegram,
-    });
-    const res = await agent.respond('turn on the lamp');
-    expect(res.text).toBe('');
-    expect(res.direction).toBe('on');
   });
 
   it('strips <title=...> API artifact from speak text', async () => {

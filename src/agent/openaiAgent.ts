@@ -22,7 +22,7 @@ import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
 import { LOCAL_TOOL_NAMES, buildLocalTools, executeLocalTool } from './localTools.ts';
 import type { TelegramSender } from '../telegram/types.ts';
-import { VOICE_TEXT_FORMAT, CHAT_TEXT_FORMAT } from './agentOutput.ts';
+import { AGENT_TEXT_FORMAT } from './agentOutput.ts';
 import { getServerTimezone, toLocalIso } from '../utils/time.ts';
 import { createLogger } from '../utils/logger.ts';
 import { isValidContent } from '../utils/mcpContent.ts';
@@ -42,11 +42,6 @@ export interface OpenAiAgentOptions {
    *  its recipient (the current scope's user by default) to a chat via
    *  `memory.identities` and delivers through this. */
   telegram: { senderFor: (chatId: string) => TelegramSender };
-  /** Structured-output format for the final agent reply. CHAT_TEXT_FORMAT
-   * (speak required, no direction) is the default for the active channels
-   * (Telegram, HTTP). VOICE_TEXT_FORMAT is kept around for parity with the
-   * realtime channel shape (speak nullable + direction). */
-  textFormat?: typeof VOICE_TEXT_FORMAT | typeof CHAT_TEXT_FORMAT;
   /** When 'goal', the agent runs in scheduled-fire mode:
    *   - The system message is replaced by a directive to execute the
    *     incoming user text as a previously-scheduled goal.
@@ -264,7 +259,7 @@ export class OpenAiAgent implements Agent {
           // plenty of headroom for tools and the current turn.
           context_management: [{ type: 'compaction', compact_threshold: 30_000 }],
           text: {
-            format: this.opts.textFormat ?? VOICE_TEXT_FORMAT,
+            format: AGENT_TEXT_FORMAT,
           },
           reasoning: { effort: this.opts.reasoningEffort ?? 'low' },
         });
@@ -293,11 +288,9 @@ export class OpenAiAgent implements Agent {
         session.commit(response.id);
         const parsed = response.output_parsed;
         const text = stripApiArtifacts(parsed.speak ?? '');
-        const direction = 'direction' in parsed ? (parsed.direction ?? null) : null;
         const usage = response.usage;
         log.info(
           {
-            direction,
             elapsedMs: Date.now() - respondStartedAt,
             iterations: i + 1,
             toolsUsed,
@@ -308,7 +301,7 @@ export class OpenAiAgent implements Agent {
           },
           `assistant → ${text}`,
         );
-        return { text, direction, toolsUsed };
+        return { text, toolsUsed };
       }
 
       const fnCalls = (response.output ?? []).filter(
@@ -452,7 +445,7 @@ export class OpenAiAgent implements Agent {
             return { callId: tc.call_id, output };
           });
           session.commit(response.id);
-          return { text: askText, direction: null, expectsFollowUp: true, toolsUsed };
+          return { text: askText, expectsFollowUp: true, toolsUsed };
         }
 
         previousResponseId = response.id;
@@ -462,7 +455,7 @@ export class OpenAiAgent implements Agent {
 
       // No tool calls and no parsed output — shouldn't happen, but guard anyway
       session.commit(response.id);
-      return { text: '', direction: null, toolsUsed };
+      return { text: '', toolsUsed };
     }
 
     throw new Error('Agent exceeded max tool iterations');

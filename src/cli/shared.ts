@@ -12,7 +12,6 @@ import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
 import { receiverFromConfig } from '../telegram/fromConfig.ts';
 import { BotTelegramSender } from '../telegram/telegramSender.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
-import { CHAT_TEXT_FORMAT } from '../agent/agentOutput.ts';
 import { buildGoalRunner, type GoalRunner } from '../scheduling/goalRunner.ts';
 import { createLogger } from '../utils/logger.ts';
 
@@ -58,8 +57,8 @@ export type AgentMode = (typeof AGENT_MODES)[number];
  *                    `continue_conversation` so HA reopens the mic.
  *  - `realtime`    — Direct WS to Voice PE via OpenAI Realtime. Output is
  *                    spoken DIRECTLY by the Realtime model — no JSON parsing
- *                    layer, so the text-format addendum (which mandates
- *                    `{"speak": ..., "direction": ...}`) must NOT apply,
+ *                    layer, so the text-format addendum (which mandates a
+ *                    `{"speak": ...}` JSON reply) must NOT apply,
  *                    otherwise the model proudly pronounces the JSON keys.
  *                    Same voice rules as `assist`.
  */
@@ -147,7 +146,6 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     reasoningEffort: config.openai.reasoningEffort,
     llmClient: llm,
     telegram: { senderFor },
-    textFormat: CHAT_TEXT_FORMAT,
   });
   const goalRunner: GoalRunner = buildGoalRunner({
     agent: goalAgent,
@@ -165,7 +163,6 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       reasoningEffort: config.openai.reasoningEffort,
       llmClient: llm,
       telegram: { senderFor },
-      textFormat: CHAT_TEXT_FORMAT,
       // `ask` is only worth exposing where a positive expectsFollowUp
       // actually reopens the mic for the user. The `assist` channel sits
       // behind HA bridge / Voice PE which reads continue_conversation from
