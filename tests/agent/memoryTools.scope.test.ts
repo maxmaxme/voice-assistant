@@ -12,7 +12,10 @@ function fakeScoped(): ScopedProfile & { writes: Array<[string, unknown, string 
       writes.push([key, value, scope]);
       store.set(key, value);
     },
-    forget: (key) => void store.delete(key),
+    forget: (key) => {
+      const deleted = store.delete(key);
+      return deleted ? { deleted: true, scope: 'personal' } : { deleted: false };
+    },
   };
 }
 

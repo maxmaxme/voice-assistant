@@ -189,6 +189,17 @@ default `personal`. The model is told to pick `household` only for
 clearly-shared facts and to ask when ambiguous (`prompts/tools/remember.md`).
 `recall` always merges per the read rule above.
 
+**`forget` is personal-first, not scope-pick.** `ScopedProfile.forget(key)`
+deletes the layer the principal actually _sees_ — personal first, and household
+only when there's no personal copy — so "forget X" can't silently wipe a shared
+fact the user didn't realize was shared. It returns a `ForgetResult`
+(`{ deleted, scope?, revealed? }`): `revealed: true` means a personal entry was
+removed but a household entry with the same key was underneath and now surfaces
+in `recall`. The `forget` tool has no `scope` arg; `executeMemoryTool` relays
+the result so the model can phrase the reply accurately
+(`prompts/tools/forget.md`). It never touches another principal's personal
+owner (delete is exact-`(owner, key)`).
+
 **Per-request scope resolution.** `OpenAiAgent.respond()` takes an optional
 `profile: ScopedProfile` (falls back to a household view). The HTTP runner
 resolves the Bearer token → `{ userId }` (`resolveHttpScope`), the Telegram

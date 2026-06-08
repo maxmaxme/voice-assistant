@@ -9,20 +9,38 @@ export function personalOwner(userId: number): string {
 
 export type WriteScope = 'personal' | 'household';
 
+/** Outcome of a `forget`, so the caller can tell the user what actually
+ *  happened rather than always claiming success. */
+export interface ForgetResult {
+  /** Whether any stored entry was removed. */
+  deleted: boolean;
+  /** Which layer the entry was removed from. Absent when nothing was deleted. */
+  scope?: WriteScope;
+  /** True when a personal entry was removed but a household entry with the
+   *  same key remains and now surfaces in `recall`. */
+  revealed?: boolean;
+}
+
+function hasKey(facts: ProfileFacts, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(facts, key);
+}
+
 export interface Scope {
   /** The resolved principal's user id. Every principal — person or speaker —
    *  reads `household ∪ personal(userId)` and writes `personal` by default. */
   userId: number;
 }
 
-/** A scope-bound view over the profile store. `remember`/`forget` take an
- *  optional write scope; writes go to the principal's personal owner by
- *  default, or to household when `scope='household'`. Reads merge the
+/** A scope-bound view over the profile store. `remember` takes an optional
+ *  write scope; writes go to the principal's personal owner by default, or to
+ *  household when `scope='household'`. `forget` is personal-first: it removes
+ *  the value the principal actually sees (personal overrides household), one
+ *  layer at a time, and reports which scope it touched. Reads merge the
  *  scope's owner-set (personal overrides household on key collision). */
 export interface ScopedProfile {
   recall(key?: string): ProfileFacts;
   remember(key: string, value: unknown, scope?: WriteScope): void;
-  forget(key: string, scope?: WriteScope): void;
+  forget(key: string): ForgetResult;
 }
 
 export function makeScopedProfile(store: SqliteProfileMemory, scope: Scope): ScopedProfile {
@@ -35,7 +53,21 @@ export function makeScopedProfile(store: SqliteProfileMemory, scope: Scope): Sco
   return {
     recall: (key) => store.recallFor(readOwners, key),
     remember: (key, value, req) => store.rememberFor(writeOwner(req), key, value),
-    forget: (key, req) => store.forgetFor(writeOwner(req), key),
+    forget: (key) => {
+      // Personal-first: delete the layer the principal actually sees. Only
+      // touch household when there is no personal copy to remove — so "forget
+      // X" can't silently wipe a shared fact the user didn't know was shared.
+      if (hasKey(store.recallFor([personal], key), key)) {
+        store.forgetFor(personal, key);
+        const revealed = hasKey(store.recallFor([HOUSEHOLD_OWNER], key), key);
+        return { deleted: true, scope: 'personal', revealed };
+      }
+      if (hasKey(store.recallFor([HOUSEHOLD_OWNER], key), key)) {
+        store.forgetFor(HOUSEHOLD_OWNER, key);
+        return { deleted: true, scope: 'household' };
+      }
+      return { deleted: false };
+    },
   };
 }
 
@@ -46,7 +78,11 @@ export function householdProfile(store: SqliteProfileMemory): ScopedProfile {
   return {
     recall: (key) => store.recallFor([HOUSEHOLD_OWNER], key),
     remember: (key, value) => store.rememberFor(HOUSEHOLD_OWNER, key, value),
-    forget: (key) => store.forgetFor(HOUSEHOLD_OWNER, key),
+    forget: (key) => {
+      const existed = hasKey(store.recallFor([HOUSEHOLD_OWNER], key), key);
+      store.forgetFor(HOUSEHOLD_OWNER, key);
+      return existed ? { deleted: true, scope: 'household' } : { deleted: false };
+    },
   };
 }
 
@@ -64,6 +100,10 @@ export function householdFromAdapter(adapter: MemoryAdapterLike): ScopedProfile 
   return {
     recall: (key) => adapter.recall(key),
     remember: (key, value) => adapter.remember(key, value),
-    forget: (key) => adapter.forget(key),
+    forget: (key) => {
+      const existed = hasKey(adapter.recall(key), key);
+      adapter.forget(key);
+      return existed ? { deleted: true, scope: 'household' } : { deleted: false };
+    },
   };
 }

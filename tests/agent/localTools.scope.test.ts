@@ -7,7 +7,10 @@ function fakeScoped(): ScopedProfile {
   return {
     recall: (key) => (key ? { [key]: store.get(key) } : Object.fromEntries(store)),
     remember: (key, value) => void store.set(key, value),
-    forget: (key) => void store.delete(key),
+    forget: (key) => {
+      const deleted = store.delete(key);
+      return deleted ? { deleted: true, scope: 'personal' } : { deleted: false };
+    },
   };
 }
 

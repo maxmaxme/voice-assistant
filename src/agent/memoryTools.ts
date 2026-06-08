@@ -86,9 +86,10 @@ export function executeMemoryTool(
       const key = args.key;
       return profile.recall(typeof key === 'string' ? key : undefined);
     }
-    case 'forget':
-      profile.forget(String(args.key));
-      return { ok: true };
+    case 'forget': {
+      const result = profile.forget(String(args.key));
+      return { ok: result.deleted, ...result };
+    }
     default:
       throw new Error(`Unknown memory tool: ${name}`);
   }

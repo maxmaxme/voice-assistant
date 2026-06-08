@@ -8,9 +8,9 @@ describe('OpenAiAgent scope option', () => {
       profile: {
         recall: () => ({}),
         remember: () => {},
-        forget: () => {},
+        forget: () => ({ deleted: false }),
       },
     };
-    expect(opt.profile).toBeDefined();
+    expect(opt?.profile).toBeDefined();
   });
 });
