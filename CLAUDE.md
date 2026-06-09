@@ -122,7 +122,7 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 4. Send `input` (user message on first call, `function_call_output` items on tool-loop iterations) with `previous_response_id` and `store: true`.
 5. Inspect `response.output` for `function_call` items; route by name:
    - `ask` is **terminal**: returns immediately with `expectsFollowUp: true`. The HTTP runner forwards that as `continue_conversation: true` in the JSON response; the HA bridge sets it on `ConversationResult`, and HA's Assist pipeline reopens the mic.
-     - Disabled on Telegram (the model just asks via `speak` instead — avoids chain-lock if the user walks away).
+     - Disabled on Telegram (the model just asks in its reply text instead — avoids chain-lock if the user walks away).
      - If the model emits `ask` _in parallel_ with other tools, the other tools are executed and their outputs are stashed on the session; the next user turn replays them along with the user's answer.
      - `pendingAskCallId` has a TTL (`PENDING_ASK_TTL_MS = 30s`). If the user takes longer than that to reply, the next message is treated as a fresh request — the ask's call_id is closed with a placeholder output to keep the chain valid.
    - Names in the local-tool registry execute in-process via `localToolset.execute` (memory and scheduled actions hit the SQLite adapters).
@@ -141,10 +141,9 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 
 **Prompt text lives in markdown files**, not in TS string literals. `src/agent/systemPrompt.ts` and friends just `fs.readFileSync` a sibling `.md` at module load (helper: `src/agent/prompts/load.ts::loadPrompt`). Layout:
 
-- `src/agent/prompts/base-system.md` — cross-cutting rules (identity, HA error-recovery procedure, composite-intent self-check, style, JSON output shape). Loaded as `BASE_SYSTEM_PROMPT`.
+- `src/agent/prompts/base-system.md` — cross-cutting rules (identity, HA error-recovery procedure, composite-intent self-check, style). Loaded as `BASE_SYSTEM_PROMPT`.
 - `src/agent/prompts/tools/{remember,recall,forget,schedule-action,list-scheduled,cancel-scheduled}.md` — descriptions for local tools we control.
 - `src/agent/prompts/ha-suffix/<HaToolName>.md` — per-tool suffix appended to upstream HA MCP tool descriptions in `toolBridge.ts::mcpToolsToOpenAi`.
-- `src/cli/prompts/text-format-addendum.md` — JSON output contract appended to every channel's system prompt.
 
 When adding a new tool with tool-specific rules, put those rules in a sibling `.md` file rather than expanding `base-system.md`. Cross-tool rules (e.g. "after an HA match-failed error, do X") still go in `base-system.md`.
 

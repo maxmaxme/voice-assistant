@@ -105,7 +105,7 @@ function fakeLlm(scripted: Array<unknown>) {
   let i = 0;
   const create = vi.fn(async () => scripted[i++]);
   return {
-    responses: { create, parse: create },
+    responses: { create },
   };
 }
 
@@ -199,14 +199,14 @@ describe('OpenAiAgent + telegram', () => {
       },
       {
         id: 'resp_2',
-        output_parsed: { speak: 'Sent.' },
         output: [
           {
             type: 'message',
             role: 'assistant',
-            content: [{ type: 'output_text', text: '{"speak":"Sent."}' }],
+            content: [{ type: 'output_text', text: 'Sent.' }],
           },
         ],
+        output_text: 'Sent.',
       },
     ]);
     const agent = new OpenAiAgent({

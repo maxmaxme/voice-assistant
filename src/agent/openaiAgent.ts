@@ -15,7 +15,6 @@ import { mcpToolsToOpenAi } from './toolBridge.ts';
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { buildLocalToolset } from './localTools.ts';
 import type { TelegramSender } from '../telegram/types.ts';
-import { AGENT_TEXT_FORMAT } from './agentOutput.ts';
 import { getServerTimezone, toLocalIso } from '../utils/time.ts';
 import { createLogger } from '../utils/logger.ts';
 import { isValidContent } from '../utils/mcpContent.ts';
@@ -46,7 +45,7 @@ export interface OpenAiAgentOptions {
    * where a positive `expectsFollowUp` signal actually reopens the mic for
    * the user — currently only HTTP (Voice PE via HA bridge reads
    * continue_conversation from the /text response and reopens the
-   * pipeline). On Telegram the model just asks inside `speak`, so leaving
+   * pipeline). On Telegram the model just asks in its reply text, so leaving
    * `ask` off avoids chain-lock risks. Default: true. */
   enableAsk?: boolean;
   /** Reasoning effort for reasoning-capable models (gpt-5 family, o-series).
@@ -107,7 +106,7 @@ export class OpenAiAgent implements Agent {
     // `ask` only makes sense where a positive `expectsFollowUp` actually
     // reopens the mic for the user: HTTP (Voice PE via HA bridge, which
     // forwards continue_conversation). On Telegram the model just asks
-    // inside `speak`. Goal-fire mode never has a user.
+    // in its reply text. Goal-fire mode never has a user.
     const askEnabled = this.mode !== 'goal' && (this.opts.enableAsk ?? true);
     const mcpTools = mcpToolsToOpenAi(await mcp.listTools());
     // Goal mode is a scheduled fire, not an interactive turn:
@@ -217,7 +216,7 @@ export class OpenAiAgent implements Agent {
     for (let i = 0; i < this.maxIters; i++) {
       let response;
       try {
-        response = await llmClient.responses.parse({
+        response = await llmClient.responses.create({
           model,
           ...(instructions !== undefined && i === 0 ? { instructions } : {}),
           input: nextInput,
@@ -230,9 +229,6 @@ export class OpenAiAgent implements Agent {
           // 30k tokens is well below gpt-4o's 128k window — gives the model
           // plenty of headroom for tools and the current turn.
           context_management: [{ type: 'compaction', compact_threshold: 30_000 }],
-          text: {
-            format: AGENT_TEXT_FORMAT,
-          },
           reasoning: { effort: this.opts.reasoningEffort ?? 'low' },
         });
       } catch (err) {
@@ -265,10 +261,13 @@ export class OpenAiAgent implements Agent {
         throw err;
       }
 
-      if (response.output_parsed != null) {
+      const fnCalls = (response.output ?? []).filter(
+        (it): it is ParsedResponseFunctionToolCall => it.type === 'function_call',
+      );
+
+      if (fnCalls.length === 0) {
         session.commit(response.id);
-        const parsed = response.output_parsed;
-        const text = stripApiArtifacts(parsed.speak ?? '');
+        const text = stripApiArtifacts(response.output_text ?? '');
         const usage = response.usage;
         log.info(
           {
@@ -285,122 +284,109 @@ export class OpenAiAgent implements Agent {
         return { text, toolsUsed };
       }
 
-      const fnCalls = (response.output ?? []).filter(
-        (it): it is ParsedResponseFunctionToolCall => it.type === 'function_call',
-      );
+      // `ask` is terminal: it ends the agent turn with the question text as
+      // the final reply, signalling that the orchestrator should reopen
+      // capture for the user's answer. When the model emits `ask` in
+      // parallel with other tools, we still must execute those other tools
+      // and stash their function_call_outputs on the session — otherwise
+      // the next user turn 400s with "No tool output found for function
+      // call <id>" (the API requires outputs for every emitted call_id).
+      const askCall = fnCalls.find((tc) => tc.name === ASK_TOOL_NAME);
+      const nonAskCalls = askCall ? fnCalls.filter((tc) => tc !== askCall) : fnCalls;
 
-      if (fnCalls.length > 0) {
-        // `ask` is terminal: it ends the agent turn with the question text as
-        // the final reply, signalling that the orchestrator should reopen
-        // capture for the user's answer. When the model emits `ask` in
-        // parallel with other tools, we still must execute those other tools
-        // and stash their function_call_outputs on the session — otherwise
-        // the next user turn 400s with "No tool output found for function
-        // call <id>" (the API requires outputs for every emitted call_id).
-        const askCall = fnCalls.find((tc) => tc.name === ASK_TOOL_NAME);
-        const nonAskCalls = askCall ? fnCalls.filter((tc) => tc !== askCall) : fnCalls;
-
-        for (const tc of fnCalls) {
-          toolsUsed.push(tc.name);
-        }
-
-        // Execute all tool calls in parallel. Each handler catches its own
-        // errors; we use allSettled as defense-in-depth so an unexpected
-        // throw in one call can't drop the others' outputs.
-        const settled = await Promise.allSettled(
-          nonAskCalls.map(async (tc) => {
-            const args = this.parseArgs(tc.arguments);
-            const startedAt = Date.now();
-            let resultText: string;
-            let isError = false;
-            if (localToolset.names.has(tc.name)) {
-              try {
-                const r = await localToolset.execute(tc.name, args);
-                resultText = JSON.stringify(r);
-              } catch (e) {
-                resultText = e instanceof Error ? e.message : String(e);
-                isError = true;
-              }
-            } else {
-              try {
-                const result = await mcp.callTool(tc.name, args);
-                if (!isValidContent(result.content)) {
-                  throw new Error('Invalid content');
-                }
-                resultText = result.content
-                  .map((c) => (c.type === 'text' ? c.text : ''))
-                  .join('\n');
-                isError = result.isError ?? false;
-              } catch (e) {
-                resultText = e instanceof Error ? e.message : String(e);
-                isError = true;
-              }
-            }
-            const durationMs = Date.now() - startedAt;
-            const argsStr = JSON.stringify(args);
-            const fields = { tool: tc.name, args, isError, durationMs };
-            if (isError) {
-              log.warn(fields, `${tc.name}(${argsStr}) → ${resultText} (${durationMs}ms)`);
-            } else {
-              log.debug(fields, `${tc.name}(${argsStr}) → ${resultText} (${durationMs}ms)`);
-            }
-            const output = isError
-              ? `ERROR: ${resultText}${appendRecoveryHint(tc.name, resultText)}`
-              : resultText;
-            return {
-              type: 'function_call_output' as const,
-              call_id: tc.call_id,
-              output,
-            };
-          }),
-        );
-
-        const toolOutputs: ResponseInputItem[] = settled.map((res, idx) => {
-          if (res.status === 'fulfilled') {
-            return res.value;
-          }
-          const tc = nonAskCalls[idx]!;
-          const reason = res.reason instanceof Error ? res.reason.message : String(res.reason);
-          log.error({ tool: tc.name }, `${tc.name} unexpected throw: ${reason}`);
-          return {
-            type: 'function_call_output',
-            call_id: tc.call_id,
-            output: `ERROR: ${reason}`,
-          };
-        });
-
-        if (askCall) {
-          // Stash non-ask outputs alongside the pending ask call_id. The next
-          // user turn replays the stashed outputs together with the user's
-          // answer (which serves as ask's output) — keeping the chain valid.
-          const askArgs = this.parseArgs(askCall.arguments);
-          const askText = typeof askArgs.text === 'string' ? askArgs.text : '';
-          log.debug(
-            { tool: 'ask', args: askArgs },
-            `ask(${JSON.stringify(askArgs)}) → reopen capture`,
-          );
-          session.pendingAskCallId = askCall.call_id;
-          session.pendingAskExpiresAt = Date.now() + PENDING_ASK_TTL_MS;
-          session.pendingToolOutputs = nonAskCalls.map((tc, idx) => {
-            const res = settled[idx]!;
-            const output =
-              res.status === 'fulfilled'
-                ? res.value.output
-                : `ERROR: ${res.reason instanceof Error ? res.reason.message : String(res.reason)}`;
-            return { callId: tc.call_id, output };
-          });
-          session.commit(response.id);
-          return { text: askText, expectsFollowUp: true, toolsUsed };
-        }
-
-        previousResponseId = response.id;
-        nextInput = toolOutputs;
-        continue;
+      for (const tc of fnCalls) {
+        toolsUsed.push(tc.name);
       }
 
-      // No tool calls and no parsed output — shouldn't happen, but guard anyway
-      session.commit(response.id);
-      return { text: '', toolsUsed };
+      // Execute all tool calls in parallel. Each handler catches its own
+      // errors; we use allSettled as defense-in-depth so an unexpected
+      // throw in one call can't drop the others' outputs.
+      const settled = await Promise.allSettled(
+        nonAskCalls.map(async (tc) => {
+          const args = this.parseArgs(tc.arguments);
+          const startedAt = Date.now();
+          let resultText: string;
+          let isError = false;
+          if (localToolset.names.has(tc.name)) {
+            try {
+              const r = await localToolset.execute(tc.name, args);
+              resultText = JSON.stringify(r);
+            } catch (e) {
+              resultText = e instanceof Error ? e.message : String(e);
+              isError = true;
+            }
+          } else {
+            try {
+              const result = await mcp.callTool(tc.name, args);
+              if (!isValidContent(result.content)) {
+                throw new Error('Invalid content');
+              }
+              resultText = result.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n');
+              isError = result.isError ?? false;
+            } catch (e) {
+              resultText = e instanceof Error ? e.message : String(e);
+              isError = true;
+            }
+          }
+          const durationMs = Date.now() - startedAt;
+          const argsStr = JSON.stringify(args);
+          const fields = { tool: tc.name, args, isError, durationMs };
+          if (isError) {
+            log.warn(fields, `${tc.name}(${argsStr}) → ${resultText} (${durationMs}ms)`);
+          } else {
+            log.debug(fields, `${tc.name}(${argsStr}) → ${resultText} (${durationMs}ms)`);
+          }
+          const output = isError
+            ? `ERROR: ${resultText}${appendRecoveryHint(tc.name, resultText)}`
+            : resultText;
+          return {
+            type: 'function_call_output' as const,
+            call_id: tc.call_id,
+            output,
+          };
+        }),
+      );
+
+      const toolOutputs: ResponseInputItem[] = settled.map((res, idx) => {
+        if (res.status === 'fulfilled') {
+          return res.value;
+        }
+        const tc = nonAskCalls[idx]!;
+        const reason = res.reason instanceof Error ? res.reason.message : String(res.reason);
+        log.error({ tool: tc.name }, `${tc.name} unexpected throw: ${reason}`);
+        return {
+          type: 'function_call_output',
+          call_id: tc.call_id,
+          output: `ERROR: ${reason}`,
+        };
+      });
+
+      if (askCall) {
+        // Stash non-ask outputs alongside the pending ask call_id. The next
+        // user turn replays the stashed outputs together with the user's
+        // answer (which serves as ask's output) — keeping the chain valid.
+        const askArgs = this.parseArgs(askCall.arguments);
+        const askText = typeof askArgs.text === 'string' ? askArgs.text : '';
+        log.debug(
+          { tool: 'ask', args: askArgs },
+          `ask(${JSON.stringify(askArgs)}) → reopen capture`,
+        );
+        session.pendingAskCallId = askCall.call_id;
+        session.pendingAskExpiresAt = Date.now() + PENDING_ASK_TTL_MS;
+        session.pendingToolOutputs = nonAskCalls.map((tc, idx) => {
+          const res = settled[idx]!;
+          const output =
+            res.status === 'fulfilled'
+              ? res.value.output
+              : `ERROR: ${res.reason instanceof Error ? res.reason.message : String(res.reason)}`;
+          return { callId: tc.call_id, output };
+        });
+        session.commit(response.id);
+        return { text: askText, expectsFollowUp: true, toolsUsed };
+      }
+
+      previousResponseId = response.id;
+      nextInput = toolOutputs;
     }
 
     throw new Error('Agent exceeded max tool iterations');

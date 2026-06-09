@@ -56,15 +56,12 @@ export type AgentMode = (typeof AGENT_MODES)[number];
  *                    `ask` on — `expectsFollowUp` is forwarded as
  *                    `continue_conversation` so HA reopens the mic.
  *  - `realtime`    — Direct WS to Voice PE via OpenAI Realtime. Output is
- *                    spoken DIRECTLY by the Realtime model — no JSON parsing
- *                    layer, so the text-format addendum (which mandates a
- *                    `{"speak": ...}` JSON reply) must NOT apply,
- *                    otherwise the model proudly pronounces the JSON keys.
- *                    Same voice rules as `assist`.
+ *                    spoken DIRECTLY by the Realtime model; uses a lean
+ *                    audio-only addendum instead of the text-channel voice
+ *                    rules.
  */
 export type PromptChannel = 'telegram' | 'http' | 'assist' | 'realtime';
 
-const TEXT_FORMAT_ADDENDUM = loadPrompt('./prompts/text-format-addendum.md', import.meta.url);
 const VOICE_ADDENDUM = loadPrompt('./prompts/voice-addendum.md', import.meta.url);
 const REALTIME_ADDENDUM = loadPrompt('./prompts/realtime-addendum.md', import.meta.url);
 
@@ -72,18 +69,15 @@ export function buildSystemPromptFor(channel: PromptChannel): string {
   const parts: string[] = [BASE_SYSTEM_PROMPT];
   if (channel === 'assist') {
     parts.push(VOICE_ADDENDUM);
-    parts.push(TEXT_FORMAT_ADDENDUM);
     return parts.join('\n\n');
   }
   if (channel === 'realtime') {
-    // Realtime emits audio directly — no JSON `speak` field, so the
-    // text-format addendum and the JSON-flavoured voice rules in
+    // Realtime emits audio directly — the text-channel voice rules in
     // `voice-addendum.md` would just confuse the model. Use a lean,
     // audio-only addendum and stop here.
     parts.push(REALTIME_ADDENDUM);
     return parts.join('\n\n');
   }
-  parts.push(TEXT_FORMAT_ADDENDUM);
   return parts.join('\n\n');
 }
 
@@ -134,8 +128,8 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
 
   await connectMcpWithRetry(mcp);
 
-  // Goal-mode agent: dedicated session, base system prompt (no channel suffix),
-  // chat text format (goal mode produces a written summary, never speaks).
+  // Goal-mode agent: dedicated session, base system prompt (no channel suffix);
+  // goal mode produces a written summary, never speaks.
   const goalAgent = new OpenAiAgent({
     mode: 'goal',
     mcp,
@@ -168,7 +162,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       // behind HA bridge / Voice PE which reads continue_conversation from
       // the /assist response. Plain HTTP `/text` and `/audio` are
       // Apple-Shortcut-style one-shot calls — no follow-up plumbing — and
-      // Telegram just lets the model ask inside `speak`.
+      // Telegram just lets the model ask in its reply text.
       enableAsk: channel === 'assist',
     });
 

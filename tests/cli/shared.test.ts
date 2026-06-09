@@ -23,15 +23,15 @@ describe('buildSystemPromptFor', () => {
     expect(buildSystemPromptFor('telegram')).toBe(buildSystemPromptFor('http'));
   });
 
-  it('includes the OUTPUT FORMAT addendum so the model returns JSON', () => {
-    expect(buildSystemPromptFor('telegram')).toContain('OUTPUT FORMAT');
+  it('does NOT include any structured-output format addendum (plain text replies)', () => {
+    expect(buildSystemPromptFor('telegram')).not.toContain('OUTPUT FORMAT');
+    expect(buildSystemPromptFor('assist')).not.toContain('OUTPUT FORMAT');
   });
 
   it('assist channel includes the voice addendum (TTS-friendly output)', () => {
     const prompt = buildSystemPromptFor('assist');
     expect(prompt).toContain('Voice channel');
-    expect(prompt).toContain('HARD RULE — TTS-safe `speak`');
-    expect(prompt).toContain('OUTPUT FORMAT');
+    expect(prompt).toContain('HARD RULE — TTS-safe output');
   });
 
   it('telegram/http do NOT include the voice addendum', () => {

@@ -81,27 +81,22 @@ function fakeLlm(scripted: Array<unknown>) {
   });
   return {
     calls,
-    responses: {
-      create,
-      // responses.parse is a SDK helper wrapping create; reuse the same mock.
-      // extractParsedOutput falls back to parseAgentOutput when parsed is absent.
-      parse: create,
-    },
+    responses: { create },
   };
 }
 
 function textResponse(speak: string, id = `resp_${Math.random().toString(36).slice(2, 8)}`) {
-  const output_parsed = { speak };
   return {
     id,
-    output_parsed,
     output: [
       {
         type: 'message',
         role: 'assistant',
-        content: [{ type: 'output_text', text: JSON.stringify(output_parsed) }],
+        content: [{ type: 'output_text', text: speak }],
       },
     ],
+    output_text: speak,
+    usage: { input_tokens: 1, output_tokens: 1 },
   };
 }
 
@@ -181,7 +176,7 @@ describe('OpenAiAgent', () => {
       }
       return textResponse('Hi after reset', 'resp_fresh');
     });
-    const llm = { calls, responses: { create, parse: create } };
+    const llm = { calls, responses: { create } };
     const session = new Session({ idleTimeoutMs: 60_000 });
     // Simulate a session that has a stored, now-stale chain id.
     session.commit('resp_old');
@@ -236,7 +231,7 @@ describe('OpenAiAgent', () => {
     const session = new Session({ idleTimeoutMs: 60_000 });
     const rejectFn = vi.fn().mockRejectedValue(new Error('boom'));
     const llm = {
-      responses: { create: rejectFn, parse: rejectFn },
+      responses: { create: rejectFn },
     };
     const agent = new OpenAiAgent({
       mcp: fakeMcp(),
@@ -356,7 +351,7 @@ describe('OpenAiAgent', () => {
       session,
       systemPrompt: 'You are helpful.',
       model: 'gpt-4o',
-      llmClient: { responses: { create: boom, parse: boom } } as never,
+      llmClient: { responses: { create: boom } } as never,
       telegram: noopTelegram,
     });
     await expect(failing.respond('my answer')).rejects.toThrow('network down');

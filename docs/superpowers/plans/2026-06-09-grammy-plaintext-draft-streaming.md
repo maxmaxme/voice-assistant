@@ -408,7 +408,7 @@ long-poll crash-hard contract, same classify() logic."
 - Modify: `src/agent/openaiAgent.ts`
 - Modify: `tests/agent/openaiAgent.test.ts`, `tests/agent/openaiAgent.scope.test.ts`, `tests/agent/telegramTool.test.ts`
 
-- [ ] **Step 1: Update the test mocks to plain text**
+- [x] **Step 1: Update the test mocks to plain text**
 
 In `tests/agent/openaiAgent.test.ts`: the response factory currently builds `{ output_parsed: { speak }, output: [message with JSON text], output_text: '' }`. Change it to produce what the real API returns without a text format:
 
@@ -430,12 +430,12 @@ In `tests/agent/openaiAgent.test.ts`: the response factory currently builds `{ o
 
 Drop `parse: create` aliases — the agent will call `responses.create` directly, so the mock shape `{ responses: { create } }` suffices (keep `parse: create` temporarily if removing it breaks unrelated assertions, then delete after Step 3). In `tests/agent/telegramTool.test.ts:202` replace `output_parsed: { speak: 'Sent.' }` with `output_text: 'Sent.'` plus a matching `message` output item. Apply the same factory change in `openaiAgent.scope.test.ts` if it builds responses itself.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run tests/agent/openaiAgent.test.ts`
 Expected: FAIL — agent still looks at `output_parsed`, which is now absent (returns empty text / falls through).
 
-- [ ] **Step 3: Rewire `respond()`**
+- [x] **Step 3: Rewire `respond()`**
 
 In `src/agent/openaiAgent.ts`:
 
@@ -474,7 +474,7 @@ if (fnCalls.length === 0) {
 
 The old `output_parsed` block (lines 268–286) and the bottom guard (lines 401–403) are both subsumed.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/agent/`
 Expected: PASS.
@@ -487,11 +487,11 @@ Expected: PASS.
 - Modify: `src/cli/prompts/voice-addendum.md`
 - Delete: `src/agent/agentOutput.ts`, `src/cli/prompts/text-format-addendum.md`
 
-- [ ] **Step 1: `shared.ts`**
+- [x] **Step 1: `shared.ts`**
 
 Delete line 67 (`const TEXT_FORMAT_ADDENDUM = ...`) and both `parts.push(TEXT_FORMAT_ADDENDUM);` calls (lines 75 and 86). Update the `PromptChannel` doc comment (lines 58–63): the `realtime` entry's rationale ("no JSON parsing layer ... `{"speak": ...}`") is obsolete — reword to "Output is spoken DIRECTLY by the Realtime model; uses a lean audio-only addendum instead of the text-channel voice rules."
 
-- [ ] **Step 2: Reword `voice-addendum.md`**
+- [x] **Step 2: Reword `voice-addendum.md`**
 
 The file addresses a `speak` JSON field that no longer exists. Replace field references with "your reply", keeping every rule intact:
 
@@ -507,7 +507,7 @@ The file addresses a `speak` JSON field that no longer exists. Replace field ref
 
 Run `grep -n 'speak' src/cli/prompts/voice-addendum.md` afterwards — expected: no hits.
 
-- [ ] **Step 3: Delete the dead files**
+- [x] **Step 3: Delete the dead files**
 
 ```bash
 git rm src/agent/agentOutput.ts src/cli/prompts/text-format-addendum.md
@@ -515,18 +515,18 @@ git rm src/agent/agentOutput.ts src/cli/prompts/text-format-addendum.md
 
 Then `grep -rn "agentOutput\|AGENT_TEXT_FORMAT\|text-format-addendum" src tests` — expected: no hits.
 
-- [ ] **Step 4: Run typecheck + full tests**
+- [x] **Step 4: Run typecheck + full tests**
 
 Run: `npm run typecheck && npm test`
 Expected: PASS.
 
 ### Task 9: Phase-2 docs + commit
 
-- [ ] **Step 1: Update CLAUDE.md**
+- [x] **Step 1: Update CLAUDE.md**
 
 In `voice-assistant/CLAUDE.md`: remove `src/cli/prompts/text-format-addendum.md` from the prompt-layout list (it names it explicitly under "Prompt text lives in markdown files"); fix the `/assist` and agent-core wording if it mentions the JSON output shape ("JSON output shape" appears in the `base-system.md` bullet — verify with `grep -n 'JSON' CLAUDE.md` and reword the hits that describe the removed contract).
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add -A
