@@ -170,6 +170,19 @@ export class OpenAiAgent implements Agent {
       pendingAskCallId !== undefined &&
       pendingAskExpiresAt !== undefined &&
       Date.now() > pendingAskExpiresAt;
+    // The branches below clear the pending-ask fields on the session before
+    // the OpenAI call. If that call then fails, the ask is still open on
+    // OpenAI's side — keep a snapshot so the catch below can restore it,
+    // otherwise the next turn sends a plain user message into a chain with
+    // an unanswered function_call and 400s ("No tool output found").
+    const askSnapshot =
+      pendingAskCallId !== undefined
+        ? {
+            callId: pendingAskCallId,
+            expiresAt: pendingAskExpiresAt,
+            outputs: session.pendingToolOutputs,
+          }
+        : undefined;
     if (pendingAskCallId && !pendingAskExpired) {
       session.pendingAskCallId = undefined;
       session.pendingAskExpiresAt = undefined;
@@ -280,6 +293,15 @@ export class OpenAiAgent implements Agent {
           instructions = buildInstructions();
           i--; // retry this iteration with no chain
           continue;
+        }
+        // First call failed → the cleared pending ask never reached OpenAI.
+        // Restore it so the next respond() replays the ask output. Skip when
+        // the chain was dropped (404 recovery above): a restored ask without
+        // its chain would itself 400.
+        if (i === 0 && askSnapshot && previousResponseId !== undefined) {
+          session.pendingAskCallId = askSnapshot.callId;
+          session.pendingAskExpiresAt = askSnapshot.expiresAt;
+          session.pendingToolOutputs = askSnapshot.outputs;
         }
         throw err;
       }

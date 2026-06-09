@@ -342,6 +342,50 @@ describe('OpenAiAgent', () => {
     expect(session.pendingAskExpiresAt).toBeUndefined();
   });
 
+  it('restores pending ask state when the OpenAI call fails — the retry still answers the ask', async () => {
+    const session = new Session({ idleTimeoutMs: 60_000 });
+    session.commit('resp_prev');
+    session.pendingAskCallId = 'ask_1';
+    session.pendingAskExpiresAt = Date.now() + PENDING_ASK_TTL_MS;
+    session.pendingToolOutputs = [{ callId: 'mem_1', output: 'ok' }];
+
+    const boom = vi.fn().mockRejectedValue(new Error('network down'));
+    const failing = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session,
+      systemPrompt: 'You are helpful.',
+      model: 'gpt-4o',
+      llmClient: { responses: { create: boom, parse: boom } } as never,
+      telegram: noopTelegram,
+    });
+    await expect(failing.respond('my answer')).rejects.toThrow('network down');
+
+    // The ask is still open on OpenAI's side (no response succeeded), so the
+    // session must keep it — otherwise the next turn sends a plain user
+    // message into a chain with an unanswered function_call and 400s.
+    expect(session.pendingAskCallId).toBe('ask_1');
+    expect(session.pendingToolOutputs).toEqual([{ callId: 'mem_1', output: 'ok' }]);
+
+    // Retry with a working client: the ask output is replayed.
+    const llm = fakeLlm([textResponse('done', 'resp_2')]);
+    const retrying = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session,
+      systemPrompt: 'You are helpful.',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+    });
+    await retrying.respond('my answer');
+    const input = llm.calls[0]!.input;
+    const callIds = input
+      .filter((it) => it.type === 'function_call_output')
+      .map((it) => it.call_id);
+    expect(callIds).toEqual(expect.arrayContaining(['mem_1', 'ask_1']));
+  });
+
   it('sets pendingAskExpiresAt when ask fires', async () => {
     const llm = fakeLlm([fnCallResponse('ask', '{"text":"Where?"}', 'ask_x', 'resp_x')]);
     const session = new Session({ idleTimeoutMs: 60_000 });
