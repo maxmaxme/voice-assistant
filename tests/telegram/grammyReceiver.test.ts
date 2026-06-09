@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { TelegrafReceiver } from '../../src/telegram/telegrafReceiver.ts';
+import { GrammyReceiver } from '../../src/telegram/grammyReceiver.ts';
 
 // ---------------------------------------------------------------------------
-// Minimal Telegraf mock
+// Minimal grammY mock
 // ---------------------------------------------------------------------------
-// We capture the 'message' handler registered by TelegrafReceiver so tests
+// We capture the 'message' handler registered by GrammyReceiver so tests
 // can fire simulated incoming updates via bot._fire(ctx).
 // The mock uses a regular `function` (not arrow) so it can be called with `new`.
 
@@ -12,26 +12,28 @@ type Handler = (ctx: unknown) => void | Promise<void>;
 
 interface FakeBot {
   on: (event: string, handler: Handler) => void;
-  launch: ReturnType<typeof vi.fn>;
+  start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
+  catch: ReturnType<typeof vi.fn>;
   /** Test helper: simulate an incoming update arriving from Telegram. */
   _fire: (ctx: unknown) => void;
 }
 
 let latestBot: FakeBot | null = null;
 
-vi.mock('telegraf', () => {
+vi.mock('grammy', () => {
   // Must be a regular function (not arrow) to work as a `new`-able constructor.
   // Returning an explicit object makes JS use it as the `new` result, which
   // avoids aliasing `this` (banned by @typescript-eslint/no-this-alias).
-  const MockTelegraf = vi.fn(function () {
+  const MockBot = vi.fn(function () {
     let messageHandler: Handler | null = null;
     const bot: FakeBot = {
       on: (_event: string, handler: Handler) => {
         messageHandler = handler;
       },
-      launch: vi.fn().mockResolvedValue(undefined),
-      stop: vi.fn(),
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      catch: vi.fn(),
       _fire: (ctx: unknown) => {
         messageHandler?.(ctx);
       },
@@ -39,7 +41,7 @@ vi.mock('telegraf', () => {
     latestBot = bot;
     return bot;
   });
-  return { Telegraf: MockTelegraf };
+  return { Bot: MockBot };
 });
 
 // ---------------------------------------------------------------------------
@@ -135,13 +137,13 @@ function unsupportedCtx(updateId: number, chatId: number, userId: number) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('TelegrafReceiver', () => {
+describe('GrammyReceiver', () => {
   beforeEach(() => {
     latestBot = null;
   });
 
   it('emits a text message', async () => {
-    const r = new TelegrafReceiver({ botToken: 'X' });
+    const r = new GrammyReceiver({ botToken: 'X' });
     const bot = latestBot!;
 
     const iter = r.messages()[Symbol.asyncIterator]();
@@ -165,7 +167,7 @@ describe('TelegrafReceiver', () => {
   });
 
   it('emits a voice message', async () => {
-    const r = new TelegrafReceiver({ botToken: 'X' });
+    const r = new GrammyReceiver({ botToken: 'X' });
     const bot = latestBot!;
 
     const iter = r.messages()[Symbol.asyncIterator]();
@@ -182,7 +184,7 @@ describe('TelegrafReceiver', () => {
   });
 
   it('classifies unsupported message types', async () => {
-    const r = new TelegrafReceiver({ botToken: 'X' });
+    const r = new GrammyReceiver({ botToken: 'X' });
     const bot = latestBot!;
 
     const iter = r.messages()[Symbol.asyncIterator]();
@@ -195,7 +197,7 @@ describe('TelegrafReceiver', () => {
   });
 
   it('emits a single photo message with the largest size and optional caption', async () => {
-    const r = new TelegrafReceiver({ botToken: 'X' });
+    const r = new GrammyReceiver({ botToken: 'X' });
     const bot = latestBot!;
 
     const iter = r.messages()[Symbol.asyncIterator]();
@@ -212,7 +214,7 @@ describe('TelegrafReceiver', () => {
   });
 
   it('emits photo without caption when none provided', async () => {
-    const r = new TelegrafReceiver({ botToken: 'X' });
+    const r = new GrammyReceiver({ botToken: 'X' });
     const bot = latestBot!;
 
     const iter = r.messages()[Symbol.asyncIterator]();
@@ -228,7 +230,7 @@ describe('TelegrafReceiver', () => {
   });
 
   it('rejects albums: first update emits photo-album-rejected, rest are dropped', async () => {
-    const r = new TelegrafReceiver({ botToken: 'X' });
+    const r = new GrammyReceiver({ botToken: 'X' });
     const bot = latestBot!;
 
     const iter = r.messages()[Symbol.asyncIterator]();
@@ -248,7 +250,7 @@ describe('TelegrafReceiver', () => {
   });
 
   it('stop() makes the iterator terminate', async () => {
-    const r = new TelegrafReceiver({ botToken: 'X' });
+    const r = new GrammyReceiver({ botToken: 'X' });
     const iter = r.messages()[Symbol.asyncIterator]();
     // No messages fired — consumer will be waiting.
     const pending = iter.next();
@@ -259,7 +261,7 @@ describe('TelegrafReceiver', () => {
 
   it('invokes onStop hook when stop() is called', async () => {
     const stopped = vi.fn();
-    const r = new TelegrafReceiver({ botToken: 'X', onStop: stopped });
+    const r = new GrammyReceiver({ botToken: 'X', onStop: stopped });
     const iter = r.messages()[Symbol.asyncIterator]();
     const pending = iter.next();
     await r.stop();
@@ -267,23 +269,23 @@ describe('TelegrafReceiver', () => {
     expect(stopped).toHaveBeenCalledTimes(1);
   });
 
-  it('calls bot.launch() when messages() is iterated', async () => {
-    const r = new TelegrafReceiver({ botToken: 'X' });
+  it('calls bot.start() when messages() is iterated', async () => {
+    const r = new GrammyReceiver({ botToken: 'X' });
     const bot = latestBot!;
 
     const iter = r.messages()[Symbol.asyncIterator]();
-    // kick the generator — it calls bot.launch() at the top of its body
+    // kick the generator — it calls bot.start() at the top of its body
     const pending = iter.next();
-    // Give launch a tick to execute
+    // Give start a tick to execute
     await new Promise((res) => setTimeout(res, 0));
-    expect(bot.launch).toHaveBeenCalledTimes(1);
+    expect(bot.start).toHaveBeenCalledTimes(1);
 
     await r.stop();
     await pending;
   });
 
   it('calls bot.stop() when stop() is called', async () => {
-    const r = new TelegrafReceiver({ botToken: 'X' });
+    const r = new GrammyReceiver({ botToken: 'X' });
     const bot = latestBot!;
 
     const iter = r.messages()[Symbol.asyncIterator]();
@@ -295,7 +297,7 @@ describe('TelegrafReceiver', () => {
   });
 
   it('ignores messages with no from field', async () => {
-    const r = new TelegrafReceiver({ botToken: 'X' });
+    const r = new GrammyReceiver({ botToken: 'X' });
     const bot = latestBot!;
 
     // Channel post — no `from`
@@ -329,7 +331,7 @@ describe('TelegrafReceiver', () => {
   });
 
   it('message fired before messages() starts is queued and delivered', async () => {
-    const r = new TelegrafReceiver({ botToken: 'X' });
+    const r = new GrammyReceiver({ botToken: 'X' });
     const bot = latestBot!;
 
     // Fire the message before starting iteration.

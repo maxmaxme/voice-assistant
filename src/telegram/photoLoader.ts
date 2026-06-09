@@ -1,4 +1,4 @@
-import { Telegram } from 'telegraf';
+import { fileLinkResolver, type TelegramFileLinkResolver } from './fileLink.ts';
 import { createLogger } from '../utils/logger.ts';
 
 const log = createLogger('telegram.photoLoader');
@@ -16,9 +16,9 @@ export interface TelegramPhotoLoader {
 export interface BotPhotoLoaderOptions {
   botToken: string;
   fetchImpl?: typeof fetch;
-  /** Override the telegraf API client. Tests inject this so they don't need a
-   *  real bot token / network. Production uses the bundled telegraf instance. */
-  telegram?: Pick<Telegram, 'getFileLink'>;
+  /** Override the file-link resolver. Tests inject this so they don't need a
+   *  real bot token / network. Production builds one from the bot token. */
+  links?: TelegramFileLinkResolver;
 }
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -38,16 +38,15 @@ function mimeFromUrl(url: string): string | null {
 /** Downloads a Telegram photo via Bot API. */
 export class BotPhotoLoader implements TelegramPhotoLoader {
   private readonly fetchImpl: typeof fetch;
-  private readonly telegram: Pick<Telegram, 'getFileLink'>;
+  private readonly links: TelegramFileLinkResolver;
 
   constructor(opts: BotPhotoLoaderOptions) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
-    this.telegram = opts.telegram ?? new Telegram(opts.botToken);
+    this.links = opts.links ?? fileLinkResolver(opts.botToken);
   }
 
   async load(fileId: string): Promise<LoadedPhoto> {
-    const link = await this.telegram.getFileLink(fileId);
-    const url = typeof link === 'string' ? link : link.toString();
+    const url = await this.links.getFileLink(fileId);
     log.debug({ fileId, url }, 'resolved Telegram file URL');
     const res = await this.fetchImpl(url);
     if (!res.ok) {

@@ -6,21 +6,21 @@ describe('BotVoiceTranscriber', () => {
     const audio = Buffer.from('ogg-bytes');
     const transcribeFile = vi.fn(async () => 'turn on the light');
     const fetchImpl = vi.fn(async () => new Response(audio));
-    const telegram = {
-      getFileLink: vi.fn(async () => new URL('https://example.test/voice.oga')),
+    const links = {
+      getFileLink: vi.fn(async () => 'https://example.test/voice.oga'),
     };
     const transcriber = new BotVoiceTranscriber({
       botToken: 'token',
       fetchImpl,
-      telegram,
+      links,
       stt: { transcribeFile },
     });
 
     const result = await transcriber.transcribe('file-id');
 
     expect(result).toBe('turn on the light');
-    expect(telegram.getFileLink).toHaveBeenCalledWith('file-id');
-    expect(fetchImpl).toHaveBeenCalledWith(new URL('https://example.test/voice.oga'));
+    expect(links.getFileLink).toHaveBeenCalledWith('file-id');
+    expect(fetchImpl).toHaveBeenCalledWith('https://example.test/voice.oga');
     expect(transcribeFile).toHaveBeenCalledWith(audio, {
       filename: 'voice.ogg',
       contentType: 'audio/ogg',
@@ -32,8 +32,8 @@ describe('BotVoiceTranscriber', () => {
     const transcriber = new BotVoiceTranscriber({
       botToken: 'token',
       fetchImpl: vi.fn(async () => new Response(null, { status: 503, statusText: 'nope' })),
-      telegram: {
-        getFileLink: vi.fn(async () => new URL('https://example.test/voice.oga')),
+      links: {
+        getFileLink: vi.fn(async () => 'https://example.test/voice.oga'),
       },
       stt: { transcribeFile },
     });

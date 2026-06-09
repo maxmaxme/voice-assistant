@@ -1,17 +1,17 @@
-import { Telegraf, type Context } from 'telegraf';
+import { Bot, type Context } from 'grammy';
 import type { TelegramReceiver, TelegramMessage } from './types.ts';
 import { createLogger } from '../utils/logger.ts';
 
 const log = createLogger('telegram-receiver');
 
-export interface TelegrafReceiverOptions {
+export interface GrammyReceiverOptions {
   botToken: string;
   /** Called after stop() finishes. Use for closing resources tied to the store. */
   onStop?: () => void;
 }
 
-export class TelegrafReceiver implements TelegramReceiver {
-  private readonly bot: Telegraf;
+export class GrammyReceiver implements TelegramReceiver {
+  private readonly bot: Bot;
   private readonly onStop: (() => void) | undefined;
   private readonly pending: TelegramMessage[] = [];
   private readonly resolvers: Array<(value: TelegramMessage | null) => void> = [];
@@ -20,8 +20,8 @@ export class TelegrafReceiver implements TelegramReceiver {
    * so subsequent updates from the same album are silently dropped. */
   private readonly seenAlbumGroups = new Set<string>();
 
-  constructor(opts: TelegrafReceiverOptions) {
-    this.bot = new Telegraf(opts.botToken);
+  constructor(opts: GrammyReceiverOptions) {
+    this.bot = new Bot(opts.botToken);
     this.onStop = opts.onStop;
 
     // Capture all incoming message updates and push them into the queue.
@@ -52,14 +52,12 @@ export class TelegrafReceiver implements TelegramReceiver {
   }
 
   async *messages(): AsyncIterable<TelegramMessage> {
-    // launch() starts long-polling. It returns a promise that resolves when
-    // the bot is stopped. We don't await it here so the iterator can run.
-    // launch() resolves when the bot stops; rejects on polling failure
-    // (network outage, 409 Conflict from a duplicate poller, invalid token).
-    // We can't await it here without blocking the iterator, but we MUST NOT
-    // swallow rejections — a dead polling loop with no log line means the
-    // container looks healthy while Telegram messages pile up unread.
-    this.bot.launch({ dropPendingUpdates: false }).catch((err: unknown) => {
+    // bot.start() long-polls; its promise resolves when the bot is stopped and
+    // rejects on a fatal polling failure (invalid token, 409 from a duplicate
+    // poller). Same crash-hard contract as the telegraf version: a dead polling
+    // loop with no log line means the container looks healthy while messages
+    // pile up unread.
+    this.bot.start({ drop_pending_updates: false }).catch((err: unknown) => {
       if (this.stopped) {
         // Expected during graceful shutdown.
         return;
@@ -84,7 +82,7 @@ export class TelegrafReceiver implements TelegramReceiver {
       return;
     }
     this.stopped = true;
-    this.bot.stop();
+    await this.bot.stop();
     // Wake any dequeue() calls that are waiting so they can exit.
     for (const resolve of this.resolvers) {
       resolve(null);

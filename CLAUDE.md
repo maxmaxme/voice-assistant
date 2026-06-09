@@ -271,9 +271,13 @@ goal runner resolve a recipient's chat via DB identities
 (`identities.identityFor` / `listTelegramUsers`) before building a sender.
 `TELEGRAM_CHAT_ID` is **no longer used** (removed from config).
 
-**Inbound:** `TelegramReceiver` interface, `PollingTelegramReceiver` long-polls
-`getUpdates`. Persisted offset in `data/telegram-offset.json`. Voice messages
-get transcribed via OpenAI; photos are forwarded as multimodal input.
+**Inbound:** `TelegramReceiver` interface, `GrammyReceiver` long-polls via
+grammY (`bot.start({ drop_pending_updates: false })`; a fatal polling failure
+crashes the process so the container restarts). The Bot API client is
+**grammY** throughout; file downloads (voice, photos) resolve `file_id` →
+direct URL through `fileLink.ts` (`api.getFile` → `https://api.telegram.org/file/bot<token>/<file_path>`).
+Voice messages get transcribed via OpenAI; photos are forwarded as multimodal
+input.
 
 Each chat has a self-persisting `Session` (SQLite table `telegram_sessions`)
 with `idleTimeoutMs: Infinity` — the chain only resets via `/reset` or when

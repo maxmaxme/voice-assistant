@@ -46,7 +46,7 @@
 
 - Modify: `package.json`
 
-- [ ] **Step 1: Replace the package**
+- [x] **Step 1: Replace the package**
 
 ```bash
 cd /Users/mlepekha/Developer/home/voice-assistant
@@ -65,7 +65,7 @@ grammY has no `getFileLink` helper in core; build a tiny adapter over `api.getFi
 - Create: `src/telegram/fileLink.ts`
 - Test: `tests/telegram/fileLink.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // tests/telegram/fileLink.test.ts
@@ -90,12 +90,12 @@ describe('fileLinkResolver', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run tests/telegram/fileLink.test.ts`
 Expected: FAIL — `Cannot find module '../../src/telegram/fileLink.ts'`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```ts
 // src/telegram/fileLink.ts
@@ -123,7 +123,7 @@ export function fileLinkResolver(botToken: string, api?: GetFileApi): TelegramFi
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run tests/telegram/fileLink.test.ts`
 Expected: PASS (2 tests)
@@ -134,7 +134,7 @@ Expected: PASS (2 tests)
 
 - Modify: `src/telegram/telegramSender.ts`
 
-- [ ] **Step 1: Rewrite the sender**
+- [x] **Step 1: Rewrite the sender**
 
 ```ts
 // src/telegram/telegramSender.ts — full new content
@@ -167,7 +167,7 @@ export class BotTelegramSender implements TelegramSender {
 }
 ```
 
-- [ ] **Step 2: Verify no telegraf import remains in the file**
+- [x] **Step 2: Verify no telegraf import remains in the file**
 
 Run: `grep -c telegraf src/telegram/telegramSender.ts`
 Expected: `0` (grep exits 1)
@@ -180,7 +180,7 @@ Expected: `0` (grep exits 1)
 - Modify: `src/telegram/photoLoader.ts`
 - Modify: `tests/telegram/voiceTranscriber.test.ts`
 
-- [ ] **Step 1: Update `voiceTranscriber.ts`**
+- [x] **Step 1: Update `voiceTranscriber.ts`**
 
 Replace the telegraf import and the `telegram` option (lines 1, 16–18, 26, 31, 36) so the class consumes `TelegramFileLinkResolver`:
 
@@ -214,15 +214,15 @@ export interface BotVoiceTranscriberOptions {
     const url = await this.links.getFileLink(fileId);
 ```
 
-- [ ] **Step 2: Update `photoLoader.ts` the same way**
+- [x] **Step 2: Update `photoLoader.ts` the same way**
 
 Replace `import { Telegram } from 'telegraf';` with the `fileLink.ts` import; replace the `telegram?: Pick<Telegram, 'getFileLink'>` option with `links?: TelegramFileLinkResolver`; replace the internal field and the `getFileLink` call site identically to Step 1. The URL-extension → MIME logic is untouched (the resolver returns a `string`, and `photoLoader` already parses the extension from the URL string).
 
-- [ ] **Step 3: Update `tests/telegram/voiceTranscriber.test.ts`**
+- [x] **Step 3: Update `tests/telegram/voiceTranscriber.test.ts`**
 
 The test currently injects `telegram: { getFileLink: ... }` (returning a `URL`). Change the injection to `links: { getFileLink: vi.fn().mockResolvedValue('https://api.telegram.org/file/botX/voice.oga') }` — a plain string. Adjust any assertion that compared against a `URL` object to compare against the string.
 
-- [ ] **Step 4: Run the affected tests**
+- [x] **Step 4: Run the affected tests**
 
 Run: `npx vitest run tests/telegram/`
 Expected: voiceTranscriber + fileLink PASS; `telegrafReceiver.test.ts` still FAILS to import `telegraf` — fixed in Task 5.
@@ -236,7 +236,7 @@ Expected: voiceTranscriber + fileLink PASS; `telegrafReceiver.test.ts` still FAI
 - Modify: `src/telegram/fromConfig.ts`
 - Rename+rewrite test: `tests/telegram/telegrafReceiver.test.ts` → `tests/telegram/grammyReceiver.test.ts`
 
-- [ ] **Step 1: Rewrite the test against grammY**
+- [x] **Step 1: Rewrite the test against grammY**
 
 `git mv tests/telegram/telegrafReceiver.test.ts tests/telegram/grammyReceiver.test.ts`, then change the mock header and class name; the ctx fixtures (`textCtx`, `voiceCtx`, …) and all assertions stay byte-identical because `classify()` reads `ctx.update`, whose shape is the same `Update` type in both libraries:
 
@@ -266,12 +266,12 @@ vi.mock('grammy', () => {
 
 Update the `FakeBot` interface to match (`start`/`stop`/`catch` instead of `launch`/`stop`), and every `new TelegrafReceiver(...)` → `new GrammyReceiver(...)`. Where the old test asserted `bot.launch` was called, assert `bot.start`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run tests/telegram/grammyReceiver.test.ts`
 Expected: FAIL — `Cannot find module '../../src/telegram/grammyReceiver.ts'`
 
-- [ ] **Step 3: Create `grammyReceiver.ts`**
+- [x] **Step 3: Create `grammyReceiver.ts`**
 
 Port of `telegrafReceiver.ts` with the same queue machinery. Full content (only the bot-API surface changes; `classify`, `enqueue`, `dequeue`, album-dedup logic are copied verbatim from the old file):
 
@@ -356,7 +356,7 @@ export class GrammyReceiver implements TelegramReceiver {
 
 Then `git rm src/telegram/telegrafReceiver.ts`.
 
-- [ ] **Step 4: Update `fromConfig.ts`**
+- [x] **Step 4: Update `fromConfig.ts`**
 
 ```ts
 import type { Config } from '../config.ts';
@@ -368,23 +368,23 @@ export function receiverFromConfig(cfg: Config): TelegramReceiver {
 }
 ```
 
-- [ ] **Step 5: Run tests + typecheck**
+- [x] **Step 5: Run tests + typecheck**
 
 Run: `npx vitest run tests/telegram/ && npm run typecheck`
 Expected: all telegram tests PASS; typecheck clean (no `telegraf` imports anywhere: verify with `grep -rn "from 'telegraf'" src tests` → no hits).
 
 ### Task 6: Phase-1 verification, docs, commit
 
-- [ ] **Step 1: Full suite**
+- [x] **Step 1: Full suite**
 
 Run: `npm run typecheck && npm test && npm run lint`
 Expected: all PASS.
 
-- [ ] **Step 2: Update CLAUDE.md (Telegram section)**
+- [x] **Step 2: Update CLAUDE.md (Telegram section)**
 
 In `voice-assistant/CLAUDE.md`, Telegram section: replace mentions of telegraf / `PollingTelegramReceiver` / `TelegrafReceiver` with grammY / `GrammyReceiver`; note that file downloads go through `fileLink.ts` (`api.getFile` → direct URL).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A
