@@ -3,7 +3,7 @@ import type {
   ResponseInputItem,
   ResponseInputImage,
   ResponseInputText,
-  ParsedResponseFunctionToolCall,
+  ResponseFunctionToolCall,
   Tool,
 } from 'openai/resources/responses/responses';
 import type { Agent, AgentImage, AgentResponse, AgentRespondOptions } from './types.ts';
@@ -262,9 +262,11 @@ export class OpenAiAgent implements Agent {
       }
 
       const fnCalls = (response.output ?? []).filter(
-        (it): it is ParsedResponseFunctionToolCall => it.type === 'function_call',
+        (it): it is ResponseFunctionToolCall => it.type === 'function_call',
       );
 
+      // Tool calls take precedence over any message text in the same response:
+      // leaving a function_call unanswered would 400 the next turn ("No tool output found").
       if (fnCalls.length === 0) {
         session.commit(response.id);
         const text = stripApiArtifacts(response.output_text ?? '');
@@ -467,7 +469,7 @@ function userTurn(userText: string, images: AgentImage[]): ResponseInputItem {
 }
 
 // OpenAI Responses API with store:true sometimes leaks conversation-title
-// annotations (e.g. `<title="...": ...>`) into the structured output text.
+// annotations (e.g. `<title="...": ...>`) into the output text.
 function stripApiArtifacts(text: string): string {
   return text.replace(/<title=[^>]*>/g, '').trim();
 }

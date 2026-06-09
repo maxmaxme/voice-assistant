@@ -85,17 +85,17 @@ function fakeLlm(scripted: Array<unknown>) {
   };
 }
 
-function textResponse(speak: string, id = `resp_${Math.random().toString(36).slice(2, 8)}`) {
+function textResponse(text: string, id = `resp_${Math.random().toString(36).slice(2, 8)}`) {
   return {
     id,
     output: [
       {
         type: 'message',
         role: 'assistant',
-        content: [{ type: 'output_text', text: speak }],
+        content: [{ type: 'output_text', text }],
       },
     ],
-    output_text: speak,
+    output_text: text,
     usage: { input_tokens: 1, output_tokens: 1 },
   };
 }
@@ -488,7 +488,7 @@ describe('OpenAiAgent', () => {
     expect(llm.responses.create).toHaveBeenCalledOnce();
   });
 
-  it('strips <title=...> API artifact from speak text', async () => {
+  it('strips <title=...> API artifact from output text', async () => {
     const raw =
       'I can help with these tasks!\n<title="Small debut": The debut of personal devices control>';
     const llm = fakeLlm([textResponse(raw, 'resp_title')]);
