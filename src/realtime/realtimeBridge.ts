@@ -81,6 +81,10 @@ export class RealtimeBridge {
   // 300–500 ms; anything past this is a degraded upstream, and failing
   // fast lets the next wake word retry cleanly.
   private static readonly CONNECT_TIMEOUT_MS = 10_000;
+  // Ceiling on waiting for a tool batch in response.done. Household HA
+  // calls finish in well under a second; anything past this is a wedged
+  // backend, and the voice session must not sit in `thinking` forever.
+  private static readonly TOOL_BATCH_TIMEOUT_MS = 30_000;
 
   // Idle-reset: drops the upstream Realtime session after the bridge sits
   // in `idle` for `idleResetMs`, so the next wake word starts a fresh
@@ -572,7 +576,30 @@ export class RealtimeBridge {
         // to request the follow-up — the model will see whichever outputs
         // did land and reply about the rest. Failing the whole batch would
         // strand the conversation in `thinking` with no way out.
-        const results = await Promise.allSettled(pending);
+        //
+        // Time-bound the wait: the MCP transport usually enforces its own
+        // timeout, but a wedged HA connection can hang runTool past any
+        // useful window — and this await blocks the whole openai event
+        // handler. Past the ceiling we request the follow-up with whatever
+        // outputs landed; a late tool still submits its result item, it just
+        // won't trigger another response.
+        let timedOut = false;
+        const results = await Promise.race([
+          Promise.allSettled(pending),
+          new Promise<PromiseSettledResult<void>[]>((resolve) => {
+            const t = setTimeout(() => {
+              timedOut = true;
+              resolve([]);
+            }, RealtimeBridge.TOOL_BATCH_TIMEOUT_MS);
+            t.unref();
+          }),
+        ]);
+        if (timedOut) {
+          log.warn(
+            { responseId, sessionId: this.sessionId, tools: pending.length },
+            'tool batch timed out — requesting follow-up with partial results',
+          );
+        }
         for (const r of results) {
           if (r.status === 'rejected') {
             log.warn({ err: r.reason }, 'tool call promise rejected — continuing batch');

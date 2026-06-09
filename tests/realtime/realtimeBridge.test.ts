@@ -591,6 +591,25 @@ describe('RealtimeBridge tool dispatch', () => {
     expect(client.requestResponse).toHaveBeenCalledTimes(1);
   });
 
+  it('a hung tool does not freeze the session — the follow-up fires after the batch timeout', async () => {
+    vi.useFakeTimers();
+    // The MCP transport usually bounds this, but a stuck HA connection can
+    // hang runTool past any useful window; the voice session must not sit
+    // in thinking forever.
+    runTool.mockReturnValueOnce(new Promise<string>(() => {}));
+    // feedOpenAi settles via setTimeout(0) — drive it manually under fake timers.
+    const call = callTool('c1', 'HassTurnOff', '{}');
+    await vi.advanceTimersByTimeAsync(0);
+    await call;
+    const done = finishResponse('r1', ['HassTurnOff']);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(client.requestResponse).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(30_001);
+    await done;
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+  });
+
   it('fires exactly one follow-up for a parallel tool batch', async () => {
     await callTool('c1', 'HassTurnOff', '{}');
     await callTool('c2', 'HassTurnOn', '{}');
