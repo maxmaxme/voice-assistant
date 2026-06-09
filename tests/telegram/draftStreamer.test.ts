@@ -1,21 +1,44 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { DraftStreamer } from '../../src/telegram/draftStreamer.ts';
+import { DraftStreamer, DRAFT_PLACEHOLDER } from '../../src/telegram/draftStreamer.ts';
 
 describe('DraftStreamer', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('start() sends an empty draft (Thinking… placeholder)', async () => {
+  it('start() sends the placeholder draft immediately', async () => {
     const sendDraft = vi.fn().mockResolvedValue(undefined);
     const s = new DraftStreamer({ sendDraft }, 7);
     s.start();
-    await vi.runAllTimersAsync();
-    expect(sendDraft).toHaveBeenCalledWith('', 7);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sendDraft).toHaveBeenCalledWith(DRAFT_PLACEHOLDER, 7);
+    void s.finish();
+  });
+
+  it('re-sends the placeholder while no deltas arrive (drafts expire after ~30s)', async () => {
+    const sendDraft = vi.fn().mockResolvedValue(undefined);
+    const s = new DraftStreamer({ sendDraft }, 7, { intervalMs: 1000, keepaliveMs: 20_000 });
+    s.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sendDraft).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(sendDraft).toHaveBeenCalledTimes(2);
+    expect(sendDraft).toHaveBeenLastCalledWith(DRAFT_PLACEHOLDER, 7);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(sendDraft).toHaveBeenCalledTimes(3);
+    // Once real text streams, keepalive ticks no longer send the placeholder.
+    // (1000ms: the delta lands inside the throttle window of the last keepalive.)
+    s.onDelta('Hi');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(sendDraft).toHaveBeenLastCalledWith('Hi', 7);
+    const callsAfterDelta = sendDraft.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(sendDraft.mock.calls.slice(callsAfterDelta).every(([text]) => text === 'Hi')).toBe(true);
+    void s.finish();
   });
 
   it('throttles deltas to one draft per interval, sending accumulated text', async () => {
     const sendDraft = vi.fn().mockResolvedValue(undefined);
-    const s = new DraftStreamer({ sendDraft }, 7, 1000);
+    const s = new DraftStreamer({ sendDraft }, 7, { intervalMs: 1000 });
     s.onDelta('Hel');
     await vi.advanceTimersByTimeAsync(0);
     expect(sendDraft).toHaveBeenLastCalledWith('Hel', 7); // leading edge
@@ -27,13 +50,14 @@ describe('DraftStreamer', () => {
     expect(sendDraft).toHaveBeenLastCalledWith('Hello world', 7); // trailing edge
   });
 
-  it('finish() cancels pending flushes', async () => {
+  it('finish() cancels pending flushes and the keepalive', async () => {
     const sendDraft = vi.fn().mockResolvedValue(undefined);
-    const s = new DraftStreamer({ sendDraft }, 7, 1000);
+    const s = new DraftStreamer({ sendDraft }, 7, { intervalMs: 1000 });
+    s.start();
     s.onDelta('a');
     await vi.advanceTimersByTimeAsync(0);
     s.onDelta('b');
-    s.finish();
+    void s.finish();
     await vi.runAllTimersAsync();
     expect(sendDraft).toHaveBeenCalledTimes(1); // only the leading flush
   });
@@ -59,7 +83,7 @@ describe('DraftStreamer', () => {
         });
       });
     });
-    const s = new DraftStreamer({ sendDraft }, 7, 1000);
+    const s = new DraftStreamer({ sendDraft }, 7, { intervalMs: 1000 });
     s.onDelta('Hel');
     await vi.advanceTimersByTimeAsync(0);
     expect(sendDraft).toHaveBeenCalledTimes(1); // first send in flight (unresolved)
@@ -81,7 +105,7 @@ describe('DraftStreamer', () => {
     const sendDraft = vi
       .fn()
       .mockImplementation(() => new Promise<void>((resolve) => (resolveSend = resolve)));
-    const s = new DraftStreamer({ sendDraft }, 7, 1000);
+    const s = new DraftStreamer({ sendDraft }, 7, { intervalMs: 1000 });
     s.onDelta('a');
     await vi.advanceTimersByTimeAsync(0);
     expect(sendDraft).toHaveBeenCalledTimes(1); // in flight

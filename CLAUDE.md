@@ -288,10 +288,12 @@ input.
 
 **Replies stream as drafts.** While the agent generates a reply, the runner
 live-streams it via Bot API `sendMessageDraft` (`DraftStreamer` in
-`src/telegram/draftStreamer.ts`): an empty draft goes out immediately
-(Telegram renders "Thinking…"), then accumulated output-text deltas are
-pushed throttled to one call per second, and the final regular `sendMessage`
-persists the reply (drafts are ephemeral 30-second previews). Drafts are
+`src/telegram/draftStreamer.ts`): an explicit placeholder draft
+(`DRAFT_PLACEHOLDER`) goes out immediately and is re-sent every 20s while
+tools run (drafts expire after ~30s; the Bot API's empty-text "Thinking…"
+placeholder isn't rendered by every client), then accumulated output-text
+deltas are pushed throttled to one call per second, and the final regular
+`sendMessage` persists the reply. Drafts are
 plain text on purpose — partial markdown would break MarkdownV2 mid-stream;
 only the final `send()` formats. Draft sends are best-effort: failures are
 logged at debug and never break the reply path. `TelegramSender.sendDraft`
