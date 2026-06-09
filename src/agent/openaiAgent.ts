@@ -183,74 +183,35 @@ export class OpenAiAgent implements Agent {
             outputs: session.pendingToolOutputs,
           }
         : undefined;
+    // Replayed in both ask branches: outputs of tools that ran in parallel
+    // with the ask last turn.
+    const stashed: ResponseInputItem[] = pendingToolOutputs.map((po) => ({
+      type: 'function_call_output',
+      call_id: po.callId,
+      output: po.output,
+    }));
     if (pendingAskCallId && !pendingAskExpired) {
-      session.pendingAskCallId = undefined;
-      session.pendingAskExpiresAt = undefined;
-      session.pendingToolOutputs = undefined;
-      const stashed: ResponseInputItem[] = pendingToolOutputs.map((po) => ({
+      clearPendingAsk(session);
+      const askOutput: ResponseInputItem = {
         type: 'function_call_output',
-        call_id: po.callId,
-        output: po.output,
-      }));
-      let askOutput: ResponseInputItem;
-      if (images.length > 0) {
-        const textPart: ResponseInputText = {
-          type: 'input_text',
-          text: userText && userText.length > 0 ? userText : '(image)',
-        };
-        const imageParts: ResponseInputImage[] = images.map(toInputImage);
-        askOutput = {
-          type: 'function_call_output',
-          call_id: pendingAskCallId,
-          output: [textPart, ...imageParts],
-        };
-      } else {
-        askOutput = {
-          type: 'function_call_output',
-          call_id: pendingAskCallId,
-          output: userText,
-        };
-      }
+        call_id: pendingAskCallId,
+        output: images.length > 0 ? userContentParts(userText, images) : userText,
+      };
       nextInput = [...stashed, askOutput];
     } else if (pendingAskCallId && pendingAskExpired) {
       // Close the stale ask + replay any stashed sibling outputs, then send
       // the user's message as a fresh user-turn rather than as the ask's
       // answer.
-      session.pendingAskCallId = undefined;
-      session.pendingAskExpiresAt = undefined;
-      session.pendingToolOutputs = undefined;
-      const stashed: ResponseInputItem[] = pendingToolOutputs.map((po) => ({
-        type: 'function_call_output',
-        call_id: po.callId,
-        output: po.output,
-      }));
+      clearPendingAsk(session);
       const askPlaceholder: ResponseInputItem = {
         type: 'function_call_output',
         call_id: pendingAskCallId,
         output:
           '(no response — too much time passed; the user is starting a new request, not answering this question)',
       };
-      let userTurn: ResponseInputItem;
-      if (images.length > 0) {
-        const textPart: ResponseInputText = {
-          type: 'input_text',
-          text: userText && userText.length > 0 ? userText : '(image)',
-        };
-        const imageParts: ResponseInputImage[] = images.map(toInputImage);
-        userTurn = { role: 'user', content: [textPart, ...imageParts] };
-      } else {
-        userTurn = { role: 'user', content: userText };
-      }
-      nextInput = [...stashed, askPlaceholder, userTurn];
-    } else if (images.length > 0) {
-      const textPart: ResponseInputText = {
-        type: 'input_text',
-        text: userText && userText.length > 0 ? userText : '(image)',
-      };
-      const imageParts: ResponseInputImage[] = images.map(toInputImage);
-      nextInput = [{ role: 'user', content: [textPart, ...imageParts] }];
+      nextInput = [...stashed, askPlaceholder, userTurn(userText, images)];
     } else {
-      nextInput = [{ role: 'user', content: userText }];
+      nextInput = [userTurn(userText, images)];
     }
 
     const toolsUsed: string[] = [];
@@ -530,6 +491,31 @@ export class OpenAiAgent implements Agent {
 function toInputImage(img: AgentImage): ResponseInputImage {
   const dataUrl = `data:${img.mimeType};base64,${img.data.toString('base64')}`;
   return { type: 'input_image', image_url: dataUrl, detail: 'auto' };
+}
+
+function clearPendingAsk(session: Session): void {
+  session.pendingAskCallId = undefined;
+  session.pendingAskExpiresAt = undefined;
+  session.pendingToolOutputs = undefined;
+}
+
+/** Multimodal content parts for a user message with images attached. */
+function userContentParts(
+  userText: string,
+  images: AgentImage[],
+): (ResponseInputText | ResponseInputImage)[] {
+  const textPart: ResponseInputText = {
+    type: 'input_text',
+    text: userText && userText.length > 0 ? userText : '(image)',
+  };
+  return [textPart, ...images.map(toInputImage)];
+}
+
+/** A plain user turn — string content when text-only, parts when images ride along. */
+function userTurn(userText: string, images: AgentImage[]): ResponseInputItem {
+  return images.length > 0
+    ? { role: 'user', content: userContentParts(userText, images) }
+    : { role: 'user', content: userText };
 }
 
 // OpenAI Responses API with store:true sometimes leaks conversation-title
