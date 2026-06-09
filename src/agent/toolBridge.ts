@@ -30,6 +30,8 @@ export interface OpenAiFunctionTool {
  * self-check), put it in BASE_SYSTEM_PROMPT.
  */
 const HA_SUFFIX_TOOLS = [
+  'HassTurnOn',
+  'HassTurnOff',
   'HassClimateSetTemperature',
   'HassListAddItem',
   'HassListRemoveItem',
