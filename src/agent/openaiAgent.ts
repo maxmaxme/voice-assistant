@@ -12,15 +12,8 @@ import type { MemoryStore } from '../memory/types.ts';
 import { householdFromAdapter, type ScopedProfile } from '../memory/scope.ts';
 import { PENDING_ASK_TTL_MS, Session } from './session.ts';
 import { mcpToolsToOpenAi } from './toolBridge.ts';
-import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
-import {
-  SCHEDULED_ACTION_TOOL_NAMES,
-  buildScheduledActionTools,
-  executeScheduledActionTool,
-} from './scheduledActionTools.ts';
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
-import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
-import { LOCAL_TOOL_NAMES, buildLocalTools, executeLocalTool } from './localTools.ts';
+import { buildLocalToolset } from './localTools.ts';
 import type { TelegramSender } from '../telegram/types.ts';
 import { AGENT_TEXT_FORMAT } from './agentOutput.ts';
 import { getServerTimezone, toLocalIso } from '../utils/time.ts';
@@ -125,13 +118,18 @@ export class OpenAiAgent implements Agent {
     //    re-plan. The goal carries no user scope, so these would only confuse
     //    the model (and schedule_action would throw on the null owner).
     const goalMode = this.mode === 'goal';
-    const localTools = [
-      ...buildMemoryTools(),
-      ...(goalMode ? [] : buildScheduledActionTools()),
-      ...(askEnabled ? [buildAskTool()] : []),
-      ...(goalMode ? [] : [buildTelegramTool()]),
-      ...buildLocalTools(),
-    ];
+    // One registry for build + dispatch — the same `buildLocalToolset` the
+    // realtime bridge uses. Goal mode simply doesn't wire the adapters whose
+    // tools it must not expose; the registry omits them. `ask` stays separate:
+    // it's terminal control flow, not an executable tool.
+    const localToolset = buildLocalToolset({
+      profile,
+      scheduledActions: goalMode ? undefined : this.opts.memory.scheduledActions,
+      telegram: goalMode ? undefined : this.opts.telegram,
+      identities: this.opts.memory.identities,
+      ownerUserId,
+    });
+    const localTools = [...localToolset.tools, ...(askEnabled ? [buildAskTool()] : [])];
     // Our function-tool shape (`OpenAiFunctionTool`-derived) matches the
     // SDK's `FunctionTool` member of the `Tool` union structurally, but our
     // locally-built objects don't carry the SDK's exact nominal type — type
@@ -315,45 +313,9 @@ export class OpenAiAgent implements Agent {
             const startedAt = Date.now();
             let resultText: string;
             let isError = false;
-            if (MEMORY_TOOL_NAMES.has(tc.name)) {
+            if (localToolset.names.has(tc.name)) {
               try {
-                const r = executeMemoryTool(profile, tc.name, args);
-                resultText = JSON.stringify(r);
-              } catch (e) {
-                resultText = e instanceof Error ? e.message : String(e);
-                isError = true;
-              }
-            } else if (SCHEDULED_ACTION_TOOL_NAMES.has(tc.name)) {
-              try {
-                const r = executeScheduledActionTool(
-                  this.opts.memory.scheduledActions,
-                  tc.name,
-                  args,
-                  { ownerUserId, identities: this.opts.memory.identities },
-                );
-                resultText = JSON.stringify(r);
-              } catch (e) {
-                resultText = e instanceof Error ? e.message : String(e);
-                isError = true;
-              }
-            } else if (tc.name === TELEGRAM_TOOL_NAME) {
-              try {
-                const r = await executeTelegramTool(
-                  {
-                    scope: ownerUserId === null ? null : { userId: ownerUserId },
-                    identities: this.opts.memory.identities,
-                    senderFor: this.opts.telegram.senderFor,
-                  },
-                  args,
-                );
-                resultText = JSON.stringify(r);
-              } catch (e) {
-                resultText = e instanceof Error ? e.message : String(e);
-                isError = true;
-              }
-            } else if (LOCAL_TOOL_NAMES.has(tc.name)) {
-              try {
-                const r = await executeLocalTool(tc.name, args);
+                const r = await localToolset.execute(tc.name, args);
                 resultText = JSON.stringify(r);
               } catch (e) {
                 resultText = e instanceof Error ? e.message : String(e);

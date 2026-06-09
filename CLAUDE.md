@@ -118,14 +118,14 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 
 1. `Session.begin()` returns the previous `response_id` to chain from, or `undefined` if the session is fresh / went idle.
 2. On a fresh chain: send `instructions` (system prompt + memory profile) once. On a continuing chain: omit `instructions`.
-3. Build tool list: HA MCP tools + memory tools (`remember`/`recall`/`forget`) + scheduled-action tools + `send_to_telegram` + (for HTTP only) the `ask` tool.
+3. Build tool list: HA MCP tools + the local-tool registry + (for HTTP only) the `ask` tool. **Local tools (memory `remember`/`recall`/`forget`, scheduled actions, `send_to_telegram`, weather) come from one registry — `localTools.ts::buildLocalToolset`** — shared with the realtime bridge: it both lists the tools and executes them. A tool registers only when its adapter is wired, which is the per-channel policy knob (goal mode just doesn't pass `scheduledActions`/`telegram`). Adding a local tool = adding one registry entry; `ask` is the only local tool outside it (terminal control flow, handled in the agent loop).
 4. Send `input` (user message on first call, `function_call_output` items on tool-loop iterations) with `previous_response_id` and `store: true`.
 5. Inspect `response.output` for `function_call` items; route by name:
    - `ask` is **terminal**: returns immediately with `expectsFollowUp: true`. The HTTP runner forwards that as `continue_conversation: true` in the JSON response; the HA bridge sets it on `ConversationResult`, and HA's Assist pipeline reopens the mic.
      - Disabled on Telegram (the model just asks via `speak` instead — avoids chain-lock if the user walks away).
      - If the model emits `ask` _in parallel_ with other tools, the other tools are executed and their outputs are stashed on the session; the next user turn replays them along with the user's answer.
      - `pendingAskCallId` has a TTL (`PENDING_ASK_TTL_MS = 30s`). If the user takes longer than that to reply, the next message is treated as a fresh request — the ask's call_id is closed with a placeholder output to keep the chain valid.
-   - Memory / scheduled-action tools execute locally against the SQLite adapter.
+   - Names in the local-tool registry execute in-process via `localToolset.execute` (memory and scheduled actions hit the SQLite adapters).
    - `send_to_telegram(text, recipient?)` is recipient-aware: it resolves the target user (the `recipient` user id, or the current `scope.userId` when omitted) to a Telegram chat via `identities.identityFor('telegram', …)` and delivers there. No telegram linked → it throws an error listing valid recipients (`id=name`), which the model relays / re-asks. There is no fixed outbound chat.
    - Everything else goes to MCP.
 6. Loop, advancing `previousResponseId` to `response.id` each turn, until plain text comes back or `maxToolIterations` is hit.

@@ -3,25 +3,23 @@
  * Two flavours:
  *  - **Adapter-free** (currently `get_weather`): always available; no
  *    injection needed.
- *  - **Adapter-backed** (currently `remember` / `recall` / `forget`):
- *    available when the caller passes the relevant adapter. The
- *    Responses-API `OpenAiAgent` and the Realtime bridge both wire memory
- *    in via `buildLocalToolset({ profile })`; tools that need an adapter
- *    the caller did NOT provide are silently omitted.
+ *  - **Adapter-backed** (memory, scheduled actions, `send_to_telegram`):
+ *    registered only when the caller passes the relevant adapter(s); tools
+ *    whose adapters are absent are silently omitted. That omission is the
+ *    per-channel policy knob — e.g. goal mode simply doesn't wire
+ *    `scheduledActions`/`telegram`.
  *
- * Tools that need more than a simple adapter (scheduled actions,
- * send_to_telegram, ask) still live in their own modules and are wired
- * per-channel. */
+ * Both the Responses-API `OpenAiAgent` and the Realtime bridge build their
+ * tool list AND dispatch execution through `buildLocalToolset` — adding a
+ * tool here makes it available everywhere the needed adapter is wired.
+ * The only local tool outside the registry is `ask` (askTool.ts): it is
+ * terminal control flow handled inside the agent loop, not an executable. */
 
 import type { IdentitiesAdapter, ScheduledActionsAdapter } from '../memory/types.ts';
 import type { ScopedProfile } from '../memory/scope.ts';
 import type { TelegramSender } from '../telegram/types.ts';
-import { MEMORY_TOOL_NAMES, buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
-import {
-  SCHEDULED_ACTION_TOOL_NAMES,
-  buildScheduledActionTools,
-  executeScheduledActionTool,
-} from './scheduledActionTools.ts';
+import { buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
+import { buildScheduledActionTools, executeScheduledActionTool } from './scheduledActionTools.ts';
 import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
 import { buildWeatherTool, executeWeatherTool, WEATHER_TOOL_NAME } from './weatherTool.ts';
@@ -117,27 +115,3 @@ export function buildLocalToolset(deps: LocalToolDeps = {}): LocalToolset {
     },
   };
 }
-
-/** Back-compat thin wrappers used by the Responses-API agent, which wires
- *  memory tools separately. New callers should prefer `buildLocalToolset`. */
-
-const ADAPTER_FREE = buildRegistry({});
-
-export const LOCAL_TOOL_NAMES: ReadonlySet<string> = new Set(Object.keys(ADAPTER_FREE));
-
-export function buildLocalTools(): OpenAiFunctionTool[] {
-  return Object.values(ADAPTER_FREE).map((e) => e.tool);
-}
-
-export async function executeLocalTool(
-  name: string,
-  args: Record<string, unknown>,
-): Promise<unknown> {
-  const entry = ADAPTER_FREE[name];
-  if (!entry) {
-    throw new Error(`executeLocalTool: unknown tool "${name}"`);
-  }
-  return entry.execute(args);
-}
-
-export { MEMORY_TOOL_NAMES, SCHEDULED_ACTION_TOOL_NAMES, TELEGRAM_TOOL_NAME };
