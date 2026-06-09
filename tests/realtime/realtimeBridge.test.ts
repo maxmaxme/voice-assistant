@@ -652,6 +652,93 @@ describe('RealtimeBridge tool dispatch', () => {
   });
 });
 
+// The Realtime API sporadically completes the post-tool follow-up response
+// with ZERO output items (seen when response.create races the user's next
+// utterance). Without a retry the action executes but the user hears nothing
+// and the device silently drops to idle.
+describe('RealtimeBridge empty follow-up retry', () => {
+  let client: FakeOpenAiClient;
+  let runTool: ReturnType<typeof vi.fn<(name: string, args: unknown) => Promise<string>>>;
+
+  async function callTool(callId: string, name: string, args: string): Promise<void> {
+    await feedOpenAi(client, {
+      type: 'response.function_call_arguments.done',
+      call_id: callId,
+      name,
+      arguments: args,
+    });
+  }
+  async function finishResponse(id: string, names: string[]): Promise<void> {
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: { id, output: names.map((name) => ({ type: 'function_call', name })) },
+    });
+  }
+  async function finishEmpty(id: string, status = 'completed'): Promise<void> {
+    await feedOpenAi(client, { type: 'response.done', response: { id, output: [], status } });
+  }
+
+  beforeEach(async () => {
+    runTool = vi.fn<(name: string, args: unknown) => Promise<string>>().mockResolvedValue('done');
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ runTool }));
+    await bridge.start();
+    client = currentClient();
+    deviceWs.send.mockClear();
+  });
+
+  it('retries the follow-up once when it completes with no output', async () => {
+    await callTool('c1', 'HassTurnOff', '{}');
+    await finishResponse('r1', ['HassTurnOff']);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+
+    await finishEmpty('r2');
+    expect(client.requestResponse).toHaveBeenCalledTimes(2);
+  });
+
+  it('stays in thinking across the retry so the device is not released early', async () => {
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' }); // → thinking
+    await callTool('c1', 'HassTurnOff', '{}');
+    await finishResponse('r1', ['HassTurnOff']);
+    await finishEmpty('r2');
+    expect(phasesSent()).toEqual(['thinking']);
+  });
+
+  it('gives up after the retry also comes back empty and drops to idle', async () => {
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' }); // → thinking
+    await callTool('c1', 'HassTurnOff', '{}');
+    await finishResponse('r1', ['HassTurnOff']);
+    await finishEmpty('r2');
+    await finishEmpty('r3');
+    expect(client.requestResponse).toHaveBeenCalledTimes(2);
+    expect(phasesSent()).toContain('idle');
+  });
+
+  it('does not retry a cancelled follow-up (user barged in)', async () => {
+    await callTool('c1', 'HassTurnOff', '{}');
+    await finishResponse('r1', ['HassTurnOff']);
+    await finishEmpty('r2', 'cancelled');
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('a normal follow-up reply clears the retry budget for later empty responses', async () => {
+    await callTool('c1', 'HassTurnOff', '{}');
+    await finishResponse('r1', ['HassTurnOff']);
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: { id: 'r2', output: [{ type: 'message' }] },
+    });
+    // A later VAD-created response that legitimately produces nothing must
+    // not be mistaken for a lost tool confirmation.
+    await finishEmpty('r3');
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry empty responses that never followed a tool batch', async () => {
+    await finishEmpty('r1');
+    expect(client.requestResponse).not.toHaveBeenCalled();
+  });
+});
+
 // Some upstream "errors" are normal lifecycle events. Surfacing them would
 // fire the device's error chime + red LED for no reason.
 describe('RealtimeBridge upstream error handling', () => {

@@ -110,6 +110,18 @@ export class RealtimeBridge {
   // `conversation_already_has_active_response`.
   private pendingToolCalls: Promise<void>[] = [];
 
+  // Empty-follow-up retry. The Realtime API sporadically completes the
+  // response.create we issue after a tool batch with ZERO output items
+  // (observed when it races the user's next utterance). Without a retry the
+  // tool has executed but the user hears nothing and the device silently
+  // drops to idle. `followUpPending` is armed when we request the follow-up;
+  // an empty *completed* response.done while armed gets ONE retry
+  // (`followUpRetried` guards against looping on a model that insists on
+  // staying silent). A cancelled response is a barge-in, not a loss — never
+  // retried, the new turn produces its own response.
+  private followUpPending = false;
+  private followUpRetried = false;
+
   // --- Audio delivery diagnostics --------------------------------------------
   // Mirror of the firmware's ws-gap / underrun detectors, but on the
   // OpenAI→bridge edge. The device stutters when audio arrives slower than it
@@ -204,6 +216,11 @@ export class RealtimeBridge {
       // gone, and submitting their outputs to a fresh session would point
       // at unknown call ids.
       this.pendingToolCalls = [];
+      // Same for the empty-follow-up retry: its tool batch died with the
+      // session, so a stray empty response on the next session must not
+      // trigger a bogus retry.
+      this.followUpPending = false;
+      this.followUpRetried = false;
     });
 
     // Don't connect upstream here. Per the lazy-reconnect design above, the
@@ -554,6 +571,26 @@ export class RealtimeBridge {
           }
         }
         if (!hasRealToolCall) {
+          const status = ev.response.status;
+          if (this.followUpPending && output.length === 0 && status !== 'cancelled') {
+            if (!this.followUpRetried) {
+              // The post-tool follow-up came back with no output — the user
+              // would get silence after a successful action. Ask once more;
+              // stay in `thinking` so the device isn't released early.
+              this.followUpRetried = true;
+              log.warn(
+                { responseId, sessionId: this.sessionId },
+                'follow-up response was empty after a tool batch — retrying response.create once',
+              );
+              this.openai.requestResponse();
+              break;
+            }
+            log.warn(
+              { responseId, sessionId: this.sessionId },
+              'follow-up response empty again after retry — giving up',
+            );
+          }
+          this.followUpPending = false;
           // No follow-up response will be requested — drop back to idle, but
           // only if we're still in the turn this response.done belongs to
           // (thinking/replying). A barge-in `start` may have already cancelled
@@ -609,6 +646,8 @@ export class RealtimeBridge {
           { responseId, sessionId: this.sessionId },
           'tool batch complete — requesting follow-up response',
         );
+        this.followUpPending = true;
+        this.followUpRetried = false;
         this.openai.requestResponse();
         break;
       }
