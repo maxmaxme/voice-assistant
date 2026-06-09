@@ -29,6 +29,17 @@ describe('SqliteTelegramSessions', () => {
     });
   });
 
+  it('round-trips pendingAskExpiresAt', () => {
+    s.save(42, {
+      lastResponseId: 'resp_1',
+      pendingAskCallId: 'call_1',
+      pendingAskExpiresAt: 1_234_567,
+    });
+    const rec = s.get(42);
+    expect(rec?.pendingAskCallId).toBe('call_1');
+    expect(rec?.pendingAskExpiresAt).toBe(1_234_567);
+  });
+
   it('drops empty pending outputs to undefined', () => {
     s.save(42, { lastResponseId: 'resp_1', pendingToolOutputs: [] });
     const rec = s.get(42);

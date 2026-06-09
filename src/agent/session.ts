@@ -63,6 +63,7 @@ export class Session {
       if (snap) {
         this.lastResponseId = snap.lastResponseId;
         this.pendingAskCallId = snap.pendingAskCallId;
+        this.pendingAskExpiresAt = snap.pendingAskExpiresAt;
         this.pendingToolOutputs = snap.pendingToolOutputs;
       }
     }
@@ -95,6 +96,7 @@ export class Session {
   reset(): void {
     this.lastResponseId = undefined;
     this.pendingAskCallId = undefined;
+    this.pendingAskExpiresAt = undefined;
     this.pendingToolOutputs = undefined;
     this.lastTouch = 0;
     if (this.persistence) {
@@ -121,6 +123,7 @@ export class Session {
     this.persistence.adapter.save(this.persistence.chatId, {
       lastResponseId: this.lastResponseId,
       pendingAskCallId: this.pendingAskCallId,
+      pendingAskExpiresAt: this.pendingAskExpiresAt,
       pendingToolOutputs: this.pendingToolOutputs,
     });
   }

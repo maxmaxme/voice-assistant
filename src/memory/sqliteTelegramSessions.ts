@@ -15,6 +15,7 @@ export class SqliteTelegramSessions implements TelegramSessionsAdapter {
       .select({
         lastResponseId: telegramSessions.lastResponseId,
         pendingAskCallId: telegramSessions.pendingAskCallId,
+        pendingAskExpiresAt: telegramSessions.pendingAskExpiresAt,
         pendingToolOutputs: telegramSessions.pendingToolOutputs,
       })
       .from(telegramSessions)
@@ -26,6 +27,7 @@ export class SqliteTelegramSessions implements TelegramSessionsAdapter {
     return {
       lastResponseId: row.lastResponseId ?? undefined,
       pendingAskCallId: row.pendingAskCallId ?? undefined,
+      pendingAskExpiresAt: row.pendingAskExpiresAt ?? undefined,
       pendingToolOutputs: parsePendingOutputs(row.pendingToolOutputs),
     };
   }
@@ -39,6 +41,7 @@ export class SqliteTelegramSessions implements TelegramSessionsAdapter {
       chatId,
       lastResponseId: record.lastResponseId ?? null,
       pendingAskCallId: record.pendingAskCallId ?? null,
+      pendingAskExpiresAt: record.pendingAskExpiresAt ?? null,
       pendingToolOutputs: outputsJson,
       updatedAt: Date.now(),
     };
@@ -50,6 +53,7 @@ export class SqliteTelegramSessions implements TelegramSessionsAdapter {
         set: {
           lastResponseId: values.lastResponseId,
           pendingAskCallId: values.pendingAskCallId,
+          pendingAskExpiresAt: values.pendingAskExpiresAt,
           pendingToolOutputs: values.pendingToolOutputs,
           updatedAt: values.updatedAt,
         },

@@ -79,4 +79,5 @@ export const telegramSessions = sqliteTable('telegram_sessions', {
   pendingAskCallId: text('pending_ask_call_id'),
   updatedAt: integer('updated_at').notNull(),
   pendingToolOutputs: text('pending_tool_outputs'),
+  pendingAskExpiresAt: integer('pending_ask_expires_at'),
 });

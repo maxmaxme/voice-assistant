@@ -1,0 +1,1 @@
+ALTER TABLE `telegram_sessions` ADD `pending_ask_expires_at` integer;

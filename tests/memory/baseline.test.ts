@@ -25,6 +25,16 @@ function seedLegacyProd(sqlite: Database.Database, version: number): void {
   sqlite.prepare(`INSERT INTO users (name, created_at, is_admin) VALUES ('Maxim', 1, 0)`).run();
 }
 
+/** Total number of migration files on disk — what a fully-migrated DB's
+ *  journal row count must equal (the baseline shim seeds 0000_init's row;
+ *  later migrations append theirs). */
+function migrationsOnDisk(): number {
+  const journal: { entries: unknown[] } = JSON.parse(
+    fs.readFileSync(path.join(MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8'),
+  );
+  return journal.entries.length;
+}
+
 function journalCount(sqlite: Database.Database): number {
   const row = sqlite
     .prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM __drizzle_migrations`)
@@ -42,7 +52,7 @@ describe('baseline shim on a legacy prod DB', () => {
 
     // Must NOT throw "table profile already exists".
     expect(() => applyMigrations(sqlite)).not.toThrow();
-    expect(journalCount(sqlite)).toBe(1);
+    expect(journalCount(sqlite)).toBe(migrationsOnDisk());
 
     // Pre-existing data is intact.
     const u = sqlite.prepare<[], { name: string }>(`SELECT name FROM users LIMIT 1`).get();
@@ -56,7 +66,7 @@ describe('baseline shim on a legacy prod DB', () => {
     applyMigrations(sqlite);
     // Simulate a second boot of the same process against the same (now-baselined) DB.
     expect(() => applyMigrations(sqlite)).not.toThrow();
-    expect(journalCount(sqlite)).toBe(1);
+    expect(journalCount(sqlite)).toBe(migrationsOnDisk());
     const u = sqlite.prepare<[], { name: string }>(`SELECT name FROM users LIMIT 1`).get();
     expect(u?.name).toBe('Maxim');
   });

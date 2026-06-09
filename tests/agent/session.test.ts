@@ -62,6 +62,48 @@ describe('Session', () => {
       expect(s.begin()).toBe('resp_persisted');
     });
 
+    it('restores pendingAskExpiresAt so the ask TTL survives a restart', () => {
+      const s = new Session({
+        idleTimeoutMs: Number.POSITIVE_INFINITY,
+        persistence: {
+          chatId: 42,
+          adapter: {
+            get: () => ({
+              lastResponseId: 'resp_persisted',
+              pendingAskCallId: 'call_ask',
+              pendingAskExpiresAt: 123_456,
+            }),
+            save: () => {},
+            delete: () => {},
+          },
+        },
+      });
+      expect(s.pendingAskCallId).toBe('call_ask');
+      expect(s.pendingAskExpiresAt).toBe(123_456);
+    });
+
+    it('persists pendingAskExpiresAt on commit', () => {
+      const saved: Array<[number, Record<string, unknown>]> = [];
+      const s = new Session({
+        idleTimeoutMs: Number.POSITIVE_INFINITY,
+        persistence: {
+          chatId: 7,
+          adapter: {
+            get: () => null,
+            save: (chatId, record) => saved.push([chatId, record as Record<string, unknown>]),
+            delete: () => {},
+          },
+        },
+      });
+      s.pendingAskCallId = 'call_ask';
+      s.pendingAskExpiresAt = 999;
+      s.commit('resp_new');
+      expect(saved[0]?.[1]).toMatchObject({
+        pendingAskCallId: 'call_ask',
+        pendingAskExpiresAt: 999,
+      });
+    });
+
     it('writes on commit and deletes on reset', () => {
       const saved: Array<[number, unknown]> = [];
       const deleted: number[] = [];

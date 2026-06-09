@@ -92,6 +92,9 @@ export interface PendingToolOutput {
 export interface TelegramSessionRecord {
   lastResponseId?: string;
   pendingAskCallId?: string;
+  /** Unix ms deadline after which the pending ask is treated as abandoned.
+   *  Persisted so the TTL survives a process restart. */
+  pendingAskExpiresAt?: number;
   pendingToolOutputs?: PendingToolOutput[];
 }
 
