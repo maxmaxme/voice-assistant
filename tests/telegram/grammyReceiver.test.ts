@@ -14,7 +14,6 @@ interface FakeBot {
   on: (event: string, handler: Handler) => void;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
-  catch: ReturnType<typeof vi.fn>;
   /** Test helper: simulate an incoming update arriving from Telegram. */
   _fire: (ctx: unknown) => void;
 }
@@ -33,7 +32,6 @@ vi.mock('grammy', () => {
       },
       start: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockResolvedValue(undefined),
-      catch: vi.fn(),
       _fire: (ctx: unknown) => {
         messageHandler?.(ctx);
       },
