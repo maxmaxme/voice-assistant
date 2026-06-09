@@ -57,5 +57,12 @@ export class ToolResultCache {
   }
 }
 
-/** Tools whose results are safe to cache for a few seconds. */
+/** Tools whose results are safe to cache for a few seconds.
+ *
+ * Everything NOT in this set is treated as potentially state-mutating and
+ * clears the cache on call. That default is deliberately conservative: a
+ * new read-only tool left out of this set costs an extra HA round-trip,
+ * while the inverse policy (an explicit mutating-tools list) would serve
+ * stale state whenever someone forgets to register a new mutating tool.
+ * When adding a read-only HA tool, opt it in here explicitly. */
 export const CACHEABLE_TOOLS = new Set<string>(['GetLiveContext']);
