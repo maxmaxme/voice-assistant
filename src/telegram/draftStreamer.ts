@@ -6,10 +6,11 @@ export interface DraftSink {
   sendDraft(text: string, draftId: number): Promise<void>;
 }
 
-/** Shown while the agent hasn't streamed any reply text yet (tool calls in
- *  progress). An explicit text rather than the Bot API's empty-text
- *  "Thinking…" placeholder — not every client renders the latter. */
-export const DRAFT_PLACEHOLDER = '🤔 Думаю…';
+/** Sent while the agent hasn't streamed any reply text yet (tool calls in
+ *  progress). Empty text makes Telegram clients render a localized
+ *  "Thinking…" placeholder (Bot API 10.0); clients that don't support it yet
+ *  (macOS as of mid-2026) just show nothing until the first delta. */
+export const DRAFT_PLACEHOLDER = '';
 
 export interface DraftStreamerOptions {
   /** Minimum gap between sendMessageDraft calls. Default 1000ms. */
