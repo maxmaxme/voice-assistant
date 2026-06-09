@@ -22,3 +22,19 @@ describe('OpenAiRealtimeClient.cancelResponse', () => {
     expect(() => client.cancelResponse()).not.toThrow();
   });
 });
+
+describe('OpenAiRealtimeClient tool-result paths on a closed ws', () => {
+  // The OpenAI ws can race a close (30-min cap, network drop) while a tool
+  // batch is in flight. These are called from the bridge's response.done
+  // handler — a throw there would strand the device in the thinking phase
+  // until its own timeout. Like cancelResponse, they must degrade to no-ops.
+  it('submitToolResult is a no-op when the ws is not open', () => {
+    const client = makeClient();
+    expect(() => client.submitToolResult('call_1', '{}')).not.toThrow();
+  });
+
+  it('requestResponse is a no-op when the ws is not open', () => {
+    const client = makeClient();
+    expect(() => client.requestResponse()).not.toThrow();
+  });
+});

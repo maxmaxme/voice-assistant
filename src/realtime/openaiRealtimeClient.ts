@@ -168,8 +168,16 @@ export class OpenAiRealtimeClient {
 
   /** Submit a function_call_output item. Does NOT trigger a follow-up
    * response — call {@link requestResponse} once, after the last tool in a
-   * parallel batch has submitted, to ask the model to continue. */
+   * parallel batch has submitted, to ask the model to continue.
+   *
+   * Like {@link cancelResponse}, MUST NOT throw on a closed WS: tool batches
+   * race the upstream close (30-min cap, network drop), and these run inside
+   * the bridge's response.done handler. The result is moot on a dead session
+   * anyway; the close handler tears the device WS down for a fresh start. */
   submitToolResult(callId: string, output: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
     this.send({
       type: 'conversation.item.create',
       item: {
@@ -181,8 +189,12 @@ export class OpenAiRealtimeClient {
   }
 
   /** Ask the model to produce a new response. Pairs with
-   * {@link submitToolResult} when coalescing parallel tool results. */
+   * {@link submitToolResult} when coalescing parallel tool results.
+   * No-op on a closed WS — see {@link submitToolResult}. */
   requestResponse(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
     this.send({ type: 'response.create' });
   }
 
