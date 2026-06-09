@@ -234,10 +234,12 @@ export class OpenAiAgent implements Agent {
           context_management: [{ type: 'compaction' as const, compact_threshold: 30_000 }],
           reasoning: { effort: this.opts.reasoningEffort ?? 'low' },
         };
-        if (opts.onTextDelta) {
+        const onTextDelta = opts.onTextDelta;
+        if (onTextDelta) {
           const stream = llmClient.responses.stream(params);
-          stream.on('response.output_text.delta', (event: { delta: string }) => {
-            opts.onTextDelta!(event.delta);
+          // Listener event type comes from the SDK (ResponseTextDeltaEvent).
+          stream.on('response.output_text.delta', (event) => {
+            onTextDelta(event.delta);
           });
           response = await stream.finalResponse();
         } else {

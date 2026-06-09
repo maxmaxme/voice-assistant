@@ -19,6 +19,7 @@ export class DraftStreamer {
   private timer: NodeJS.Timeout | null = null;
   private lastSentAt = 0;
   private finished = false;
+  private inflight: Promise<void> | null = null;
 
   constructor(sink: DraftSink, draftId: number, intervalMs = 1000) {
     this.sink = sink;
@@ -39,13 +40,16 @@ export class DraftStreamer {
     this.schedule();
   }
 
-  /** Stop all future draft sends; the final message supersedes the draft. */
-  finish(): void {
+  /** Stop all future draft sends; the final message supersedes the draft.
+   *  Resolves once any in-flight send has settled, so the caller can make
+   *  sure no slow draft lands after the final persisted message. */
+  finish(): Promise<void> {
     this.finished = true;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    return this.inflight ?? Promise.resolve();
   }
 
   private schedule(): void {
@@ -63,12 +67,28 @@ export class DraftStreamer {
     if (this.finished) {
       return;
     }
+    if (this.inflight) {
+      // A previous send is still in flight. Concurrent sendMessageDraft calls
+      // can resolve out of order (an older, shorter draft overwriting a newer
+      // one), so skip this flush and reschedule once the in-flight send
+      // settles — the rescheduled flush picks up the latest buffer.
+      await this.inflight;
+      this.schedule();
+      return;
+    }
     this.lastSentAt = Date.now();
-    try {
-      // Telegram caps message text at 4096 chars after entity parsing.
-      await this.sink.sendDraft(this.buffer.slice(0, 4096), this.draftId);
-    } catch (err) {
-      log.debug({ err }, 'sendMessageDraft failed (best-effort, ignoring)');
+    const send = (async () => {
+      try {
+        // Telegram caps message text at 4096 chars after entity parsing.
+        await this.sink.sendDraft(this.buffer.slice(0, 4096), this.draftId);
+      } catch (err) {
+        log.debug({ err }, 'sendMessageDraft failed (best-effort, ignoring)');
+      }
+    })();
+    this.inflight = send;
+    await send;
+    if (this.inflight === send) {
+      this.inflight = null;
     }
   }
 }

@@ -266,7 +266,11 @@ async function respondWithDraft(
       ...(streamer ? { onTextDelta: (d: string) => streamer.onDelta(d) } : {}),
     });
   } finally {
-    streamer?.finish();
+    if (streamer) {
+      // Wait out any in-flight draft send so a slow draft can't land after
+      // the final persisted message.
+      await streamer.finish();
+    }
   }
 }
 
