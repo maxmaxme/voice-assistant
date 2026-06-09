@@ -283,12 +283,19 @@ export class OpenAiAgent implements Agent {
       // leaving a function_call unanswered would 400 the next turn ("No tool output found").
       if (fnCalls.length === 0) {
         session.commit(response.id);
-        const text = stripApiArtifacts(response.output_text ?? '');
+        const text = stripApiArtifacts(outputTextOf(response));
+        if (text === '') {
+          log.warn(
+            { outputItems: (response.output ?? []).map((it) => it.type) },
+            'assistant returned empty text',
+          );
+        }
         const usage = response.usage;
         log.info(
           {
             elapsedMs: Date.now() - respondStartedAt,
             iterations: i + 1,
+            streamed: opts.onTextDelta !== undefined,
             toolsUsed,
             inputTokens: usage?.input_tokens,
             cachedTokens: usage?.input_tokens_details?.cached_tokens,
@@ -480,6 +487,25 @@ function userTurn(userText: string, images: AgentImage[]): ResponseInputItem {
   return images.length > 0
     ? { role: 'user', content: userContentParts(userText, images) }
     : { role: 'user', content: userText };
+}
+
+// The SDK computes the convenience field `output_text` only on
+// responses.create(); ResponseStream.finalResponse() skips that step for
+// plain-text (non-auto-parseable) requests and leaves it undefined. Derive
+// the final text from the message items directly so both branches agree.
+function outputTextOf(response: OpenAiResponse): string {
+  const texts: string[] = [];
+  for (const item of response.output ?? []) {
+    if (item.type !== 'message') {
+      continue;
+    }
+    for (const content of item.content) {
+      if (content.type === 'output_text') {
+        texts.push(content.text);
+      }
+    }
+  }
+  return texts.join('');
 }
 
 // OpenAI Responses API with store:true sometimes leaks conversation-title

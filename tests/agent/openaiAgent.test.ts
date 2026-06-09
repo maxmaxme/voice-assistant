@@ -693,6 +693,32 @@ describe('OpenAiAgent', () => {
     expect(deltas).toEqual(['Hel', 'lo']);
     expect(reply.text).toBe('Hello there');
   });
+
+  it('derives final text from message items when the stream response lacks output_text', async () => {
+    // ResponseStream.finalResponse() only computes the SDK convenience field
+    // `output_text` for auto-parseable requests; plain-text requests come back
+    // without it. The agent must not depend on it.
+    const finalResponse = textResponse('Привет! Чем могу помочь?', 'resp_1');
+    delete (finalResponse as { output_text?: string }).output_text;
+    const stream = {
+      on: vi.fn(),
+      finalResponse: vi.fn().mockResolvedValue(finalResponse),
+    };
+    const llm = { responses: { create: vi.fn(), stream: vi.fn().mockReturnValue(stream) } };
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
+      systemPrompt: 'You are helpful.',
+      model: 'gpt-4o',
+      llmClient: llm as unknown as OpenAI,
+      telegram: noopTelegram,
+    });
+
+    const reply = await agent.respond('привет', { onTextDelta: () => {} });
+
+    expect(reply.text).toBe('Привет! Чем могу помочь?');
+  });
 });
 
 describe('OpenAiAgent — OPENAI_WEB_SEARCH hosted tool', () => {
