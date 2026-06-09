@@ -551,7 +551,7 @@ streaming. Final replies now come from response.output_text; the
 - Modify: `src/agent/openaiAgent.ts`
 - Test: `tests/agent/openaiAgent.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tests/agent/openaiAgent.test.ts`:
 
@@ -583,12 +583,12 @@ it('streams output text deltas through onTextDelta when provided', async () => {
 
 (Adapt `makeTextResponse` / `buildAgent` to the file's actual helper names — the factory from Task 7 Step 1 and the existing agent-construction boilerplate at the top of the file.)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run tests/agent/openaiAgent.test.ts -t 'streams output text deltas'`
 Expected: FAIL — `llmClient.responses.stream is not a function` is never called / `onTextDelta` unknown option.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/agent/types.ts`, add to `AgentRespondOptions`:
 
@@ -626,7 +626,7 @@ if (opts.onTextDelta) {
 
 (Keep the surrounding try/catch exactly as is — both branches throw the same way on API errors. Preserve the existing comment block about server-side compaction on the `context_management` line.)
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npx vitest run tests/agent/`
 Expected: PASS (new test + all existing ones, which take the non-streaming branch).
@@ -640,7 +640,7 @@ Expected: PASS (new test + all existing ones, which take the non-streaming branc
 - Create: `src/telegram/draftStreamer.ts`
 - Test: `tests/telegram/draftStreamer.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // tests/telegram/draftStreamer.test.ts
@@ -693,12 +693,12 @@ describe('DraftStreamer', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run tests/telegram/draftStreamer.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `DraftStreamer`**
+- [x] **Step 3: Implement `DraftStreamer`**
 
 ```ts
 // src/telegram/draftStreamer.ts
@@ -778,12 +778,12 @@ export class DraftStreamer {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run tests/telegram/draftStreamer.test.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Add `sendDraft` to the sender contract and implementation**
+- [x] **Step 5: Add `sendDraft` to the sender contract and implementation**
 
 `src/telegram/types.ts`:
 
@@ -810,7 +810,7 @@ export interface TelegramSender {
   }
 ```
 
-- [ ] **Step 6: Typecheck**
+- [x] **Step 6: Typecheck**
 
 Run: `npm run typecheck`
 Expected: clean. (`api.raw.sendMessageDraft` is typed in `@grammyjs/types` ≥3.27.)
@@ -821,7 +821,7 @@ Expected: clean. (`api.raw.sendMessageDraft` is typed in `@grammyjs/types` ≥3.
 
 - Modify: `src/cli/runners/telegram.ts`
 
-- [ ] **Step 1: Add a streaming-respond helper and use it on all three agent paths**
+- [x] **Step 1: Add a streaming-respond helper and use it on all three agent paths**
 
 In `src/cli/runners/telegram.ts`, add near the bottom (after `handleMessage`):
 
@@ -869,23 +869,23 @@ Then replace the three `ctx.agent.respond(...)` call sites in `handleMessage`:
 
 The surrounding try/catch and the final `await ctx.sender.send(reply.text)` stay exactly as they are — the persisted message still goes through `send()` with MarkdownV2 formatting.
 
-- [ ] **Step 2: Run the runner tests**
+- [x] **Step 2: Run the runner tests**
 
 Run: `npx vitest run tests/cli/ tests/telegram/ 2>/dev/null || npm test`
 Expected: PASS — existing runner tests use senders without `sendDraft`, so the streamer is skipped and behavior is unchanged for them.
 
 ### Task 13: Final verification, docs, commit
 
-- [ ] **Step 1: Full suite**
+- [x] **Step 1: Full suite**
 
 Run: `npm run typecheck && npm test && npm run lint`
 Expected: all PASS.
 
-- [ ] **Step 2: Update CLAUDE.md (Telegram + agent core)**
+- [x] **Step 2: Update CLAUDE.md (Telegram + agent core)**
 
 Document: Telegram replies stream via `sendMessageDraft` (empty draft = "Thinking…" placeholder, throttled accumulated deltas, final `sendMessage` persists); `AgentRespondOptions.onTextDelta` streams output-text deltas (Responses API `responses.stream`); drafts are plain-text, final message stays MarkdownV2.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A

@@ -661,6 +661,38 @@ describe('OpenAiAgent', () => {
     expect(added[0].goal).toBe('call mom');
     expect(added[0].ownerUserId).toBe(uid);
   });
+
+  it('streams output text deltas through onTextDelta when provided', async () => {
+    const finalResponse = textResponse('Hello there', 'resp_1');
+    const stream = {
+      on: vi.fn(),
+      finalResponse: vi.fn().mockResolvedValue(finalResponse),
+    };
+    const create = vi.fn();
+    const llm = { responses: { create, stream: vi.fn().mockReturnValue(stream) } };
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
+      systemPrompt: 'You are helpful.',
+      model: 'gpt-4o',
+      llmClient: llm as unknown as OpenAI,
+      telegram: noopTelegram,
+    });
+
+    const deltas: string[] = [];
+    const reply = await agent.respond('hi', { onTextDelta: (d) => deltas.push(d) });
+
+    expect(llm.responses.stream).toHaveBeenCalledOnce();
+    expect(create).not.toHaveBeenCalled();
+    // simulate what the SDK does: fire the registered delta listener
+    const onDelta = stream.on.mock.calls.find(([ev]) => ev === 'response.output_text.delta')?.[1];
+    expect(onDelta).toBeDefined();
+    onDelta!({ delta: 'Hel' });
+    onDelta!({ delta: 'lo' });
+    expect(deltas).toEqual(['Hel', 'lo']);
+    expect(reply.text).toBe('Hello there');
+  });
 });
 
 describe('OpenAiAgent — OPENAI_WEB_SEARCH hosted tool', () => {

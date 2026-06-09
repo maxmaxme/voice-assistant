@@ -1,5 +1,8 @@
 export interface TelegramSender {
   send(text: string): Promise<void>;
+  /** Stream a partial reply as an ephemeral draft (Bot API sendMessageDraft,
+   * private chats only). Optional — senders without it just don't stream. */
+  sendDraft?(text: string, draftId: number): Promise<void>;
 }
 
 export type TelegramMessage =

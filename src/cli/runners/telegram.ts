@@ -7,6 +7,8 @@ import type { IdentitiesAdapter } from '../../memory/types.ts';
 import type { SqliteProfileMemory } from '../../memory/sqliteProfileMemory.ts';
 import type { TelegramReceiver, TelegramSender, TelegramMessage } from '../../telegram/types.ts';
 import { BotTelegramSender } from '../../telegram/telegramSender.ts';
+import { DraftStreamer } from '../../telegram/draftStreamer.ts';
+import type { AgentImage } from '../../agent/types.ts';
 import type { TelegramVoiceTranscriber } from '../../telegram/voiceTranscriber.ts';
 import type { TelegramPhotoLoader } from '../../telegram/photoLoader.ts';
 import { createLogger } from '../../utils/logger.ts';
@@ -124,7 +126,6 @@ async function handleMessage(
     log: Logger;
   },
 ): Promise<void> {
-  const session = ctx.session;
   if (msg.kind === 'voice') {
     if (!ctx.voiceTranscriber) {
       await ctx.sender.send('Voice messages are not supported yet — please send text.');
@@ -151,11 +152,7 @@ async function handleMessage(
     }
     let reply;
     try {
-      reply = await ctx.agent.respond(transcript, {
-        session,
-        profile: ctx.profile,
-        scope: ctx.scope,
-      });
+      reply = await respondWithDraft(ctx, msg.updateId, transcript);
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       ctx.log.error({ err }, `agent error on voice transcript: ${m}`);
@@ -185,12 +182,7 @@ async function handleMessage(
     }
     let reply;
     try {
-      reply = await ctx.agent.respond(msg.caption ?? '', {
-        images: [image],
-        session,
-        profile: ctx.profile,
-        scope: ctx.scope,
-      });
+      reply = await respondWithDraft(ctx, msg.updateId, msg.caption ?? '', [image]);
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       ctx.log.error({ err }, `agent error on photo: ${m}`);
@@ -237,7 +229,7 @@ async function handleMessage(
 
   let reply;
   try {
-    reply = await ctx.agent.respond(text, { session, profile: ctx.profile, scope: ctx.scope });
+    reply = await respondWithDraft(ctx, msg.updateId, text);
   } catch (err) {
     const m = err instanceof Error ? err.message : String(err);
     ctx.log.error({ err }, `agent error: ${m}`);
@@ -245,6 +237,37 @@ async function handleMessage(
     return;
   }
   await ctx.sender.send(reply.text);
+}
+
+/** Run agent.respond() while live-streaming the reply into a Telegram draft
+ * when the sender supports it. draftId = updateId (unique per message,
+ * non-zero as required by sendMessageDraft). */
+async function respondWithDraft(
+  ctx: {
+    agent: OpenAiAgent;
+    session: Session;
+    profile: ScopedProfile;
+    scope: Scope;
+    sender: TelegramSender;
+  },
+  draftId: number,
+  userText: string,
+  images?: AgentImage[],
+) {
+  const sendDraft = ctx.sender.sendDraft?.bind(ctx.sender);
+  const streamer = sendDraft ? new DraftStreamer({ sendDraft }, draftId || 1) : null;
+  streamer?.start();
+  try {
+    return await ctx.agent.respond(userText, {
+      session: ctx.session,
+      profile: ctx.profile,
+      scope: ctx.scope,
+      ...(images ? { images } : {}),
+      ...(streamer ? { onTextDelta: (d: string) => streamer.onDelta(d) } : {}),
+    });
+  } finally {
+    streamer?.finish();
+  }
 }
 
 /** Build a sender that replies to a specific chat using the same bot token. */

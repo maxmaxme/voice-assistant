@@ -131,6 +131,14 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 6. Loop, advancing `previousResponseId` to `response.id` each turn, until plain text comes back or `maxToolIterations` is hit.
 7. On success → `Session.commit(response.id)`. On thrown error → no commit, so the next turn naturally starts fresh from the last successful chain point.
 
+**Streaming deltas.** `AgentRespondOptions.onTextDelta` streams output-text
+deltas: when the callback is set, the agent uses `responses.stream(...)`
+(listening on `response.output_text.delta`, awaiting `finalResponse()`)
+instead of `responses.create`; the return value is identical. The callback
+fires on every tool-loop iteration — including ones that end in tool calls —
+so callers must treat deltas as ephemeral preview text (the Telegram runner
+shows them as a draft superseded by the final message).
+
 **Reasoning effort.** For reasoning-capable models (gpt-5 family, o-series), `OpenAiAgent` passes `reasoning.effort` from `config.openai.reasoningEffort` (env `OPENAI_REASONING_EFFORT`, default `low`). Non-reasoning models ignore the field server-side. Bump to `medium`/`high` for puzzle-heavy workloads; `low` is enough for tool routing and typical household requests.
 
 **Tool schemas:** local tools (memory/ask/telegram) are strict-by-default (Responses default `strict: true`) and include `additionalProperties: false`. HA MCP tools come from upstream and don't satisfy strict-mode requirements, so `mcpToolsToOpenAi` sets `strict: false` for them.
@@ -277,6 +285,17 @@ crashes the process so the container restarts). The Bot API client is
 direct URL through `fileLink.ts` (`api.getFile` → `https://api.telegram.org/file/bot<token>/<file_path>`).
 Voice messages get transcribed via OpenAI; photos are forwarded as multimodal
 input.
+
+**Replies stream as drafts.** While the agent generates a reply, the runner
+live-streams it via Bot API `sendMessageDraft` (`DraftStreamer` in
+`src/telegram/draftStreamer.ts`): an empty draft goes out immediately
+(Telegram renders "Thinking…"), then accumulated output-text deltas are
+pushed throttled to one call per second, and the final regular `sendMessage`
+persists the reply (drafts are ephemeral 30-second previews). Drafts are
+plain text on purpose — partial markdown would break MarkdownV2 mid-stream;
+only the final `send()` formats. Draft sends are best-effort: failures are
+logged at debug and never break the reply path. `TelegramSender.sendDraft`
+is optional — senders without it keep the old send-once behavior.
 
 Each chat has a self-persisting `Session` (SQLite table `telegram_sessions`)
 with `idleTimeoutMs: Infinity` — the chain only resets via `/reset` or when

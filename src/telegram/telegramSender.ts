@@ -27,4 +27,14 @@ export class BotTelegramSender implements TelegramSender {
       parse_mode: 'MarkdownV2',
     });
   }
+
+  async sendDraft(text: string, draftId: number): Promise<void> {
+    // Drafts are plain text on purpose: partial markdown would break
+    // MarkdownV2 parsing mid-stream. The final send() formats normally.
+    await this.api.raw.sendMessageDraft({
+      chat_id: Number(this.chatId),
+      draft_id: draftId,
+      text,
+    });
+  }
 }

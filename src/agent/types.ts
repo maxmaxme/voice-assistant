@@ -47,6 +47,11 @@ export interface AgentRespondOptions {
    * (scheduled actions: author of new reminders, owner-scoped list/cancel).
    * Omitted on goal-mode fires and other unscoped callers. */
   scope?: Scope;
+  /** Called with each output-text delta as the model generates it. Fires on
+   * EVERY tool-loop iteration, including ones that end in tool calls — the
+   * caller shows deltas as an ephemeral draft and replaces it with the final
+   * text, so stray pre-tool-call text is harmless. */
+  onTextDelta?: (delta: string) => void;
 }
 
 export interface Agent {

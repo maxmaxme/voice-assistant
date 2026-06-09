@@ -1,5 +1,6 @@
 import type OpenAI from 'openai';
 import type {
+  Response as OpenAiResponse,
   ResponseInputItem,
   ResponseInputImage,
   ResponseInputText,
@@ -214,9 +215,11 @@ export class OpenAiAgent implements Agent {
     const toolsUsed: string[] = [];
 
     for (let i = 0; i < this.maxIters; i++) {
-      let response;
+      // ParsedResponse (the stream branch) extends Response — pin the common
+      // base type so downstream narrowing (the function_call filter) works.
+      let response: OpenAiResponse;
       try {
-        response = await llmClient.responses.create({
+        const params = {
           model,
           ...(instructions !== undefined && i === 0 ? { instructions } : {}),
           input: nextInput,
@@ -228,9 +231,18 @@ export class OpenAiAgent implements Agent {
           // item. Keeps cost and context-window growth bounded on long chains.
           // 30k tokens is well below gpt-4o's 128k window — gives the model
           // plenty of headroom for tools and the current turn.
-          context_management: [{ type: 'compaction', compact_threshold: 30_000 }],
+          context_management: [{ type: 'compaction' as const, compact_threshold: 30_000 }],
           reasoning: { effort: this.opts.reasoningEffort ?? 'low' },
-        });
+        };
+        if (opts.onTextDelta) {
+          const stream = llmClient.responses.stream(params);
+          stream.on('response.output_text.delta', (event: { delta: string }) => {
+            opts.onTextDelta!(event.delta);
+          });
+          response = await stream.finalResponse();
+        } else {
+          response = await llmClient.responses.create(params);
+        }
       } catch (err) {
         // OpenAI evicts `previous_response_id` after ~30 days (the Responses
         // API retention window). When that happens we get back a 404 saying
