@@ -77,6 +77,10 @@ export class RealtimeBridge {
   // come up. ~50 fps × 4 s = 200 frames; beyond that we drop oldest to bound
   // memory if the connect hangs.
   private static readonly MAX_AUDIO_BUFFER_FRAMES = 200;
+  // Hard ceiling on the upstream handshake. Normal connects land in
+  // 300–500 ms; anything past this is a degraded upstream, and failing
+  // fast lets the next wake word retry cleanly.
+  private static readonly CONNECT_TIMEOUT_MS = 10_000;
 
   // Idle-reset: drops the upstream Realtime session after the bridge sits
   // in `idle` for `idleResetMs`, so the next wake word starts a fresh
@@ -232,8 +236,31 @@ export class RealtimeBridge {
     this.openaiState = 'connecting';
     const t0 = Date.now();
     this.pendingConnect = (async () => {
+      let timeoutTimer: NodeJS.Timeout | undefined;
       try {
-        await this.openai.connect();
+        // Bound the handshake: a degraded upstream that dials but never
+        // completes would otherwise pin pendingConnect forever — every
+        // subsequent frame awaits the hung promise and audio silently
+        // rotates out of the buffer. Failing fast lets the next wake word
+        // start a clean attempt.
+        await Promise.race([
+          this.openai.connect(),
+          new Promise<never>((_, reject) => {
+            timeoutTimer = setTimeout(
+              () => reject(new Error('openai connect timeout')),
+              RealtimeBridge.CONNECT_TIMEOUT_MS,
+            );
+            timeoutTimer.unref();
+          }),
+        ]);
+        if (this.openaiState !== 'connecting') {
+          // The upstream closed (onClose flipped us to 'disconnected') in the
+          // window between the handshake succeeding and this continuation
+          // running. The session we just opened is already stale — don't
+          // stomp the state back to 'connected' or drain into a dead socket.
+          this.audioBuffer = [];
+          return;
+        }
         this.metrics.mark('openai_connected');
         const tookMs = Date.now() - t0;
         log.info(
@@ -249,9 +276,13 @@ export class RealtimeBridge {
       } catch (err) {
         this.openaiState = 'disconnected';
         this.audioBuffer = [];
+        // Abort the in-flight handshake so a late success can't leak an open
+        // socket the bridge no longer tracks.
+        this.openai.close();
         log.error({ err, sessionId: this.sessionId }, 'openai connect failed');
         throw err;
       } finally {
+        clearTimeout(timeoutTimer);
         this.pendingConnect = null;
       }
     })();

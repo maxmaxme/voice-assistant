@@ -157,8 +157,8 @@ describe('RealtimeBridge lazy upstream connect', () => {
     await vi.waitFor(() => expect(client.connect).toHaveBeenCalledTimes(1));
 
     // The frame that triggered the connect is buffered, then flushed once
-    // upstream is ready.
-    expect(client.appendAudioPcm16Base64).toHaveBeenCalledTimes(1);
+    // upstream is ready (the drain runs a few microtasks after connect).
+    await vi.waitFor(() => expect(client.appendAudioPcm16Base64).toHaveBeenCalledTimes(1));
   });
 
   it('only connects once for a burst of frames before upstream is ready', async () => {
@@ -170,6 +170,30 @@ describe('RealtimeBridge lazy upstream connect', () => {
       deviceWs.emit('message', audioFrame(), true);
     }
     await vi.waitFor(() => expect(client.connect).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('RealtimeBridge connect timeout', () => {
+  it('a hanging upstream connect times out and the next frame retries', async () => {
+    vi.useFakeTimers();
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+    const client = currentClient();
+    // Upstream accepts the TCP dial but never finishes the handshake
+    // (degraded OpenAI edge). Without a timeout the bridge would buffer
+    // audio behind this promise forever.
+    client.connect.mockReturnValue(new Promise<void>(() => {}));
+
+    deviceWs.emit('message', audioFrame(), true);
+    expect(client.connect).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(10_001);
+    // The aborted handshake is cleaned up so a late success can't leak a socket.
+    expect(client.close).toHaveBeenCalled();
+
+    // A fresh wake word kicks off a new attempt instead of awaiting the hung one.
+    deviceWs.emit('message', audioFrame(), true);
+    expect(client.connect).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -261,6 +285,10 @@ describe('RealtimeBridge lazy reconnect after upstream close', () => {
     // Simulate OpenAI's hard 30-minute cap closing the socket out from under
     // us. The bridge should mark itself disconnected, not tear down the device.
     openaiCloseListener(client)({ code: 1005, reason: '' });
+    // Let the in-flight connect promise fully settle (its continuation sees
+    // the close and stands down) — a real device streams frames continuously,
+    // so the next frame always lands after this window.
+    await new Promise((r) => setTimeout(r, 0));
 
     // Next wake word brings a fresh frame → upstream comes back up.
     deviceWs.emit('message', audioFrame(), true);
