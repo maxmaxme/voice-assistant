@@ -122,6 +122,15 @@ export class RealtimeBridge {
   private followUpPending = false;
   private followUpRetried = false;
 
+  // request_follow_up's tool contract is "call this AFTER speaking a
+  // question", but the model sometimes calls it without speaking at all —
+  // opening the device mic window then means a silent 12s window and a user
+  // who never hears what went wrong (seen live after a schedule_action
+  // error). Only response.done knows whether the response carried a message,
+  // so the tool handler just arms this flag and response.done either opens
+  // the window (model spoke) or reuses the empty-follow-up retry (it didn't).
+  private followUpWindowRequested = false;
+
   // --- Audio delivery diagnostics --------------------------------------------
   // Mirror of the firmware's ws-gap / underrun detectors, but on the
   // OpenAI→bridge edge. The device stutters when audio arrives slower than it
@@ -221,6 +230,7 @@ export class RealtimeBridge {
       // trigger a bogus retry.
       this.followUpPending = false;
       this.followUpRetried = false;
+      this.followUpWindowRequested = false;
     });
 
     // Don't connect upstream here. Per the lazy-reconnect design above, the
@@ -380,6 +390,7 @@ export class RealtimeBridge {
         // the watchdog — otherwise it would later log a bogus "user did not
         // respond". No-op when no follow-up is pending.
         this.notePossibleFollowUpResponse();
+        this.followUpWindowRequested = false;
         this.openai.cancelResponse();
         this.dropResponseAudio = true;
         this.setPhase('listening');
@@ -392,6 +403,7 @@ export class RealtimeBridge {
         // OpenAI session leaking open forever. We go to idle, not listening:
         // setPhase('listening') used to live here and popped the mic open
         // after a Stop, which let OpenAI emit a phantom follow-up response.
+        this.followUpWindowRequested = false;
         this.openai.cancelResponse();
         this.dropResponseAudio = true;
         this.setPhase('idle');
@@ -570,8 +582,42 @@ export class RealtimeBridge {
             );
           }
         }
+        // Consume the deferred request_follow_up window (armed by the tool
+        // handler). When real tool calls ride along, the post-batch follow-up
+        // response decides afresh whether to ask — drop the stale request.
+        const windowRequested = this.followUpWindowRequested;
+        this.followUpWindowRequested = false;
         if (!hasRealToolCall) {
           const status = ev.response.status;
+          if (windowRequested && status !== 'cancelled') {
+            if (output.some((item) => item.type === 'message')) {
+              // Model spoke its question — now the follow-up mic window after
+              // the reply makes sense. Open it and close out the phase.
+              log.info('request_follow_up — opening device follow-up mic window');
+              this.sendDevice({ type: 'request_follow_up' });
+              this.followUpPending = false;
+              this.setPhase('idle');
+              this.armFollowUpWatchdog();
+              break;
+            }
+            // Silent request_follow_up: a mic window with nothing spoken is
+            // useless (and after a failed tool it hides the failure). Same
+            // shape as an empty follow-up — retry response.create once.
+            if (!this.followUpRetried) {
+              this.followUpRetried = true;
+              this.followUpPending = true;
+              log.warn(
+                { responseId, sessionId: this.sessionId },
+                'request_follow_up without a spoken message — retrying response.create once',
+              );
+              this.openai.requestResponse();
+              break;
+            }
+            log.warn(
+              { responseId, sessionId: this.sessionId },
+              'request_follow_up still silent after retry — giving up',
+            );
+          }
           if (this.followUpPending && output.length === 0 && status !== 'cancelled') {
             if (!this.followUpRetried) {
               // The post-tool follow-up came back with no output — the user
@@ -692,14 +738,12 @@ export class RealtimeBridge {
       return;
     }
     // Built-in request_follow_up: model asked a question and wants the user
-    // to answer without saying a wake word. Tell the device to open its
-    // follow-up mic window, then close out the LED phase cleanly.
+    // to answer without saying a wake word. Don't open the device window yet —
+    // defer to response.done, which knows whether the model actually spoke
+    // the question (see followUpWindowRequested).
     if (name === 'request_follow_up') {
-      log.info('request_follow_up — opening device follow-up mic window');
       this.openai.submitToolResult(callId, '{}');
-      this.sendDevice({ type: 'request_follow_up' });
-      this.setPhase('idle');
-      this.armFollowUpWatchdog();
+      this.followUpWindowRequested = true;
       return;
     }
     const t0 = Date.now();

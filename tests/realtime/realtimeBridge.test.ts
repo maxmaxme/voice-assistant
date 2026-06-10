@@ -629,15 +629,30 @@ describe('RealtimeBridge tool dispatch', () => {
 
   it('request_follow_up opens the device mic window without a model follow-up', async () => {
     await callTool('c1', 'request_follow_up', '{}');
+    // Not yet — only response.done knows whether the model actually spoke
+    // the question the window is supposed to follow.
+    expect(serverMessages().some((m) => m.type === 'request_follow_up')).toBe(false);
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: {
+        id: 'r1',
+        output: [{ type: 'message' }, { type: 'function_call', name: 'request_follow_up' }],
+      },
+    });
     expect(serverMessages().some((m) => m.type === 'request_follow_up')).toBe(true);
-    await finishResponse('r1', ['request_follow_up']);
     expect(client.requestResponse).not.toHaveBeenCalled();
   });
 
   it('treats a wake word during a follow-up window as the user responding', async () => {
     // Model asked a question and opened the follow-up window.
     await callTool('c1', 'request_follow_up', '{}');
-    await finishResponse('r1', ['request_follow_up']);
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: {
+        id: 'r1',
+        output: [{ type: 'message' }, { type: 'function_call', name: 'request_follow_up' }],
+      },
+    });
 
     const logs = captureLogs();
     try {
@@ -649,6 +664,107 @@ describe('RealtimeBridge tool dispatch', () => {
     } finally {
       logs.restore();
     }
+  });
+});
+
+// The model sometimes calls request_follow_up WITHOUT speaking the question
+// it is supposed to precede (seen live: schedule_action errored, the follow-up
+// response contained ONLY function_call(request_follow_up) — the device opened
+// a silent 12s mic window and the user never learned the reminder was not
+// set). A follow-up window with nothing spoken is useless: treat it like an
+// empty follow-up and retry response.create once so the model says something.
+describe('RealtimeBridge silent request_follow_up guard', () => {
+  let client: FakeOpenAiClient;
+  let runTool: ReturnType<typeof vi.fn<(name: string, args: unknown) => Promise<string>>>;
+
+  async function callTool(callId: string, name: string, args: string): Promise<void> {
+    await feedOpenAi(client, {
+      type: 'response.function_call_arguments.done',
+      call_id: callId,
+      name,
+      arguments: args,
+    });
+  }
+  async function finishResponse(id: string, names: string[]): Promise<void> {
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: { id, output: names.map((name) => ({ type: 'function_call', name })) },
+    });
+  }
+  async function finishSpokenFollowUp(id: string): Promise<void> {
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: {
+        id,
+        output: [{ type: 'message' }, { type: 'function_call', name: 'request_follow_up' }],
+      },
+    });
+  }
+  function windowOpened(): boolean {
+    return serverMessages().some((m) => m.type === 'request_follow_up');
+  }
+
+  beforeEach(async () => {
+    runTool = vi.fn<(name: string, args: unknown) => Promise<string>>().mockResolvedValue('done');
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ runTool }));
+    await bridge.start();
+    client = currentClient();
+    deviceWs.send.mockClear();
+  });
+
+  it('does not open the mic window for a silent request_follow_up — retries instead', async () => {
+    await callTool('c1', 'request_follow_up', '{}');
+    await finishResponse('r1', ['request_follow_up']); // no message item
+    expect(windowOpened()).toBe(false);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the window once the retried response actually speaks', async () => {
+    await callTool('c1', 'request_follow_up', '{}');
+    await finishResponse('r1', ['request_follow_up']);
+    await callTool('c2', 'request_follow_up', '{}');
+    await finishSpokenFollowUp('r2');
+    expect(windowOpened()).toBe(true);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after the retry is silent again and drops to idle without a window', async () => {
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' }); // → thinking
+    await callTool('c1', 'request_follow_up', '{}');
+    await finishResponse('r1', ['request_follow_up']);
+    await callTool('c2', 'request_follow_up', '{}');
+    await finishResponse('r2', ['request_follow_up']);
+    expect(windowOpened()).toBe(false);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+    expect(phasesSent()).toContain('idle');
+  });
+
+  it('recovers the live incident: tool error → silent follow-up → retry speaks → window opens', async () => {
+    await callTool('c1', 'schedule_action', '{}'); // real tool (errors or not — same flow)
+    await finishResponse('r1', ['schedule_action']);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1); // post-tool follow-up
+    await callTool('c2', 'request_follow_up', '{}');
+    await finishResponse('r2', ['request_follow_up']); // silent — the bug
+    expect(windowOpened()).toBe(false);
+    expect(client.requestResponse).toHaveBeenCalledTimes(2); // retry
+    await callTool('c3', 'request_follow_up', '{}');
+    await finishSpokenFollowUp('r3');
+    expect(windowOpened()).toBe(true);
+    expect(client.requestResponse).toHaveBeenCalledTimes(2);
+  });
+
+  it('a cancelled response (barge-in) discards the pending window without retrying', async () => {
+    await callTool('c1', 'request_follow_up', '{}');
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: {
+        id: 'r1',
+        output: [{ type: 'function_call', name: 'request_follow_up' }],
+        status: 'cancelled',
+      },
+    });
+    expect(windowOpened()).toBe(false);
+    expect(client.requestResponse).not.toHaveBeenCalled();
   });
 });
 
