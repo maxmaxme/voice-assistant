@@ -55,9 +55,11 @@ export class RealtimeBridge {
   // difference (in logs) between "user answered the model's question
   // within the window" and "window expired in silence". The device's
   // follow-up state is hidden from us — we approximate by running a
-  // timer that matches the device's kFollowupOpenDelayMs (1500ms) +
-  // kRequestFollowUpMs (10000ms) + a small slack so the log fires
-  // *just after* the device-side timeout if no speech_started came in.
+  // timer that matches the device-side window: the yaml on_followup_opened
+  // pre-mic delay (wake chime + drain wait + ~800ms, roughly 1.5s) plus the
+  // device's kRequestFollowUpMs (10000ms) mic-open window, plus a small slack,
+  // so the log fires *just after* the device-side timeout if no speech_started
+  // came in. The 12s value is kept in sync with the yaml followup_window_watchdog.
   private pendingFollowUp: { sentAt: number; timer: NodeJS.Timeout } | null = null;
   private static readonly FOLLOW_UP_WINDOW_MS = 12_000;
 
