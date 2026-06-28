@@ -15,8 +15,8 @@ const editable = new Compartment()
 let view: EditorView | null = null
 
 const sizing = EditorView.theme({
-  '&': { fontSize: '13px', maxHeight: '60vh' },
-  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', overflow: 'auto' },
+  '&': { fontSize: '13px' },
+  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
   '&.cm-focused': { outline: 'none' },
 })
 

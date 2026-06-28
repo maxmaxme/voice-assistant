@@ -109,7 +109,7 @@ async function resetToDefault() {
         Prompts
       </h1>
       <p class="text-[var(--ui-text-muted)] mt-1">
-        Edit the assistant's prompt text. Each has a built-in default you can always restore.
+        Edit the assistant's prompt text.
       </p>
     </header>
 
