@@ -5,6 +5,11 @@ const ConfigSchema = z.object({
   memory: z.object({
     dbPath: z.string().default('data/assistant.db'),
   }),
+  // IANA name (e.g. "Europe/Madrid"). Required: it must be a real env var so
+  // Node's Date/Intl engine picks it up — scheduled actions, cron and the time
+  // shown to the model all run in this zone (see src/utils/time.ts). No default
+  // on purpose, so a missing TZ fails fast rather than silently using UTC.
+  tz: z.string().min(1),
   http: z.object({
     port: z.coerce.number().int().min(1).max(65535).default(3000),
   }),
@@ -17,18 +22,20 @@ export type Config = z.infer<typeof ConfigSchema>;
 
 const PATH_TO_ENV: Record<string, string> = {
   'memory.dbPath': 'MEMORY_DB_PATH',
+  tz: 'TZ',
   'http.port': 'HTTP_SERVER_PORT',
   'realtime.port': 'REALTIME_PORT',
 };
 
-/** Read config from `env` (defaults to `process.env`). DB-backed setting
- *  overrides are applied by the caller layering them over `process.env`
- *  before calling — `{ ...process.env, ...overrides }`. */
+/** Read process-level config from `env` (defaults to `process.env`). Everything
+ *  else (integrations, realtime/http enable) is DB-backed and resolved
+ *  elsewhere — there is no env overlay. */
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const raw = {
     memory: {
       dbPath: env.MEMORY_DB_PATH,
     },
+    tz: env.TZ,
     http: {
       port: env.HTTP_SERVER_PORT,
     },

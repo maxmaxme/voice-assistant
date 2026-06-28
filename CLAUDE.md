@@ -288,31 +288,21 @@ see below). Two DB-backed sources, both **applied on the next process start**,
 never hot-reloaded:
 
 - **`settings` table** (`src/settings/sqliteSettings.ts`, `SettingsStore`) — a
-  key/value store of **non-secret** config. Two kinds of rows: env-overlay keys
-  (env-var names in `SETTABLE_KEYS`, currently just `TZ`) layered over
-  `process.env`, and DB-only feature config read by dedicated resolvers, NOT via
-  env (`http.enabled` → `resolveHttpConfig`; `realtime.*` → `resolveRealtimeConfig`).
-  `loadConfig(env)` takes an env map
-  (defaults to `process.env`); the bootstrap in `cli/shared.ts` does a
-  two-phase load: `loadConfig()` to learn the DB path → `openMemoryStore` →
-  `loadConfig({ ...process.env, ...buildEnvOverlay(memory.settings) })`. So
-  precedence is **DB > env > zod default**. `buildEnvOverlay`
-  (`src/settings/settable.ts`) filters stored rows to the `SETTABLE_KEYS`
-  whitelist, so a stray row can never override anything sensitive. **No secrets
-  live in env any more**: OpenAI's api key, Home Assistant's url/token, and the
-  Telegram bot token are in the `integrations` table; realtime device tokens are
-  `voice` identities (hashes) in the `identities` table. (See the MCP client and
-  Realtime sections.)
+  key/value store of **DB-only feature config**, read by dedicated resolvers, NOT
+  via env: `http.enabled` → `resolveHttpConfig`, `realtime.*` →
+  `resolveRealtimeConfig`. There is **no env-overlay** — nothing is web-edited
+  _into_ `process.env`. Process-level config (`MEMORY_DB_PATH`, **`TZ`**,
+  `HTTP_SERVER_PORT`, `REALTIME_PORT`) is plain env via `loadConfig()`; `TZ` is
+  **required** (no UTC fallback). **No secrets in env**: OpenAI's api key, HA's
+  url/token, and the Telegram bot token live in the `integrations` table;
+  realtime device tokens are `voice` identities (hashes) in the `identities`
+  table. (See the MCP client and Realtime sections.)
 - **`prompts` table** (`src/settings/sqlitePrompts.ts`, `SqlitePrompts`) —
   editable prompt text for **all** prompts, fronted by the prompt registry
   (`src/agent/prompts/registry.ts`). `initPromptRegistry` (called in
   `cli/shared.ts` bootstrap) seeds every bundled `.md` via `seedIfAbsent` and
   binds the store; consumers read through `resolvePrompt(name)`. See the
   "Prompt text…" subsection above for the full layout.
-
-`SETTABLE_KEYS` in `src/settings/settable.ts` is the source of truth for which
-knobs are editable; `web/server/utils/settable.ts` is a copy kept in sync until
-extracted to a shared module.
 
 ### Scheduled actions
 
@@ -483,12 +473,12 @@ Important behaviour:
 
 Config sources:
 
-| Setting                             | Source                                                                                                                                                                                                                                 |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| enable + idle reset + output pacing | **DB-only realtime config** (`resolveRealtimeConfig`, `src/settings/realtimeConfig.ts`) — read from the `settings` table under `realtime.*` keys via the web panel's Realtime page (`/api/realtime`). NOT env, NOT in `SETTABLE_KEYS`. |
-| model / voice / effort              | **OpenAI integration** (`realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`) — provider-specific.                                                                                                                              |
-| device token                        | **`voice` identity** in the `identities` table (sha256 of the per-device token). The WS hash-looks-up the presented Bearer; unknown → `4401`. Registered via the Users page / `attach-voice`. No env token.                            |
-| `REALTIME_PORT`                     | env, default `3001`.                                                                                                                                                                                                                   |
+| Setting                             | Source                                                                                                                                                                                                         |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| enable + idle reset + output pacing | **DB-only realtime config** (`resolveRealtimeConfig`, `src/settings/realtimeConfig.ts`) — read from the `settings` table under `realtime.*` keys via the web panel's HA Voice page (`/api/realtime`). NOT env. |
+| model / voice / effort              | **OpenAI integration** (`realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`) — provider-specific.                                                                                                      |
+| device token                        | **`voice` identity** in the `identities` table (sha256 of the per-device token). The WS hash-looks-up the presented Bearer; unknown → `4401`. Registered via the Users page / `attach-voice`. No env token.    |
+| `REALTIME_PORT`                     | env, default `3001`.                                                                                                                                                                                           |
 
 ### MCP client (`src/mcp/haMcpClient.ts`)
 

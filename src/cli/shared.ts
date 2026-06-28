@@ -15,7 +15,6 @@ import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
 import type { MemoryStore } from '../memory/types.ts';
 import { initPromptRegistry, resolvePrompt } from '../agent/prompts/registry.ts';
-import { buildEnvOverlay } from '../settings/settable.ts';
 import { receiverFromToken } from '../telegram/fromConfig.ts';
 import { BotTelegramSender } from '../telegram/telegramSender.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
@@ -126,18 +125,12 @@ export interface CommonDeps {
 
 /** Initialise everything shared across runners. Call once per process. */
 export async function initializeCommonDependencies(): Promise<CommonDeps> {
-  // Two-phase config load: read env first to learn the DB path (not a
-  // web-settable key), open the store, then re-load with the DB-backed
-  // overrides layered over env. Changes apply on the next start by design.
-  const envConfig = loadConfig();
-  fs.mkdirSync(path.dirname(envConfig.memory.dbPath), { recursive: true });
-  const memory = openMemoryStore(envConfig.memory.dbPath);
-  // Layer the DB-backed overrides over the real env. We also mutate process.env
-  // itself so the consumers that read it directly (e.g. TZ) honour the
-  // web-edited values, not just the typed `config` object.
-  const overlay = buildEnvOverlay(memory.settings);
-  Object.assign(process.env, overlay);
-  const config = loadConfig({ ...process.env, ...overlay });
+  // All config is env (process-level: db path, TZ, ports) or DB-backed feature
+  // config read by dedicated resolvers below (integrations, realtime, http).
+  // There is no env-overlay any more — nothing is web-edited *into* env.
+  const config = loadConfig();
+  fs.mkdirSync(path.dirname(config.memory.dbPath), { recursive: true });
+  const memory = openMemoryStore(config.memory.dbPath);
 
   // Seed every bundled prompt into the DB (skipping ones already edited) and
   // route all prompt reads through the DB for the rest of the process.

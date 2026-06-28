@@ -16,7 +16,7 @@ export default defineNuxtConfig({
     vaDbPath: process.env.VA_DB_PATH || '../data/assistant.db',
   },
   routeRules: {
-    '/': { redirect: '/settings' },
+    '/': { redirect: '/integrations' },
   },
   // better-sqlite3 is a native module — keep it external to the server bundle
   // so its prebuilt binary is loaded at runtime rather than inlined by rollup.

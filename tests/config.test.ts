@@ -7,15 +7,26 @@ describe('loadConfig', () => {
   beforeEach(() => {
     delete process.env.REALTIME_PORT;
     delete process.env.HTTP_SERVER_PORT;
+    // TZ is required; default it so the non-TZ cases can load.
+    process.env.TZ = 'Europe/Madrid';
   });
 
   afterEach(() => {
     process.env = { ...originalEnv };
   });
 
+  it('reads TZ from env', () => {
+    process.env.TZ = 'America/New_York';
+    expect(loadConfig().tz).toBe('America/New_York');
+  });
+
+  it('throws when TZ is missing', () => {
+    delete process.env.TZ;
+    expect(() => loadConfig({})).toThrow(/TZ/);
+  });
+
   it('realtime defaults: port 3001', () => {
-    const cfg = loadConfig();
-    expect(cfg.realtime.port).toBe(3001);
+    expect(loadConfig().realtime.port).toBe(3001);
   });
 
   it('reads realtime port from env', () => {
@@ -33,7 +44,7 @@ describe('loadConfig', () => {
   });
 
   it('reads from a passed env map instead of process.env', () => {
-    const cfg = loadConfig({ REALTIME_PORT: '3030' });
+    const cfg = loadConfig({ TZ: 'UTC', REALTIME_PORT: '3030' });
     expect(cfg.realtime.port).toBe(3030);
   });
 });
