@@ -92,6 +92,69 @@ describe('weatherTool', () => {
     expect(calls[1]).toContain('wind_speed_unit=mph');
   });
 
+  it('includes current conditions when the date is the place-local today', async () => {
+    const fakeFetch = vi.fn(async (url: string) => {
+      if (url.includes('geocoding-api')) {
+        return jsonResponse({ results: [{ latitude: 40.4, longitude: -3.7, name: 'Madrid' }] });
+      }
+      return jsonResponse({
+        current: {
+          time: '2026-05-27T14:00',
+          temperature_2m: 24.1,
+          weather_code: 1,
+          wind_speed_10m: 9,
+        },
+        daily: {
+          time: ['2026-05-27'],
+          temperature_2m_min: [14],
+          temperature_2m_max: [27],
+          weather_code: [3],
+          precipitation_probability_max: [10],
+          wind_speed_10m_max: [12],
+        },
+      });
+    });
+    const r = await executeWeatherTool(
+      { location: 'Madrid', date: '2026-05-27' },
+      { fetch: fakeFetch as unknown as typeof fetch },
+    );
+    expect(r.current).toEqual({
+      temp: 24.1,
+      summary: 'mainly clear',
+      wind: 9,
+      time: '2026-05-27T14:00',
+    });
+  });
+
+  it('omits current conditions when the requested date is not today', async () => {
+    const fakeFetch = vi.fn(async (url: string) => {
+      if (url.includes('geocoding-api')) {
+        return jsonResponse({ results: [{ latitude: 40.4, longitude: -3.7, name: 'Madrid' }] });
+      }
+      return jsonResponse({
+        current: {
+          time: '2026-05-27T14:00',
+          temperature_2m: 24.1,
+          weather_code: 1,
+          wind_speed_10m: 9,
+        },
+        daily: {
+          time: ['2026-05-30'],
+          temperature_2m_min: [14],
+          temperature_2m_max: [27],
+          weather_code: [3],
+          precipitation_probability_max: [10],
+          wind_speed_10m_max: [12],
+        },
+      });
+    });
+    const r = await executeWeatherTool(
+      { location: 'Madrid', date: '2026-05-30' },
+      { fetch: fakeFetch as unknown as typeof fetch },
+    );
+    expect(r.current).toBeUndefined();
+  });
+
   it('falls back to the configured default location when none is given', async () => {
     const calls: string[] = [];
     const fakeFetch = vi.fn(async (url: string) => {

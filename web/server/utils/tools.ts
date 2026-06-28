@@ -37,3 +37,21 @@ export function readTools(all: Record<string, string>): ToolsForm {
     },
   }
 }
+
+export type GatedTool = 'memory' | 'reminders'
+
+// Prompt names each tool owns, so the Prompts page can hide them when the tool
+// is off. KEEP in sync with src/agent/prompts/tools/*. (weather has no prompt —
+// its description is inline.)
+const TOOL_PROMPTS: Record<GatedTool, string[]> = {
+  memory: ['tools/remember', 'tools/recall', 'tools/forget'],
+  reminders: ['tools/schedule-action', 'tools/list-scheduled', 'tools/cancel-scheduled'],
+}
+
+/** Which tool owns a prompt name, or null if it's not a tool prompt. */
+export function toolPromptOwner(name: string): GatedTool | null {
+  for (const tool of Object.keys(TOOL_PROMPTS) as GatedTool[]) {
+    if (TOOL_PROMPTS[tool].includes(name)) return tool
+  }
+  return null
+}

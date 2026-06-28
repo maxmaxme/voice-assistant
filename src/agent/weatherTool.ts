@@ -22,6 +22,13 @@ interface ForecastResult {
     precipitation_probability_max?: number[];
     wind_speed_10m_max?: number[];
   };
+  current?: {
+    /** Local ISO datetime, e.g. "2026-06-29T14:00". */
+    time: string;
+    temperature_2m: number;
+    weather_code: number;
+    wind_speed_10m: number;
+  };
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -98,6 +105,19 @@ function parseForecast(raw: unknown): ForecastResult {
         ? daily.wind_speed_10m_max
         : undefined,
     },
+    current:
+      isRecord(raw.current) &&
+      typeof raw.current.time === 'string' &&
+      typeof raw.current.temperature_2m === 'number' &&
+      typeof raw.current.weather_code === 'number' &&
+      typeof raw.current.wind_speed_10m === 'number'
+        ? {
+            time: raw.current.time,
+            temperature_2m: raw.current.temperature_2m,
+            weather_code: raw.current.weather_code,
+            wind_speed_10m: raw.current.wind_speed_10m,
+          }
+        : undefined,
   };
 }
 
@@ -115,6 +135,16 @@ export interface WeatherToolResult {
   windMax: number | null;
   /** 'km/h' (metric) or 'mph' (imperial). */
   windUnit: string;
+  /** Current conditions — present only when `date` is today in the place's
+   *  timezone (use it for "weather right now" questions). Temp/wind use the
+   *  same `tempUnit` / `windUnit` as the daily fields. */
+  current?: {
+    temp: number;
+    summary: string;
+    wind: number;
+    /** Local time the reading is for, e.g. "2026-06-29T14:00". */
+    time: string;
+  };
 }
 
 export function buildWeatherTool(): OpenAiFunctionTool {
@@ -134,7 +164,10 @@ export function buildWeatherTool(): OpenAiFunctionTool {
       'value verbatim (e.g. "Madrid"). NEVER pass a profile key name (like "home_city") ' +
       'as the location string. ' +
       'Only ask for clarification if neither a default nor context can resolve the value. ' +
-      'Forecast is available up to ~16 days ahead.',
+      'Forecast is available up to ~16 days ahead. ' +
+      'When the date is today, the result also includes a `current` object (temperature, ' +
+      'conditions, wind right now) — use it for "weather now" / "currently" questions, and ' +
+      'use the daily min/max range for "today overall" or future days.',
     parameters: {
       type: 'object',
       properties: {
@@ -236,6 +269,7 @@ export async function executeWeatherTool(
       'precipitation_probability_max',
       'wind_speed_10m_max',
     ].join(','),
+    current: ['temperature_2m', 'weather_code', 'wind_speed_10m'].join(','),
     timezone: 'auto',
     temperature_unit: imperial ? 'fahrenheit' : 'celsius',
     wind_speed_unit: imperial ? 'mph' : 'kmh',
@@ -254,7 +288,7 @@ export async function executeWeatherTool(
 
   const code = d.weather_code[0];
   const locationLabel = [place.name, place.admin1, place.country].filter(Boolean).join(', ');
-  return {
+  const result: WeatherToolResult = {
     location: locationLabel,
     date,
     summary: WEATHER_CODE_SUMMARY[code] ?? `code ${code}`,
@@ -265,4 +299,18 @@ export async function executeWeatherTool(
     windMax: d.wind_speed_10m_max?.[0] ?? null,
     windUnit: imperial ? 'mph' : 'km/h',
   };
+
+  // Attach current conditions only when the requested day is the place's
+  // current local day — otherwise "now" is irrelevant to a future-date forecast.
+  const cur = wx.current;
+  if (cur && cur.time.slice(0, 10) === date) {
+    result.current = {
+      temp: cur.temperature_2m,
+      summary: WEATHER_CODE_SUMMARY[cur.weather_code] ?? `code ${cur.weather_code}`,
+      wind: cur.wind_speed_10m,
+      time: cur.time,
+    };
+  }
+
+  return result;
 }
