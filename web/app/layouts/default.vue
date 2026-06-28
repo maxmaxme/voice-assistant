@@ -2,6 +2,7 @@
 const links = [
   { label: 'Settings', icon: 'i-lucide-sliders-horizontal', to: '/settings' },
   { label: 'HA Voice', icon: 'i-lucide-radio', to: '/realtime' },
+  { label: 'HTTP API', icon: 'i-lucide-globe', to: '/http' },
   { label: 'Prompts', icon: 'i-lucide-message-square-text', to: '/prompts' },
   { label: 'Integrations', icon: 'i-lucide-plug', to: '/integrations' },
   { label: 'Users', icon: 'i-lucide-users', to: '/users' },

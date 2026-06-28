@@ -32,8 +32,9 @@ Working features:
 - Auto-update on the Pi via GitHub Actions + GHCR: `main` builds an
   arm64 image, a daily systemd timer pulls and restarts with
   healthcheck-gated rollback and Telegram notification
-- Single-process entry point: `node src/cli/unified.ts` routes by
-  `AGENT_MODE` (default `both` = `telegram` + `http`)
+- Single-process entry point: `node src/cli/unified.ts`. Each channel
+  self-gates from web-panel config (Telegram integration / HTTP API
+  toggle / HA Voice toggle) — no `AGENT_MODE`
 - Telegram bot accepts text, voice (transcribed via OpenAI), and photos
   (multimodal). Authorised against a DB-backed identity table (chats are
   added via the `users` CLI).
@@ -70,12 +71,12 @@ cp .env.example .env
 npm run mcp:call -- list
 
 # 4. Run
-npm run start             # default — telegram + http (AGENT_MODE=both)
-npm run telegram          # telegram only
-npm run http              # http only
-
-# AGENT_MODE valid values: telegram | http | both.
+npm run start             # the single entry; channels self-gate from the web panel
 ```
+
+Which channels come up is decided by web-panel config, not a flag:
+Telegram (its integration), HTTP API (its toggle), HA Voice / realtime
+(its toggle). Enable what you need in the panel; they apply on the next start.
 
 ### Telegram bot
 
@@ -106,8 +107,8 @@ Setup:
    There is no fixed outbound `TELEGRAM_CHAT_ID` — `send_to_telegram` and the
    reminder scheduler resolve the recipient's chat from these identities.
 
-4. `npm run start` runs the bot alongside the HTTP server. Or
-   `AGENT_MODE=telegram npm run start` for bot-only.
+4. `npm run start` runs every channel you've enabled in the web panel. For
+   bot-only, just leave the HTTP API and HA Voice toggles off.
 
 Authorisation is DB-backed: a chat is accepted only if it has a matching
 identity row. Add yourself with the `users` CLI —

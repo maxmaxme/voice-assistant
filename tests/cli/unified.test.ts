@@ -64,6 +64,7 @@ function makeDeps(): CommonDeps {
     },
     telegram: { botToken: 'X' },
     realtime: { enabled: false, outputPacingMs: 20, idleResetMs: 90_000 },
+    http: { enabled: true },
     buildAgent: vi.fn(
       () =>
         ({ opts: { session: { reset: vi.fn() } } }) as unknown as ReturnType<
@@ -91,39 +92,12 @@ function makeRunners(): {
 }
 
 describe('dispatch', () => {
-  it('telegram mode invokes runTelegramMode only', async () => {
+  it('runs telegram and http when both are enabled', async () => {
     const deps = makeDeps();
     const runners = makeRunners();
-    await dispatch('telegram', deps, runners as never);
+    await dispatch(deps, runners as never);
     expect(runners.telegram).toHaveBeenCalledTimes(1);
-    expect(runners.http).not.toHaveBeenCalled();
-  });
-
-  it('http mode invokes runHttpMode only', async () => {
-    const deps = makeDeps();
-    const runners = makeRunners();
-    await dispatch('http', deps, runners as never);
     expect(runners.http).toHaveBeenCalledTimes(1);
-    expect(runners.telegram).not.toHaveBeenCalled();
-  });
-
-  it('both mode invokes telegram and http concurrently', async () => {
-    const deps = makeDeps();
-    const telegramStarted = vi.fn();
-    const httpStarted = vi.fn();
-    const runners = {
-      telegram: vi.fn(async () => {
-        telegramStarted();
-        await new Promise((r) => setTimeout(r, 5));
-      }),
-      http: vi.fn(async () => {
-        httpStarted();
-        await new Promise((r) => setTimeout(r, 5));
-      }),
-    };
-    await dispatch('both', deps, runners as never);
-    expect(telegramStarted).toHaveBeenCalled();
-    expect(httpStarted).toHaveBeenCalled();
     expect(deps.buildAgent).toHaveBeenCalledWith('telegram');
     expect(deps.buildAgent).toHaveBeenCalledWith('http');
   });
@@ -131,17 +105,17 @@ describe('dispatch', () => {
   it('skips the telegram runner when the Telegram integration is not configured', async () => {
     const deps = { ...makeDeps(), telegram: null };
     const runners = makeRunners();
-    await dispatch('both', deps, runners as never);
+    await dispatch(deps, runners as never);
     expect(runners.http).toHaveBeenCalledTimes(1);
     expect(runners.telegram).not.toHaveBeenCalled();
   });
 
-  it('throws when telegram-only mode has no Telegram integration', async () => {
-    const deps = { ...makeDeps(), telegram: null };
+  it('skips the http runner when http is disabled', async () => {
+    const deps = { ...makeDeps(), http: { enabled: false } };
     const runners = makeRunners();
-    await expect(dispatch('telegram', deps, runners as never)).rejects.toThrow(
-      /No runners scheduled/,
-    );
+    await dispatch(deps, runners as never);
+    expect(runners.telegram).toHaveBeenCalledTimes(1);
+    expect(runners.http).not.toHaveBeenCalled();
   });
 
   it('starts and stops the scheduler around runners', async () => {
@@ -149,7 +123,7 @@ describe('dispatch', () => {
     const startSpy = vi.spyOn(Scheduler.prototype, 'start');
     const stopSpy = vi.spyOn(Scheduler.prototype, 'stop');
     const runners = makeRunners();
-    await dispatch('telegram', deps, runners as never);
+    await dispatch(deps, runners as never);
     expect(startSpy).toHaveBeenCalledTimes(1);
     expect(stopSpy).toHaveBeenCalledTimes(1);
     startSpy.mockRestore();

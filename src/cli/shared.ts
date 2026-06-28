@@ -9,6 +9,7 @@ import { resolveHaConfig } from '../integrations/homeAssistant.ts';
 import { resolveOpenAiConfig, type OpenAiConfig } from '../integrations/openai.ts';
 import { resolveTelegramConfig, type TelegramConfig } from '../integrations/telegram.ts';
 import { resolveRealtimeConfig, type RealtimeConfig } from '../settings/realtimeConfig.ts';
+import { resolveHttpConfig, type HttpConfig } from '../settings/httpConfig.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
@@ -48,10 +49,7 @@ async function connectMcpWithRetry(mcp: HaMcpClient): Promise<void> {
   throw lastErr;
 }
 
-export const AGENT_MODES = ['telegram', 'http', 'both'] as const;
-export type AgentMode = (typeof AGENT_MODES)[number];
-
-/** "Channel" = a system-prompt flavour. Multiple modes can share a channel.
+/** "Channel" = a system-prompt flavour. Multiple channels can share a flavour.
  *
  *  - `telegram`    — Telegram bot. Plain text. `ask` off.
  *  - `http`        — HTTP `/text` and `/audio` (Apple Shortcut etc). Plain
@@ -92,21 +90,6 @@ export function buildSystemPromptFor(channel: PromptChannel, haEnabled = true): 
   return parts.join('\n\n');
 }
 
-function isAgentMode(value: string): value is AgentMode {
-  const set: ReadonlySet<string> = new Set<string>(AGENT_MODES);
-  return set.has(value);
-}
-
-export function parseAgentMode(raw: string | undefined): AgentMode {
-  if (!raw) {
-    return 'both';
-  }
-  if (isAgentMode(raw)) {
-    return raw;
-  }
-  throw new Error(`AGENT_MODE=${raw}: expected one of ${AGENT_MODES.join(', ')}`);
-}
-
 export interface CommonDeps {
   config: Config;
   llm: OpenAI;
@@ -136,6 +119,9 @@ export interface CommonDeps {
   /** Realtime (Voice PE) config from the DB (enable + pacing + idle). The
    *  realtime server starts only when `realtime.enabled` (and a device token). */
   realtime: RealtimeConfig;
+  /** HTTP server config from the DB (enable). The `/text` `/audio` `/assist`
+   *  server starts only when `http.enabled`. */
+  http: HttpConfig;
 }
 
 /** Initialise everything shared across runners. Call once per process. */
@@ -147,7 +133,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   fs.mkdirSync(path.dirname(envConfig.memory.dbPath), { recursive: true });
   const memory = openMemoryStore(envConfig.memory.dbPath);
   // Layer the DB-backed overrides over the real env. We also mutate process.env
-  // itself so the consumers that read it directly — TZ, AGENT_MODE — honour the
+  // itself so the consumers that read it directly (e.g. TZ) honour the
   // web-edited values, not just the typed `config` object.
   const overlay = buildEnvOverlay(memory.settings);
   Object.assign(process.env, overlay);
@@ -157,9 +143,10 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   // route all prompt reads through the DB for the rest of the process.
   initPromptRegistry(memory.prompts);
 
-  // Realtime config (enable + pacing + idle) is DB-only, read like an
-  // integration — never from env. Device token + port come from `config`.
+  // Realtime + HTTP enable/config are DB-only, read like an integration — never
+  // from env. Device token + ports come from `config`.
   const realtime = resolveRealtimeConfig(memory.settings);
+  const http = resolveHttpConfig(memory.settings);
 
   // OpenAI comes from the web-configured integration, not env. It's mandatory —
   // fail fast with a clear message if it's not installed/enabled.
@@ -275,5 +262,6 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     openai,
     telegram,
     realtime,
+    http,
   };
 }

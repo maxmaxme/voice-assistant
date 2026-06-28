@@ -1,12 +1,6 @@
 import 'dotenv/config';
 
-import {
-  initializeCommonDependencies,
-  parseAgentMode,
-  buildSystemPromptFor,
-  type AgentMode,
-  type CommonDeps,
-} from './shared.ts';
+import { initializeCommonDependencies, buildSystemPromptFor, type CommonDeps } from './shared.ts';
 import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runners/telegram.ts';
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
 import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
@@ -52,21 +46,13 @@ export function authorizeSpeaker(
 
 /** Dispatch logic, exported for tests. Does NOT call initializeCommonDependencies
  * — the caller passes deps so tests can use mocks. */
-export async function dispatch(
-  mode: AgentMode,
-  deps: CommonDeps,
-  runners: RunnerSet,
-): Promise<void> {
+export async function dispatch(deps: CommonDeps, runners: RunnerSet): Promise<void> {
   const tasks: Promise<void>[] = [];
 
+  // Each channel self-gates: Telegram on its integration, HTTP on its enable
+  // toggle (both DB-backed, web panel). There is no AGENT_MODE any more.
   const telegram = deps.telegram;
-  const wantsTelegram = mode === 'telegram' || mode === 'both';
-  if (wantsTelegram && !telegram) {
-    log.warn(
-      'telegram mode requested but the Telegram integration is not configured — skipping telegram runner',
-    );
-  }
-  if (wantsTelegram && telegram) {
+  if (telegram) {
     const agent = deps.buildAgent('telegram');
     // Per-chat self-persisting Sessions. No client-side TTL — when OpenAI
     // eventually evicts a stale `previous_response_id` (currently after
@@ -104,7 +90,7 @@ export async function dispatch(
     );
   }
 
-  if (mode === 'http' || mode === 'both') {
+  if (deps.http.enabled) {
     const agent = deps.buildAgent('http');
     const assistAgent = deps.buildAgent('assist');
     // Per-conversation Sessions for `/assist`. 60s idle is short enough
@@ -150,7 +136,10 @@ export async function dispatch(
   }
 
   if (tasks.length === 0) {
-    throw new Error(`No runners scheduled for AGENT_MODE=${mode}`);
+    // Not fatal: the scheduler (below) and the realtime server (started in
+    // main(), gated separately) may still be the active surface. Promise.race
+    // over no tasks never settles, so the process stays alive for them.
+    log.warn('no Telegram or HTTP channel enabled — only the scheduler / realtime will run');
   }
 
   const scheduler = new Scheduler({
@@ -167,16 +156,20 @@ export async function dispatch(
 }
 
 export async function main(): Promise<void> {
-  // Init first: it layers DB-backed settings over process.env, so AGENT_MODE /
-  // TZ below reflect web-edited values. web_search comes from the resolved
-  // OpenAI integration.
+  // Init first: it layers DB-backed settings over process.env, so TZ below
+  // reflects web-edited values. web_search comes from the resolved OpenAI
+  // integration; each channel self-gates (telegram/http/realtime toggles).
   const deps = await initializeCommonDependencies();
 
-  const mode = parseAgentMode(process.env.AGENT_MODE);
+  const channels = {
+    telegram: deps.telegram !== null,
+    http: deps.http.enabled,
+    realtime: deps.realtime.enabled,
+  };
   const webSearchOn = deps.openai.webSearch;
   log.info(
-    { mode, tz: getServerTimezone(), webSearch: webSearchOn },
-    `AGENT_MODE=${mode} TZ=${getServerTimezone()}${webSearchOn ? ' WEB_SEARCH=on' : ''}`,
+    { channels, tz: getServerTimezone(), webSearch: webSearchOn },
+    `channels: telegram=${channels.telegram} http=${channels.http} realtime=${channels.realtime} TZ=${getServerTimezone()}${webSearchOn ? ' WEB_SEARCH=on' : ''}`,
   );
 
   let realtimeServer: RealtimeServer | null = null;
@@ -271,7 +264,7 @@ export async function main(): Promise<void> {
   process.on('SIGTERM', () => void onShutdown('SIGTERM'));
 
   try {
-    await dispatch(mode, deps, {
+    await dispatch(deps, {
       telegram: runTelegramMode,
       http: runHttpMode,
     });

@@ -18,6 +18,10 @@ export interface RealtimeResponse {
   idleResetMs: string
 }
 
+export interface HttpResponse {
+  enabled: boolean
+}
+
 export interface PromptRow {
   name: string
   content: string

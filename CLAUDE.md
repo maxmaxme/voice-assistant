@@ -51,9 +51,7 @@ RUN_INTEGRATION=1 npm test         # also runs tests gated against a live HA on 
 npm run mcp:call -- list           # list HA's MCP tools (sanity check)
 npm run mcp:call -- call HassTurnOn '{"name":"Kitchen Light"}'
 
-npm run start                      # default — telegram + http (AGENT_MODE=both)
-npm run telegram                   # telegram only
-npm run http                       # http only
+npm run start                      # the single entry; each channel self-gates (see below)
 
 npm run users -- add-user --name Alex                          # create a principal (person or speaker)
 npm run users -- attach-telegram --user <id> --chat <chatId>   # bind a Telegram chat to a user
@@ -61,7 +59,10 @@ npm run users -- attach-voice --user <id> --token <token>      # bind a speaker'
 npm run users -- mint-http --user <id>                         # mint an HTTP token (printed once; only its hash is stored)
 ```
 
-`AGENT_MODE` values: `telegram` | `http` | `both`. Default `both`.
+There is no `AGENT_MODE`. Each channel self-gates from DB-backed web-panel
+config: **Telegram** runs when its integration is installed+enabled, **HTTP**
+when the HTTP API page toggle is on (`http.enabled`), **Realtime** when the HA
+Voice page toggle is on (`realtime.enabled`). All apply on the next start.
 
 CI builds the root `Dockerfile` and publishes
 `ghcr.io/maxmaxme/voice-assistant:latest` on every push to `main`.
@@ -81,7 +82,7 @@ no `dist/`, no `tsx`. Two consequences:
 
 **Adapter pattern for every external dependency.** Each external concern lives behind an interface in `*/types.ts`, with a concrete implementation in a sibling file. Replacing OpenAI with a local Whisper is one new adapter — never a code-wide refactor. Honour this when adding anything that talks to the outside world.
 
-**One process, two channels.** `src/cli/unified.ts` is the single entry. The only runners are `telegram` and `http`; `AGENT_MODE=both` runs them concurrently. Adding a new channel = adding a runner under `src/cli/runners/` and a case in the `dispatch()` switch.
+**One process, self-gating channels.** `src/cli/unified.ts` is the single entry. `dispatch()` starts the `telegram` runner iff the Telegram integration is enabled and the `http` runner iff `http.enabled`; the realtime server is started in `main()` iff `realtime.enabled`. No `AGENT_MODE` — each channel is independently toggled from the web panel. Adding a new channel = a runner under `src/cli/runners/` + its gate in `dispatch()`.
 
 **Git hooks via husky.** `pre-commit` runs `lint-staged` (prettier + eslint --fix on staged files only). `pre-push` runs `npm run typecheck && npm test`. Hooks install on `npm install` via the `prepare` script. Don't bypass with `--no-verify` to "make it work" — fix the underlying issue.
 
@@ -94,7 +95,7 @@ Two channels, one process.
 | File                          | What                                                                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `src/cli/mcp-call.ts`         | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.                                                                                    |
-| `src/cli/unified.ts`          | **The entry point.** Reads `AGENT_MODE` and runs the matching runner(s).                                                                                           |
+| `src/cli/unified.ts`          | **The entry point.** Starts each channel that is independently enabled (Telegram integration / `http.enabled` / `realtime.enabled`).                               |
 | `src/cli/runners/telegram.ts` | Telegram bot loop: receiver → agent → sender.                                                                                                                      |
 | `src/cli/runners/http.ts`     | HTTP server using h3 (default port 3000, customizable via `HTTP_SERVER_PORT`). `POST /audio`, `POST /text`, `POST /assist`, `GET /health`. See HTTP section below. |
 
@@ -287,8 +288,11 @@ see below). Two DB-backed sources, both **applied on the next process start**,
 never hot-reloaded:
 
 - **`settings` table** (`src/settings/sqliteSettings.ts`, `SettingsStore`) — a
-  key/value store of **non-secret** config overrides, keyed by **env-var name**
-  (`OPENAI_MODEL`, `AGENT_MODE`, …). `loadConfig(env)` now takes an env map
+  key/value store of **non-secret** config. Two kinds of rows: env-overlay keys
+  (env-var names in `SETTABLE_KEYS`, currently just `TZ`) layered over
+  `process.env`, and DB-only feature config read by dedicated resolvers, NOT via
+  env (`http.enabled` → `resolveHttpConfig`; `realtime.*` → `resolveRealtimeConfig`).
+  `loadConfig(env)` takes an env map
   (defaults to `process.env`); the bootstrap in `cli/shared.ts` does a
   two-phase load: `loadConfig()` to learn the DB path → `openMemoryStore` →
   `loadConfig({ ...process.env, ...buildEnvOverlay(memory.settings) })`. So
@@ -321,7 +325,7 @@ At fire time the scheduler spawns a fresh `OpenAiAgent.respond()` in **goal mode
 
 Persistence: SQLite table `scheduled_actions`. Cron rows reschedule themselves; once rows transition to `done` (or `error`).
 
-Server timezone: `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). The `[unified] AGENT_MODE=… TZ=… [WEB_SEARCH=on]` startup line confirms what's active.
+Server timezone: `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). The `[unified] channels: telegram=… http=… realtime=… TZ=… [WEB_SEARCH=on]` startup line confirms what's active.
 
 `Scheduler.tick()` runs every 15 s, processes due rows in series, and is re-entrancy-guarded so a slow goal can't cause overlapping fires.
 
@@ -330,8 +334,7 @@ Server timezone: `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). The `[unifi
 **Telegram is a web-panel integration, not env** (`resolveTelegramConfig`,
 `src/integrations/telegram.ts`). It's **optional**: `cli/shared.ts` reads the
 `telegram` row from the `integrations` table for the bot token. When it's
-absent/disabled the **telegram runner doesn't start** (a warning is logged if
-`AGENT_MODE` asked for it — mirroring the realtime gate), and `senderFor`
+absent/disabled the **telegram runner doesn't start**, and `senderFor`
 returns a sender that **throws on send** so a stray goal/`send_to_telegram`
 fails loudly instead of dropping silently. `TELEGRAM_BOT_TOKEN` /
 `TELEGRAM_CHAT_ID` env vars are no longer read.
@@ -377,6 +380,10 @@ unknown chats are dropped. Add chats via the `users` CLI (see Memory) —
 `/reset`, `/profile`, `/update`.
 
 ### HTTP (`src/cli/runners/http.ts`)
+
+**Gated by `http.enabled`** (DB-only setting, `resolveHttpConfig`, web panel's
+HTTP API page; default off). The runner only starts when it's on; the listen
+port is `config.http.port` (`HTTP_SERVER_PORT`, default 3000).
 
 h3-based server. Three POST endpoints share auth + rate-limits but split
 on agent flavour and response shape:

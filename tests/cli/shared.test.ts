@@ -1,22 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSystemPromptFor, parseAgentMode, AGENT_MODES } from '../../src/cli/shared.ts';
-
-describe('parseAgentMode', () => {
-  it('defaults to "both" when env is empty', () => {
-    expect(parseAgentMode(undefined)).toBe('both');
-    expect(parseAgentMode('')).toBe('both');
-  });
-
-  it('accepts valid modes', () => {
-    for (const m of AGENT_MODES) {
-      expect(parseAgentMode(m)).toBe(m);
-    }
-  });
-
-  it('throws on unknown mode with helpful message', () => {
-    expect(() => parseAgentMode('garbage')).toThrow(/AGENT_MODE.*garbage.*expected one of/);
-  });
-});
+import { buildSystemPromptFor } from '../../src/cli/shared.ts';
 
 describe('buildSystemPromptFor', () => {
   it('telegram and http produce the same prompt (both plain text channels)', () => {

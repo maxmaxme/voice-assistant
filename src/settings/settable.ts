@@ -22,13 +22,6 @@ export interface SettableKey {
 // DB-only config read via `resolveRealtimeConfig` (not env), so they're not
 // here either. Only process-level env overrides remain.
 export const SETTABLE_KEYS: SettableKey[] = [
-  {
-    key: 'AGENT_MODE',
-    label: 'Agent mode',
-    kind: 'enum',
-    options: ['telegram', 'http', 'both'],
-    group: 'general',
-  },
   { key: 'TZ', label: 'Server timezone (IANA)', kind: 'string', group: 'general' },
 ];
 

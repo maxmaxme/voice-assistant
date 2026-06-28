@@ -13,9 +13,9 @@ describe('buildEnvOverlay', () => {
   afterEach(() => h.sqlite.close());
 
   it('returns only whitelisted (settable) keys', () => {
-    store.set('AGENT_MODE', 'both');
+    store.set('TZ', 'Europe/Madrid');
     store.set('OPENAI_API_KEY', 'sk-should-be-ignored');
-    expect(buildEnvOverlay(store)).toEqual({ AGENT_MODE: 'both' });
+    expect(buildEnvOverlay(store)).toEqual({ TZ: 'Europe/Madrid' });
   });
 
   it('is empty when nothing settable is stored', () => {

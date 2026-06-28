@@ -77,6 +77,75 @@ async function save() {
         </UFormField>
       </UCard>
 
+      <UCard>
+        <template #header>
+          <h2 class="font-semibold">
+            How it works
+          </h2>
+        </template>
+
+        <div class="space-y-5 text-sm">
+          <p class="text-[var(--ui-text-muted)]">
+            A speaker streams microphone audio directly to voice-assistant over a
+            WebSocket. The bridge runs an OpenAI <span class="font-medium text-[var(--ui-text)]">Realtime</span>
+            session (speech-to-text, the model, and text-to-speech in one duplex
+            stream) and calls Home Assistant tools over MCP. HA is only a tool
+            backend here — its own voice pipeline is bypassed entirely.
+          </p>
+
+          <ul class="space-y-2 text-[var(--ui-text-muted)] list-disc pl-5">
+            <li>
+              <span class="font-medium text-[var(--ui-text)]">Connection.</span>
+              Speakers open <code>ws://&lt;host&gt;:3001/voice</code> (the port is
+              <code>REALTIME_PORT</code>, default 3001).
+            </li>
+            <li>
+              <span class="font-medium text-[var(--ui-text)]">Auth.</span>
+              Each speaker presents its own bearer token on the WebSocket
+              handshake. Register that token as a
+              <NuxtLink
+                to="/users"
+                class="text-[var(--ui-primary)] underline underline-offset-2"
+              >Voice device under Users</NuxtLink>
+              (only its hash is stored); an unknown token is rejected. The same
+              value goes in the firmware's <code>secrets.yaml</code> as
+              <code>va_device_token</code>.
+            </li>
+            <li>
+              <span class="font-medium text-[var(--ui-text)]">Firmware.</span>
+              Flash
+              <a
+                href="https://github.com/maxmaxme/home-assistant-voice-pe"
+                target="_blank"
+                rel="noreferrer"
+                class="text-[var(--ui-primary)] underline underline-offset-2"
+              >home-assistant-voice-pe</a>
+              (<code>home-assistant-voice.va-direct.yaml</code>) to a
+              <a
+                href="https://www.home-assistant.io/voice-pe/"
+                target="_blank"
+                rel="noreferrer"
+                class="text-[var(--ui-primary)] underline underline-offset-2"
+              >Home Assistant Voice PE</a>
+              speaker.
+            </li>
+            <li>
+              <span class="font-medium text-[var(--ui-text)]">Model & voice.</span>
+              The realtime model, voice and reasoning effort live on the
+              <NuxtLink
+                to="/integrations"
+                class="text-[var(--ui-primary)] underline underline-offset-2"
+              >OpenAI integration</NuxtLink>; the pacing/idle timings are below.
+            </li>
+            <li>
+              <span class="font-medium text-[var(--ui-text)]">To go live.</span>
+              Turn on the toggle above and register at least one Voice device —
+              then restart.
+            </li>
+          </ul>
+        </div>
+      </UCard>
+
       <UCard v-if="form.enabled">
         <div class="space-y-5">
           <UFormField
