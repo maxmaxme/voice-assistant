@@ -162,7 +162,7 @@ const curl = `curl -X POST http://<host>:3000/text \\
             <NuxtLink
               to="/assist"
               class="text-[var(--ui-primary)] underline underline-offset-2"
-            >Assist</NuxtLink>
+            >HA Assist</NuxtLink>
             page.
           </p>
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { HttpResponse } from '~/types'
 
-useHead({ title: 'Assist' })
+useHead({ title: 'HA Assist' })
 
 const toast = useToast()
 const { data, refresh } = await useFetch<HttpResponse>('/api/http')
@@ -35,7 +35,7 @@ async function save() {
   <div>
     <header class="mb-8">
       <h1 class="text-3xl font-bold tracking-tight">
-        Assist
+        HA Assist
       </h1>
       <p class="text-[var(--ui-text-muted)] mt-1">
         The <code>/assist</code> endpoint — a Home Assistant conversation agent backend.
@@ -99,7 +99,7 @@ async function save() {
             <NuxtLink
               to="/realtime"
               class="text-[var(--ui-primary)] underline underline-offset-2"
-            >HA Voice</NuxtLink>. <code>/assist</code> is for HA's own Assist pipeline / other clients.
+            >HA Voice Realtime</NuxtLink>. <code>/assist</code> is for HA's own Assist pipeline / other clients.
           </p>
         </div>
       </UCard>

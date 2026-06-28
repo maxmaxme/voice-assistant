@@ -1,9 +1,33 @@
 <script setup lang="ts">
-const links = [
-  { label: 'HA Voice', icon: 'i-lucide-radio', to: '/realtime' },
-  { label: 'HTTP API', icon: 'i-lucide-globe', to: '/http' },
-  { label: 'Assist', icon: 'i-lucide-house', to: '/assist' },
-  { label: 'Telegram', icon: 'i-lucide-send', to: '/telegram' },
+import type { IntegrationsResponse } from '~/types'
+
+interface NavLink {
+  label: string
+  icon: string
+  to: string
+}
+
+// Sidebar visibility for integration-gated channels reflects what's installed +
+// enabled. Refetched on navigation; after enabling an integration, the item
+// appears on the next page load.
+const { data: integrations } = await useFetch<IntegrationsResponse>('/api/integrations')
+const hasIntegration = (type: string): boolean =>
+  (integrations.value?.installed ?? []).some(i => i.def.type === type && i.enabled)
+
+// "Channels" = how you talk to the agent. HA Assist needs the Home Assistant
+// integration; Telegram needs the Telegram integration — hidden until present.
+const channels = computed<NavLink[]>(() =>
+  [
+    { label: 'HA Voice Realtime', icon: 'i-lucide-radio', to: '/realtime' },
+    hasIntegration('home-assistant')
+      ? { label: 'HA Assist', icon: 'i-lucide-house', to: '/assist' }
+      : null,
+    { label: 'HTTP API', icon: 'i-lucide-globe', to: '/http' },
+    hasIntegration('telegram') ? { label: 'Telegram', icon: 'i-lucide-send', to: '/telegram' } : null,
+  ].filter((l): l is NavLink => l !== null),
+)
+
+const topLevel: NavLink[] = [
   { label: 'Prompts', icon: 'i-lucide-message-square-text', to: '/prompts' },
   { label: 'Integrations', icon: 'i-lucide-plug', to: '/integrations' },
   { label: 'Users', icon: 'i-lucide-users', to: '/users' },
@@ -11,6 +35,10 @@ const links = [
 
 const route = useRoute()
 const isActive = (to: string): boolean => route.path === to || route.path.startsWith(to + '/')
+
+const channelsOpen = ref(true)
+const linkClass = (to: string): string =>
+  isActive(to) ? 'bg-white/15 font-medium' : 'text-white/80 hover:bg-white/10'
 </script>
 
 <template>
@@ -24,12 +52,47 @@ const isActive = (to: string): boolean => route.path === to || route.path.starts
         <span class="text-lg font-semibold tracking-tight">Voice Assistant</span>
       </div>
       <nav class="flex-1 px-3 mt-2 space-y-1">
+        <!-- Channels — collapsible group of agent interaction surfaces. -->
+        <button
+          type="button"
+          class="flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-white/80 hover:bg-white/10"
+          @click="channelsOpen = !channelsOpen"
+        >
+          <UIcon
+            name="i-lucide-messages-square"
+            class="size-5"
+          />
+          <span>Channels</span>
+          <UIcon
+            :name="channelsOpen ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+            class="size-4 ml-auto"
+          />
+        </button>
+        <div
+          v-show="channelsOpen"
+          class="pl-3 space-y-1"
+        >
+          <NuxtLink
+            v-for="l in channels"
+            :key="l.to"
+            :to="l.to"
+            class="flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
+            :class="linkClass(l.to)"
+          >
+            <UIcon
+              :name="l.icon"
+              class="size-4.5"
+            />
+            <span class="text-sm">{{ l.label }}</span>
+          </NuxtLink>
+        </div>
+
         <NuxtLink
-          v-for="l in links"
+          v-for="l in topLevel"
           :key="l.to"
           :to="l.to"
           class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors"
-          :class="isActive(l.to) ? 'bg-white/15 font-medium' : 'text-white/80 hover:bg-white/10'"
+          :class="linkClass(l.to)"
         >
           <UIcon
             :name="l.icon"

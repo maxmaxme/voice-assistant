@@ -67,9 +67,9 @@ config, all applied on the next start:
   alone does nothing.
 - **HTTP** server always runs (so `/health` is always up — container
   healthcheck); each input endpoint mounts only when its toggle is on
-  (`http.text` / `http.audio` on the HTTP API page, `http.assist` on the Assist
-  page). A disabled endpoint 404s.
-- **Realtime** runs when the HA Voice page toggle is on (`realtime.enabled`).
+  (`http.text` / `http.audio` on the HTTP API page, `http.assist` on the HA
+  Assist page). A disabled endpoint 404s.
+- **Realtime** runs when the HA Voice Realtime page toggle is on (`realtime.enabled`).
 
 CI builds the root `Dockerfile` and publishes
 `ghcr.io/maxmaxme/voice-assistant:latest` on every push to `main`.
@@ -384,7 +384,7 @@ unknown chats are dropped. Add chats via the `users` CLI (see Memory) —
 **The server always starts** (so `/health` is always reachable — the container
 healthcheck). Each input endpoint is mounted only when its DB-only flag is on
 (`resolveHttpConfig`, default off): `http.text` / `http.audio` (HTTP API page),
-`http.assist` (Assist page). A disabled endpoint isn't registered → 404. Listen
+`http.assist` (HA Assist page). A disabled endpoint isn't registered → 404. Listen
 port is `config.http.port` (`HTTP_SERVER_PORT`, default 3000).
 
 h3-based server. Three POST endpoints share auth + rate-limits but split
@@ -430,7 +430,7 @@ Whisper spend on a Pi.
 
 The Voice PE direct-streaming path. A second server runs alongside the
 HTTP runner — **gated by the DB-backed realtime enable switch** (the web
-panel's Realtime page; read via `resolveRealtimeConfig`, not env) — and exposes
+panel's HA Voice Realtime page; read via `resolveRealtimeConfig`, not env) — and exposes
 a WebSocket at `:3001/voice`. Devices authenticate per-connection against the
 `voice` identities (no shared env token). Each device opens one WS; the bridge
 brokers between the device, OpenAI's Realtime API, and the MCP client the agent
@@ -485,12 +485,12 @@ Important behaviour:
 
 Config sources:
 
-| Setting                             | Source                                                                                                                                                                                                         |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| enable + idle reset + output pacing | **DB-only realtime config** (`resolveRealtimeConfig`, `src/settings/realtimeConfig.ts`) — read from the `settings` table under `realtime.*` keys via the web panel's HA Voice page (`/api/realtime`). NOT env. |
-| model / voice / effort              | **OpenAI integration** (`realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`) — provider-specific.                                                                                                      |
-| device token                        | **`voice` identity** in the `identities` table (sha256 of the per-device token). The WS hash-looks-up the presented Bearer; unknown → `4401`. Registered via the Users page / `attach-voice`. No env token.    |
-| `REALTIME_PORT`                     | env, default `3001`.                                                                                                                                                                                           |
+| Setting                             | Source                                                                                                                                                                                                                  |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| enable + idle reset + output pacing | **DB-only realtime config** (`resolveRealtimeConfig`, `src/settings/realtimeConfig.ts`) — read from the `settings` table under `realtime.*` keys via the web panel's HA Voice Realtime page (`/api/realtime`). NOT env. |
+| model / voice / effort              | **OpenAI integration** (`realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`) — provider-specific.                                                                                                               |
+| device token                        | **`voice` identity** in the `identities` table (sha256 of the per-device token). The WS hash-looks-up the presented Bearer; unknown → `4401`. Registered via the Users page / `attach-voice`. No env token.             |
+| `REALTIME_PORT`                     | env, default `3001`.                                                                                                                                                                                                    |
 
 ### MCP client (`src/mcp/haMcpClient.ts`)
 
@@ -517,7 +517,7 @@ startup if the `openai` row is absent/disabled/keyless. It supplies the api key,
 optional base URL, chat model + reasoning effort, `web_search` toggle, and the
 realtime model/voice/effort (provider-specific). The realtime _enable_ switch +
 pacing/idle are **not** here — they're DB-only realtime config (`resolveRealtimeConfig`,
-Realtime page).
+HA Voice Realtime page).
 `OPENAI_*` env vars are no longer read. Only `model`/`reasoningEffort`/`voice`
 etc. have code defaults applied when blank; the api key is required.
 

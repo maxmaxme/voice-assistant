@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { RealtimeResponse } from '~/types'
 
-useHead({ title: 'HA Voice' })
+useHead({ title: 'HA Voice Realtime' })
 
 const toast = useToast()
 const { data, refresh } = await useFetch<RealtimeResponse>('/api/realtime')
@@ -46,7 +46,7 @@ async function save() {
   <div>
     <header class="mb-8">
       <h1 class="text-3xl font-bold tracking-tight">
-        HA Voice
+        HA Voice Realtime
       </h1>
       <p class="text-[var(--ui-text-muted)] mt-1">
         The direct-streaming voice path for
