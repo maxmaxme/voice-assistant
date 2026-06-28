@@ -155,8 +155,8 @@ export function buildWeatherTool(): OpenAiFunctionTool {
       'Get the weather forecast for a place on a specific day. ' +
       'Use whenever the user asks about weather ("weather in Madrid tomorrow", ' +
       '"what\'s the weather like on Friday in Paris", "will it rain this weekend"). ' +
-      'Resolve relative days against the server timezone shown in the system prompt: ' +
-      '"today" → that date, "tomorrow" → +1 day, etc. ' +
+      'You are not told the current date — call get_current_time first, then resolve ' +
+      'relative days against it: "today" → that date, "tomorrow" → +1 day, etc. ' +
       'DEFAULTS — do NOT ask the user for these, fill them in yourself: ' +
       'if the user did not name a day, use today (server TZ); ' +
       'if the user did not name a place, look in the `Known user profile` block of ' +

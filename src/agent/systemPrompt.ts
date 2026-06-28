@@ -1,20 +1,12 @@
 import type { ProfileFacts } from '../memory/types.ts';
-import { getServerTimezone, toLocalIso } from '../utils/time.ts';
 
-/** Append the time/profile context block that the model needs on every
- *  fresh chain (Responses) or session (Realtime). Pure — no `Date.now()`
- *  injection abstraction; both callers already accept "built once per
- *  session" semantics. */
+/** Append the profile context block to a base prompt. The current time is NOT
+ *  injected here on purpose — a prompt is built once per chain/session, so a
+ *  baked-in clock goes stale; the agent reads "now" on demand via the
+ *  `get_current_time` tool instead. */
 export function appendUserContext(base: string, profile: ProfileFacts): string {
-  const nowMs = Date.now();
-  const nowUtcIso = new Date(nowMs).toISOString();
-  const tzName = getServerTimezone();
-  const nowLocal = toLocalIso(nowMs);
-  const timeBlock =
-    `\n\nCurrent time: ${nowUtcIso} UTC = ${nowLocal} (server timezone: ${tzName}).` +
-    ` Unix ms now: ${nowMs}.`;
   if (Object.keys(profile).length === 0) {
-    return `${base}${timeBlock}`;
+    return base;
   }
-  return `${base}${timeBlock}\n\nKnown user profile: ${JSON.stringify(profile)}`;
+  return `${base}\n\nKnown user profile: ${JSON.stringify(profile)}`;
 }

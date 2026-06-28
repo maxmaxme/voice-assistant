@@ -28,6 +28,11 @@ import {
   WEATHER_TOOL_NAME,
   type WeatherUnits,
 } from './weatherTool.ts';
+import {
+  buildCurrentTimeTool,
+  executeCurrentTimeTool,
+  GET_CURRENT_TIME_TOOL_NAME,
+} from './timeTool.ts';
 
 export interface LocalToolDeps {
   profile?: ScopedProfile;
@@ -64,7 +69,14 @@ interface LocalTool {
 }
 
 function buildRegistry(deps: LocalToolDeps): Record<string, LocalTool> {
-  const registry: Record<string, LocalTool> = {};
+  // Always available + adapter-free: the agent has no static clock in its
+  // prompt, so this is how it learns "now" / resolves relative dates.
+  const registry: Record<string, LocalTool> = {
+    [GET_CURRENT_TIME_TOOL_NAME]: {
+      tool: buildCurrentTimeTool(),
+      execute: () => executeCurrentTimeTool(),
+    },
+  };
   if (deps.enableWeather !== false) {
     registry[WEATHER_TOOL_NAME] = {
       tool: buildWeatherTool(),

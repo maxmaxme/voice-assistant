@@ -17,7 +17,6 @@ import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { buildLocalToolset } from './localTools.ts';
 import type { ToolsConfig } from '../settings/toolsConfig.ts';
 import type { TelegramSender } from '../telegram/types.ts';
-import { getServerTimezone, toLocalIso } from '../utils/time.ts';
 import { createLogger } from '../utils/logger.ts';
 import { isValidContent } from '../utils/mcpContent.ts';
 import { isPreviousResponseGoneError } from '../utils/openaiErrors.ts';
@@ -429,18 +428,13 @@ export class OpenAiAgent implements Agent {
   private buildSystemMessage(profile: ScopedProfile): string {
     const base = this.opts.systemPrompt;
     const facts = profile.recall();
-    const nowMs = Date.now();
-    // Include both UTC ISO and local time with offset so the LLM can express
-    // dates in the server's local timezone without doing timezone arithmetic.
-    const nowUtcIso = new Date(nowMs).toISOString();
-    const tzName = getServerTimezone();
-    const nowLocal = toLocalIso(nowMs);
-    // Give the LLM a direct formula so it doesn't need to do timezone math.
-    // Scheduling mechanics (formats, examples, reminder→Telegram rule) live
-    // on the schedule_action tool description.
+    // No static clock: a long-lived chain keeps its original instructions, so a
+    // baked-in timestamp would go stale (yesterday's date after midnight). The
+    // agent reads the current time on demand via the get_current_time tool.
     const timeBlock =
-      `\n\nCurrent time: ${nowUtcIso} UTC = ${nowLocal} (server timezone: ${tzName}).` +
-      ` Unix ms now: ${nowMs}.`;
+      `\n\nYou do NOT know the current date/time from this prompt — call the ` +
+      `get_current_time tool whenever you need "now" or to resolve a relative date ` +
+      `(today/tomorrow/this weekend), e.g. before get_weather or schedule_action.`;
     const webSearchBlock = this.opts.webSearch
       ? `\n\nThe web_search tool is available — use it for weather, news, and general-knowledge queries that no Home Assistant entity covers.`
       : '';
