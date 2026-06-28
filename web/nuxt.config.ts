@@ -1,6 +1,12 @@
 export default defineNuxtConfig({
   modules: ['@nuxt/ui', '@nuxt/eslint'],
   devtools: { enabled: true },
+  app: {
+    head: {
+      titleTemplate: '%s · Voice Assistant',
+      title: 'Voice Assistant',
+    },
+  },
   css: ['~/assets/css/main.css'],
   runtimeConfig: {
     // Path to the SQLite DB shared with the voice-assistant process. In Docker

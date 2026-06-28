@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { PromptRow } from '~/types'
 
+useHead({ title: 'Prompts' })
+
 const toast = useToast()
 const route = useRoute()
 const router = useRouter()
@@ -24,6 +26,11 @@ const defaultContent = computed(() => selectedRow.value?.defaultContent ?? '')
 const isModified = computed(() => content.value !== defaultContent.value)
 const isDirty = computed(() => content.value !== savedContent.value)
 const diff = computed(() => lineDiff(defaultContent.value, content.value))
+
+// Prompts whose SAVED content differs from default — marked in the dropdown.
+const modifiedNames = computed(
+  () => new Set((promptList.value?.prompts ?? []).filter(p => p.content !== p.defaultContent).map(p => p.name)),
+)
 
 // Grouped select: base prompts on top, then tools, then HA suffixes. Labels
 // are non-selectable group headings; values stay the full prompt name.
@@ -118,7 +125,15 @@ async function resetToDefault() {
               class="w-full sm:w-80"
               :items="selectItems"
               placeholder="Select a prompt"
-            />
+            >
+              <template #item-trailing="{ item }">
+                <span
+                  v-if="typeof item === 'string' && modifiedNames.has(item)"
+                  class="size-2 rounded-full bg-warning"
+                  title="Modified"
+                />
+              </template>
+            </USelect>
             <UBadge
               :color="isModified ? 'warning' : 'neutral'"
               variant="subtle"
@@ -128,13 +143,21 @@ async function resetToDefault() {
           </div>
         </UFormField>
 
-        <UTextarea
-          v-model="content"
-          autoresize
-          :rows="10"
-          class="w-full font-mono"
-          :disabled="!selected"
-        />
+        <ClientOnly>
+          <CodeEditor
+            v-model="content"
+            :disabled="!selected"
+            class="rounded-md ring ring-default overflow-hidden"
+          />
+          <template #fallback>
+            <UTextarea
+              :model-value="content"
+              :rows="10"
+              readonly
+              class="w-full font-mono"
+            />
+          </template>
+        </ClientOnly>
 
         <div v-if="isModified">
           <p class="text-sm font-medium mb-1">

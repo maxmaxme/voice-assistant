@@ -6,6 +6,8 @@ import type { SettableKey, SettingsResponse } from '~/types'
 // back to '' on write.
 const DEFAULT_VALUE = '__default__'
 
+useHead({ title: 'Settings' })
+
 const toast = useToast()
 const { data: settings, refresh } = await useFetch<SettingsResponse>('/api/settings')
 
