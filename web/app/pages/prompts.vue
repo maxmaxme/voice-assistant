@@ -4,7 +4,7 @@ import type { PromptRow } from '~/types'
 const toast = useToast()
 const { data: promptList, refresh } = await useFetch<{ prompts: PromptRow[] }>('/api/prompts')
 
-const selected = ref<string | null>(null)
+const selected = ref<string | undefined>()
 const content = ref('')
 
 watchEffect(() => {
