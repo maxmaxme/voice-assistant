@@ -50,14 +50,72 @@ describe('weatherTool', () => {
       location: 'Madrid, Spain',
       date: '2026-05-27',
       summary: 'overcast',
-      tempMinC: 14.2,
-      tempMaxC: 27.8,
+      tempMin: 14.2,
+      tempMax: 27.8,
+      tempUnit: '°C',
       precipitationProbabilityPct: 10,
-      windMaxKmh: 12.5,
+      windMax: 12.5,
+      windUnit: 'km/h',
     });
     expect(calls[0]).toContain('name=Madrid');
     expect(calls[1]).toContain('latitude=40.4');
     expect(calls[1]).toContain('start_date=2026-05-27');
+    expect(calls[1]).toContain('temperature_unit=celsius');
+    expect(calls[1]).toContain('wind_speed_unit=kmh');
+  });
+
+  it('requests imperial units and labels the result', async () => {
+    const calls: string[] = [];
+    const fakeFetch = vi.fn(async (url: string) => {
+      calls.push(url);
+      if (url.includes('geocoding-api')) {
+        return jsonResponse({ results: [{ latitude: 40, longitude: -73, name: 'New York' }] });
+      }
+      return jsonResponse({
+        daily: {
+          time: ['2026-05-27'],
+          temperature_2m_min: [57],
+          temperature_2m_max: [75],
+          weather_code: [0],
+          precipitation_probability_max: [0],
+          wind_speed_10m_max: [9],
+        },
+      });
+    });
+    const r = await executeWeatherTool(
+      { location: 'New York', date: '2026-05-27' },
+      { fetch: fakeFetch as unknown as typeof fetch, units: 'imperial' },
+    );
+    expect(r.tempUnit).toBe('°F');
+    expect(r.windUnit).toBe('mph');
+    expect(calls[1]).toContain('temperature_unit=fahrenheit');
+    expect(calls[1]).toContain('wind_speed_unit=mph');
+  });
+
+  it('falls back to the configured default location when none is given', async () => {
+    const calls: string[] = [];
+    const fakeFetch = vi.fn(async (url: string) => {
+      calls.push(url);
+      if (url.includes('geocoding-api')) {
+        return jsonResponse({ results: [{ latitude: 40.4, longitude: -3.7, name: 'Madrid' }] });
+      }
+      return jsonResponse({
+        daily: {
+          time: ['2026-05-27'],
+          temperature_2m_min: [15],
+          temperature_2m_max: [28],
+          weather_code: [0],
+          precipitation_probability_max: [0],
+          wind_speed_10m_max: [8],
+        },
+      });
+    });
+    const r = await executeWeatherTool(
+      { location: '', date: '2026-05-27' },
+      { fetch: fakeFetch as unknown as typeof fetch, defaultLocation: 'Madrid' },
+    );
+    expect(r.location).toBe('Madrid');
+    expect(calls[0]).toContain('name=Madrid');
   });
 
   it('retries geocoding in the other language when the first lookup is empty', async () => {

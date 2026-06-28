@@ -135,7 +135,7 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 
 1. `Session.begin()` returns the previous `response_id` to chain from, or `undefined` if the session is fresh / went idle.
 2. On a fresh chain: send `instructions` (system prompt + memory profile) once. On a continuing chain: omit `instructions`.
-3. Build tool list: HA MCP tools + the local-tool registry + (for HTTP only) the `ask` tool. **Local tools (memory `remember`/`recall`/`forget`, scheduled actions, `send_to_telegram`, weather) come from one registry — `localTools.ts::buildLocalToolset`** — shared with the realtime bridge: it both lists the tools and executes them. A tool registers only when its adapter is wired, which is the per-channel policy knob (goal mode just doesn't pass `scheduledActions`/`telegram`). Adding a local tool = adding one registry entry; `ask` is the only local tool outside it (terminal control flow, handled in the agent loop).
+3. Build tool list: HA MCP tools + the local-tool registry + (for HTTP only) the `ask` tool. **Local tools (memory `remember`/`recall`/`forget`, scheduled actions, `send_to_telegram`, weather) come from one registry — `localTools.ts::buildLocalToolset`** — shared with the realtime bridge: it both lists the tools and executes them. A tool registers only when its adapter is wired (the per-channel policy knob — goal mode just doesn't pass `scheduledActions`/`telegram`) **and** its built-in toggle is on. Memory / reminders / weather are gated by the **Tools page** (`resolveToolsConfig`, `src/settings/toolsConfig.ts`; keys `tools.*`; **on by default**, a stored `'0'` disables) — threaded as `OpenAiAgentOptions.tools` → `buildLocalToolset` `enableMemory`/`enableReminders`/`enableWeather`. Weather also takes config from there (units metric/imperial → Open-Meteo params; default-location fallback). `send_to_telegram` stays tied to the Telegram channel. Adding a local tool = adding one registry entry; `ask` is the only local tool outside it (terminal control flow, handled in the agent loop).
 4. Send `input` (user message on first call, `function_call_output` items on tool-loop iterations) with `previous_response_id` and `store: true`.
 5. Inspect `response.output` for `function_call` items; route by name:
    - `ask` is **terminal**: returns immediately with `expectsFollowUp: true`. The HTTP runner forwards that as `continue_conversation: true` in the JSON response; the HA bridge sets it on `ConversationResult`, and HA's Assist pipeline reopens the mic.
@@ -297,8 +297,9 @@ never hot-reloaded:
 - **`settings` table** (`src/settings/sqliteSettings.ts`, `SettingsStore`) — a
   key/value store of **DB-only feature config**, read by dedicated resolvers, NOT
   via env: `http.{text,audio,assist}` → `resolveHttpConfig`, `telegram.enabled` →
-  `resolveTelegramEnabled`, `realtime.*` → `resolveRealtimeConfig`. There is
-  **no env-overlay** — nothing is web-edited
+  `resolveTelegramEnabled`, `realtime.*` → `resolveRealtimeConfig`, `tools.*`
+  (memory/reminders/weather toggles + weather units/location; **on by default**)
+  → `resolveToolsConfig`. There is **no env-overlay** — nothing is web-edited
   _into_ `process.env`. Process-level config (`MEMORY_DB_PATH`, **`TZ`**,
   `HTTP_SERVER_PORT`, `REALTIME_PORT`) is plain env via `loadConfig()`; `TZ` is
   **required** (no UTC fallback). **No secrets in env**: OpenAI's api key, HA's

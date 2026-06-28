@@ -11,6 +11,7 @@ import { resolveTelegramConfig, type TelegramConfig } from '../integrations/tele
 import { resolveRealtimeConfig, type RealtimeConfig } from '../settings/realtimeConfig.ts';
 import { resolveHttpConfig, type HttpConfig } from '../settings/httpConfig.ts';
 import { resolveTelegramEnabled } from '../settings/telegramRuntime.ts';
+import { resolveToolsConfig, type ToolsConfig } from '../settings/toolsConfig.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
@@ -127,6 +128,8 @@ export interface CommonDeps {
   /** HTTP server config from the DB (enable). The `/text` `/audio` `/assist`
    *  server starts only when `http.enabled`. */
   http: HttpConfig;
+  /** Built-in tool gates + weather config (web panel's Tools page). */
+  tools: ToolsConfig;
 }
 
 /** Initialise everything shared across runners. Call once per process. */
@@ -147,6 +150,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   const realtime = resolveRealtimeConfig(memory.settings);
   const http = resolveHttpConfig(memory.settings);
   const telegramEnabled = resolveTelegramEnabled(memory.settings);
+  const tools = resolveToolsConfig(memory.settings);
 
   // OpenAI comes from the web-configured integration, not env. It's mandatory —
   // fail fast with a clear message if it's not installed/enabled.
@@ -200,6 +204,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     webSearch: openai.webSearch,
     llmClient: llm,
     telegram: { senderFor },
+    tools,
   });
   const goalRunner: GoalRunner = buildGoalRunner({
     agent: goalAgent,
@@ -218,6 +223,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       webSearch: openai.webSearch,
       llmClient: llm,
       telegram: { senderFor },
+      tools,
       // `ask` is only worth exposing where a positive expectsFollowUp
       // actually reopens the mic for the user. The `assist` channel sits
       // behind HA bridge / Voice PE which reads continue_conversation from
@@ -265,5 +271,6 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     telegramEnabled,
     realtime,
     http,
+    tools,
   };
 }

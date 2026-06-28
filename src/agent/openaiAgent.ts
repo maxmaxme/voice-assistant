@@ -15,6 +15,7 @@ import { PENDING_ASK_TTL_MS, Session } from './session.ts';
 import { mcpToolsToOpenAi } from './toolBridge.ts';
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { buildLocalToolset } from './localTools.ts';
+import type { ToolsConfig } from '../settings/toolsConfig.ts';
 import type { TelegramSender } from '../telegram/types.ts';
 import { getServerTimezone, toLocalIso } from '../utils/time.ts';
 import { createLogger } from '../utils/logger.ts';
@@ -57,6 +58,10 @@ export interface OpenAiAgentOptions {
   /** Expose OpenAI's hosted `web_search` tool to the model. Costs tokens per
    *  call. Comes from the OpenAI integration. Default: false. */
   webSearch?: boolean;
+  /** Built-in tool gates + weather config (web panel's Tools page). When
+   *  omitted, all built-in tools are on (back-compat). Reminders/telegram are
+   *  additionally gated by goal mode + adapter wiring. */
+  tools?: ToolsConfig;
 }
 
 export class OpenAiAgent implements Agent {
@@ -131,6 +136,11 @@ export class OpenAiAgent implements Agent {
       telegram: goalMode ? undefined : this.opts.telegram,
       identities: this.opts.memory.identities,
       ownerUserId,
+      enableMemory: this.opts.tools?.memory,
+      enableReminders: this.opts.tools?.reminders,
+      enableWeather: this.opts.tools?.weather.enabled,
+      weatherUnits: this.opts.tools?.weather.units,
+      weatherDefaultLocation: this.opts.tools?.weather.defaultLocation,
     });
     const localTools = [...localToolset.tools, ...(askEnabled ? [buildAskTool()] : [])];
     // Our function-tool shape (`OpenAiFunctionTool`-derived) matches the

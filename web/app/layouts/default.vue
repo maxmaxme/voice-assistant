@@ -28,6 +28,7 @@ const channels = computed<NavLink[]>(() =>
 )
 
 const topLevel: NavLink[] = [
+  { label: 'Tools', icon: 'i-lucide-wrench', to: '/tools' },
   { label: 'Prompts', icon: 'i-lucide-message-square-text', to: '/prompts' },
   { label: 'Integrations', icon: 'i-lucide-plug', to: '/integrations' },
   { label: 'Users', icon: 'i-lucide-users', to: '/users' },

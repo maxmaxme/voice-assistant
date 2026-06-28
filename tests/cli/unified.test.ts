@@ -66,6 +66,11 @@ function makeDeps(): CommonDeps {
     telegramEnabled: true,
     realtime: { enabled: false, outputPacingMs: 20, idleResetMs: 90_000 },
     http: { text: true, audio: true, assist: true },
+    tools: {
+      memory: true,
+      reminders: true,
+      weather: { enabled: true, units: 'metric', defaultLocation: '' },
+    },
     buildAgent: vi.fn(
       () =>
         ({ opts: { session: { reset: vi.fn() } } }) as unknown as ReturnType<

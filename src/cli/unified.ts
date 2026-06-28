@@ -197,6 +197,11 @@ export async function main(): Promise<void> {
           identities: deps.memory.identities,
           ownerUserId: auth.userId,
           telegram: { senderFor: deps.senderFor },
+          enableMemory: deps.tools.memory,
+          enableReminders: deps.tools.reminders,
+          enableWeather: deps.tools.weather.enabled,
+          weatherUnits: deps.tools.weather.units,
+          weatherDefaultLocation: deps.tools.weather.defaultLocation,
         });
         return {
           apiKey: deps.openai.apiKey,

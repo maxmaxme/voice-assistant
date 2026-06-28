@@ -22,7 +22,12 @@ import { buildMemoryTools, executeMemoryTool } from './memoryTools.ts';
 import { buildScheduledActionTools, executeScheduledActionTool } from './scheduledActionTools.ts';
 import { TELEGRAM_TOOL_NAME, buildTelegramTool, executeTelegramTool } from './telegramTool.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
-import { buildWeatherTool, executeWeatherTool, WEATHER_TOOL_NAME } from './weatherTool.ts';
+import {
+  buildWeatherTool,
+  executeWeatherTool,
+  WEATHER_TOOL_NAME,
+  type WeatherUnits,
+} from './weatherTool.ts';
 
 export interface LocalToolDeps {
   profile?: ScopedProfile;
@@ -37,6 +42,14 @@ export interface LocalToolDeps {
    *  (`ownerUserId: null`). */
   identities?: IdentitiesAdapter;
   ownerUserId?: number | null;
+  /** Built-in tool gates (web panel's Tools page). On by default — pass `false`
+   *  to omit that tool group even when its adapter is wired. */
+  enableMemory?: boolean;
+  enableReminders?: boolean;
+  enableWeather?: boolean;
+  /** Weather config (units + default-location fallback) forwarded to the tool. */
+  weatherUnits?: WeatherUnits;
+  weatherDefaultLocation?: string;
 }
 
 export interface LocalToolset {
@@ -51,13 +64,18 @@ interface LocalTool {
 }
 
 function buildRegistry(deps: LocalToolDeps): Record<string, LocalTool> {
-  const registry: Record<string, LocalTool> = {
-    [WEATHER_TOOL_NAME]: {
+  const registry: Record<string, LocalTool> = {};
+  if (deps.enableWeather !== false) {
+    registry[WEATHER_TOOL_NAME] = {
       tool: buildWeatherTool(),
-      execute: (args) => executeWeatherTool(args),
-    },
-  };
-  if (deps.profile) {
+      execute: (args) =>
+        executeWeatherTool(args, {
+          units: deps.weatherUnits,
+          defaultLocation: deps.weatherDefaultLocation,
+        }),
+    };
+  }
+  if (deps.profile && deps.enableMemory !== false) {
     const profile = deps.profile;
     for (const tool of buildMemoryTools()) {
       registry[tool.name] = {
@@ -68,7 +86,7 @@ function buildRegistry(deps: LocalToolDeps): Record<string, LocalTool> {
   }
   // Scheduled-action tools are owner-aware: they need an identities adapter to
   // validate/route reminders. Register them only when both are wired.
-  if (deps.scheduledActions && deps.identities) {
+  if (deps.scheduledActions && deps.identities && deps.enableReminders !== false) {
     const scheduledActions = deps.scheduledActions;
     const identities = deps.identities;
     const ownerUserId = deps.ownerUserId ?? null;

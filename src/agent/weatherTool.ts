@@ -101,14 +101,20 @@ function parseForecast(raw: unknown): ForecastResult {
   };
 }
 
+export type WeatherUnits = 'metric' | 'imperial';
+
 export interface WeatherToolResult {
   location: string;
   date: string;
   summary: string;
-  tempMinC: number;
-  tempMaxC: number;
+  tempMin: number;
+  tempMax: number;
+  /** '°C' (metric) or '°F' (imperial). */
+  tempUnit: string;
   precipitationProbabilityPct: number | null;
-  windMaxKmh: number | null;
+  windMax: number | null;
+  /** 'km/h' (metric) or 'mph' (imperial). */
+  windUnit: string;
 }
 
 export function buildWeatherTool(): OpenAiFunctionTool {
@@ -181,10 +187,13 @@ const WEATHER_CODE_SUMMARY: Record<number, string> = {
 
 export async function executeWeatherTool(
   args: Record<string, unknown>,
-  deps: { fetch?: typeof fetch } = {},
+  deps: { fetch?: typeof fetch; units?: WeatherUnits; defaultLocation?: string } = {},
 ): Promise<WeatherToolResult> {
   const fetchImpl = deps.fetch ?? fetch;
-  const location = typeof args.location === 'string' ? args.location.trim() : '';
+  const imperial = deps.units === 'imperial';
+  // Fall back to the configured default place when the model passes none.
+  const argLocation = typeof args.location === 'string' ? args.location.trim() : '';
+  const location = argLocation || (deps.defaultLocation ?? '').trim();
   const date = typeof args.date === 'string' ? args.date.trim() : '';
   if (!location) {
     throw new Error('get_weather: `location` is required');
@@ -228,6 +237,8 @@ export async function executeWeatherTool(
       'wind_speed_10m_max',
     ].join(','),
     timezone: 'auto',
+    temperature_unit: imperial ? 'fahrenheit' : 'celsius',
+    wind_speed_unit: imperial ? 'mph' : 'kmh',
     start_date: date,
     end_date: date,
   });
@@ -247,9 +258,11 @@ export async function executeWeatherTool(
     location: locationLabel,
     date,
     summary: WEATHER_CODE_SUMMARY[code] ?? `code ${code}`,
-    tempMinC: d.temperature_2m_min[0],
-    tempMaxC: d.temperature_2m_max[0],
+    tempMin: d.temperature_2m_min[0],
+    tempMax: d.temperature_2m_max[0],
+    tempUnit: imperial ? '°F' : '°C',
     precipitationProbabilityPct: d.precipitation_probability_max?.[0] ?? null,
-    windMaxKmh: d.wind_speed_10m_max?.[0] ?? null,
+    windMax: d.wind_speed_10m_max?.[0] ?? null,
+    windUnit: imperial ? 'mph' : 'km/h',
   };
 }

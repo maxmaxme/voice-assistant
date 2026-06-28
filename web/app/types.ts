@@ -14,6 +14,16 @@ export interface TelegramResponse {
   enabled: boolean
 }
 
+export interface ToolsResponse {
+  memory: boolean
+  reminders: boolean
+  weather: {
+    enabled: boolean
+    units: 'metric' | 'imperial'
+    defaultLocation: string
+  }
+}
+
 export interface PromptRow {
   name: string
   content: string
