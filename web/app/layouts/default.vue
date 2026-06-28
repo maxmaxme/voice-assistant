@@ -34,8 +34,11 @@ const isActive = (to: string): boolean => route.path === to || route.path.starts
           <span>{{ l.label }}</span>
         </NuxtLink>
       </nav>
-      <div class="px-6 py-4 text-xs text-white/45 leading-relaxed">
-        Changes apply on the next voice-assistant restart.
+      <div class="px-3 py-4 space-y-2">
+        <RestartButton />
+        <p class="px-3 text-xs text-white/45 leading-relaxed">
+          Changes apply on the next voice-assistant restart.
+        </p>
       </div>
     </aside>
 
