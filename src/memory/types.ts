@@ -1,5 +1,7 @@
 import type { Schedule } from '../scheduling/types.ts';
 import type { SqliteProfileMemory } from './sqliteProfileMemory.ts';
+import type { SettingsStore } from '../settings/types.ts';
+import type { SqlitePrompts } from '../settings/sqlitePrompts.ts';
 
 export type ProfileFacts = Record<string, unknown>;
 
@@ -111,5 +113,10 @@ export interface MemoryStore {
   identities: IdentitiesAdapter;
   scheduledActions: ScheduledActionsAdapter;
   telegramSessions: TelegramSessionsAdapter;
+  /** Non-secret config overrides edited via the web UI, layered over env at
+   *  startup. */
+  settings: SettingsStore;
+  /** DB-backed editable prompt text (seeded from the bundled `.md` files). */
+  prompts: SqlitePrompts;
   close(): void;
 }

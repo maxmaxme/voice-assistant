@@ -73,6 +73,18 @@ export const scheduledActions = sqliteTable(
   ],
 );
 
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const prompts = sqliteTable('prompts', {
+  name: text('name').primaryKey(),
+  content: text('content').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const telegramSessions = sqliteTable('telegram_sessions', {
   chatId: integer('chat_id').primaryKey(),
   lastResponseId: text('last_response_id'),

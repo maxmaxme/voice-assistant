@@ -96,4 +96,17 @@ describe('loadConfig', () => {
     delete process.env.VA_DEVICE_TOKEN;
     expect(() => loadConfig()).toThrow(/VA_DEVICE_TOKEN/);
   });
+
+  it('reads from a passed env map instead of process.env', () => {
+    const env = {
+      HA_URL: 'http://ha:8123',
+      HA_TOKEN: 't',
+      OPENAI_API_KEY: 'sk',
+      TELEGRAM_BOT_TOKEN: 'tg',
+      OPENAI_MODEL: 'gpt-override',
+    };
+    const cfg = loadConfig(env);
+    expect(cfg.openai.model).toBe('gpt-override');
+    expect(cfg.ha.url).toBe('http://ha:8123');
+  });
 });

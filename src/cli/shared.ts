@@ -9,6 +9,7 @@ import { openMemoryStore } from '../memory/memoryStore.ts';
 import type { MemoryStore } from '../memory/types.ts';
 import { loadPrompt } from '../agent/prompts/load.ts';
 import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
+import { buildEnvOverlay } from '../settings/settable.ts';
 import { receiverFromConfig } from '../telegram/fromConfig.ts';
 import { BotTelegramSender } from '../telegram/telegramSender.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
@@ -65,8 +66,11 @@ export type PromptChannel = 'telegram' | 'http' | 'assist' | 'realtime';
 const VOICE_ADDENDUM = loadPrompt('./prompts/voice-addendum.md', import.meta.url);
 const REALTIME_ADDENDUM = loadPrompt('./prompts/realtime-addendum.md', import.meta.url);
 
-export function buildSystemPromptFor(channel: PromptChannel): string {
-  const parts: string[] = [BASE_SYSTEM_PROMPT];
+export function buildSystemPromptFor(
+  channel: PromptChannel,
+  basePrompt: string = BASE_SYSTEM_PROMPT,
+): string {
+  const parts: string[] = [basePrompt];
   if (channel === 'assist') {
     parts.push(VOICE_ADDENDUM);
     return parts.join('\n\n');
@@ -113,16 +117,34 @@ export interface CommonDeps {
    * receiver so dispose() can stop it on shutdown. */
   telegramReceiver(): TelegramReceiver;
   goalRunner: GoalRunner;
+  /** Resolved base system prompt (DB-backed override or bundled default).
+   *  Realtime builds its session prompt from this. */
+  basePrompt: string;
 }
 
 /** Initialise everything shared across runners. Call once per process. */
 export async function initializeCommonDependencies(): Promise<CommonDeps> {
-  const config = loadConfig();
-  fs.mkdirSync(path.dirname(config.memory.dbPath), { recursive: true });
+  // Two-phase config load: read env first to learn the DB path (not a
+  // web-settable key), open the store, then re-load with the DB-backed
+  // overrides layered over env. Changes apply on the next start by design.
+  const envConfig = loadConfig();
+  fs.mkdirSync(path.dirname(envConfig.memory.dbPath), { recursive: true });
+  const memory = openMemoryStore(envConfig.memory.dbPath);
+  // Layer the DB-backed overrides over the real env. We also mutate process.env
+  // itself so the handful of consumers that read it directly — TZ,
+  // AGENT_MODE, OPENAI_WEB_SEARCH — honour the web-edited values, not just the
+  // typed `config` object.
+  const overlay = buildEnvOverlay(memory.settings);
+  Object.assign(process.env, overlay);
+  const config = loadConfig({ ...process.env, ...overlay });
+
+  // The bundled markdown is the source of truth on a fresh DB; thereafter the
+  // (possibly web-edited) DB row wins.
+  memory.prompts.seedIfAbsent('base-system', BASE_SYSTEM_PROMPT);
+  const basePrompt = memory.prompts.get('base-system') ?? BASE_SYSTEM_PROMPT;
 
   const llm = new OpenAI({ apiKey: config.openai.apiKey });
   const mcp = new HaMcpClient({ url: config.ha.url, token: config.ha.token });
-  const memory = openMemoryStore(config.memory.dbPath);
   const senderFor = (chatId: string): TelegramSender =>
     new BotTelegramSender({ botToken: config.telegram.botToken, chatId });
 
@@ -135,7 +157,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     mcp,
     memory,
     session: new Session(),
-    systemPrompt: BASE_SYSTEM_PROMPT,
+    systemPrompt: basePrompt,
     model: config.openai.model,
     reasoningEffort: config.openai.reasoningEffort,
     llmClient: llm,
@@ -152,7 +174,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       mcp,
       memory,
       session: new Session(),
-      systemPrompt: buildSystemPromptFor(channel),
+      systemPrompt: buildSystemPromptFor(channel, basePrompt),
       model: config.openai.model,
       reasoningEffort: config.openai.reasoningEffort,
       llmClient: llm,
@@ -185,5 +207,16 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     memory.close();
   };
 
-  return { config, llm, mcp, memory, senderFor, buildAgent, dispose, telegramReceiver, goalRunner };
+  return {
+    config,
+    llm,
+    mcp,
+    memory,
+    senderFor,
+    buildAgent,
+    dispose,
+    telegramReceiver,
+    goalRunner,
+    basePrompt,
+  };
 }

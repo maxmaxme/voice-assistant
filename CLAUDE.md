@@ -27,6 +27,11 @@ This repo only owns the **server-side app** (Node/TS) and the image
 build. Deployment (compose, systemd, healthchecks, rollback) lives
 outside this repo and is none of this codebase's concern.
 
+The `web/` subdir is a **separate Nuxt 4 SSR app** (its own image, its own
+Nitro server) — a config panel that edits the `settings` and `prompts` tables
+in the same SQLite DB. The core stays no-build; `web/` has its own toolchain.
+See `web/README.md` and the "Web config" section below.
+
 ## Commands
 
 ```bash
@@ -252,6 +257,35 @@ npm run users -- attach-voice --user <id> --token <VA_DEVICE_TOKEN>
 `attach-telegram`, `attach-voice`, `mint-http`. `mint-http` prints the token
 once and stores only its hash. Editing/merging existing users & identities is
 done directly in the DB (or a future sqlite-web admin, out of this repo's scope).
+
+### Web config (settings & prompts)
+
+Runtime config is editable from a web panel (`web/`, a separate Nuxt SSR app —
+see below). Two DB-backed sources, both **applied on the next process start**,
+never hot-reloaded:
+
+- **`settings` table** (`src/settings/sqliteSettings.ts`, `SettingsStore`) — a
+  key/value store of **non-secret** config overrides, keyed by **env-var name**
+  (`OPENAI_MODEL`, `AGENT_MODE`, …). `loadConfig(env)` now takes an env map
+  (defaults to `process.env`); the bootstrap in `cli/shared.ts` does a
+  two-phase load: `loadConfig()` to learn the DB path → `openMemoryStore` →
+  `loadConfig({ ...process.env, ...buildEnvOverlay(memory.settings) })`. So
+  precedence is **DB > env > zod default**. `buildEnvOverlay`
+  (`src/settings/settable.ts`) filters stored rows to the `SETTABLE_KEYS`
+  whitelist, so a stray row can never override a **secret** — secrets
+  (`OPENAI_API_KEY`, `HA_TOKEN`, `TELEGRAM_BOT_TOKEN`, `VA_DEVICE_TOKEN`) are
+  never settable and stay in `.env`.
+- **`prompts` table** (`src/settings/sqlitePrompts.ts`, `SqlitePrompts`) —
+  editable prompt text. The bundled `prompts/*.md` are the source of truth on a
+  fresh DB; `seedIfAbsent('base-system', BASE_SYSTEM_PROMPT)` copies them in at
+  startup, then the row wins. `buildSystemPromptFor(channel, basePrompt?)` takes
+  the resolved base prompt; `cli/shared.ts` reads it from the store once and
+  threads it through `CommonDeps.basePrompt` (the realtime path in `unified.ts`
+  uses it too). Only `base-system` is wired through the store today.
+
+`SETTABLE_KEYS` in `src/settings/settable.ts` is the source of truth for which
+knobs are editable; `web/server/utils/settable.ts` is a copy kept in sync until
+extracted to a shared module.
 
 ### Scheduled actions
 

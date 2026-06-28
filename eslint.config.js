@@ -15,6 +15,10 @@ export default tseslint.config(
       'coverage/**',
       'scripts/*.py',
       '**/*.onnx',
+      // web/ is a self-contained Nuxt project with its own toolchain and lint
+      // setup — the root linter must not descend into it (esp. its generated
+      // .nuxt/.output).
+      'web/**',
     ],
   },
   js.configs.recommended,

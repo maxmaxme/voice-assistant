@@ -21,7 +21,9 @@ describe('fresh DB schema', () => {
       expect.arrayContaining([
         'identities',
         'profile',
+        'prompts',
         'scheduled_actions',
+        'settings',
         'telegram_sessions',
         'users',
       ]),

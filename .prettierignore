@@ -7,3 +7,4 @@ models
 coverage
 *.onnx
 package-lock.json
+web

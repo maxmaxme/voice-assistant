@@ -59,32 +59,35 @@ const PATH_TO_ENV: Record<string, string> = {
   'realtime.outputPacingMs': 'REALTIME_OUTPUT_PACING_MS',
 };
 
-export function loadConfig(): Config {
+/** Read config from `env` (defaults to `process.env`). DB-backed setting
+ *  overrides are applied by the caller layering them over `process.env`
+ *  before calling — `{ ...process.env, ...overrides }`. */
+export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const raw = {
     ha: {
-      url: process.env.HA_URL,
-      token: process.env.HA_TOKEN,
+      url: env.HA_URL,
+      token: env.HA_TOKEN,
     },
     openai: {
-      apiKey: process.env.OPENAI_API_KEY,
-      model: process.env.OPENAI_MODEL,
-      reasoningEffort: process.env.OPENAI_REASONING_EFFORT,
+      apiKey: env.OPENAI_API_KEY,
+      model: env.OPENAI_MODEL,
+      reasoningEffort: env.OPENAI_REASONING_EFFORT,
     },
     memory: {
-      dbPath: process.env.MEMORY_DB_PATH,
+      dbPath: env.MEMORY_DB_PATH,
     },
     telegram: {
-      botToken: process.env.TELEGRAM_BOT_TOKEN,
+      botToken: env.TELEGRAM_BOT_TOKEN,
     },
     realtime: {
-      enabled: process.env.REALTIME_ENABLED === '1',
-      port: process.env.REALTIME_PORT,
-      token: process.env.VA_DEVICE_TOKEN,
-      model: process.env.OPENAI_REALTIME_MODEL,
-      voice: process.env.OPENAI_REALTIME_VOICE,
-      reasoningEffort: process.env.OPENAI_REALTIME_REASONING_EFFORT,
-      idleResetMs: process.env.REALTIME_IDLE_RESET_MS,
-      outputPacingMs: process.env.REALTIME_OUTPUT_PACING_MS,
+      enabled: env.REALTIME_ENABLED === '1',
+      port: env.REALTIME_PORT,
+      token: env.VA_DEVICE_TOKEN,
+      model: env.OPENAI_REALTIME_MODEL,
+      voice: env.OPENAI_REALTIME_VOICE,
+      reasoningEffort: env.OPENAI_REALTIME_REASONING_EFFORT,
+      idleResetMs: env.REALTIME_IDLE_RESET_MS,
+      outputPacingMs: env.REALTIME_OUTPUT_PACING_MS,
     },
   };
   const parsed = ConfigSchema.safeParse(raw);

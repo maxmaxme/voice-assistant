@@ -4,6 +4,8 @@ import { SqliteProfileMemory } from './sqliteProfileMemory.ts';
 import { SqliteScheduledActions } from './sqliteScheduledActions.ts';
 import { SqliteTelegramSessions } from './sqliteTelegramSessions.ts';
 import { IdentitiesStore } from './identities.ts';
+import { SqliteSettings } from '../settings/sqliteSettings.ts';
+import { SqlitePrompts } from '../settings/sqlitePrompts.ts';
 import type { MemoryStore } from './types.ts';
 
 export function openMemoryStore(dbPath: string): MemoryStore {
@@ -16,12 +18,16 @@ export function openMemoryStore(dbPath: string): MemoryStore {
   const scheduledActions = new SqliteScheduledActions(db);
   const telegramSessions = new SqliteTelegramSessions(db);
   const identities = new IdentitiesStore(db);
+  const settings = new SqliteSettings(db);
+  const prompts = new SqlitePrompts(db);
   return {
     profile,
     profileStore: profile,
     identities,
     scheduledActions,
     telegramSessions,
+    settings,
+    prompts,
     close() {
       sqlite.close();
     },

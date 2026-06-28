@@ -5,6 +5,8 @@ import type { CommonDeps } from '../../src/cli/shared.ts';
 import type OpenAI from 'openai';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import { IdentitiesStore } from '../../src/memory/identities.ts';
+import { SqliteSettings } from '../../src/settings/sqliteSettings.ts';
+import { SqlitePrompts } from '../../src/settings/sqlitePrompts.ts';
 import { freshTestDb } from '../memory/helpers.ts';
 import type { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
 import type { MemoryStore, ScheduledActionsAdapter } from '../../src/memory/types.ts';
@@ -36,6 +38,8 @@ function makeMemoryStore(): MemoryStore {
       save: () => {},
       delete: () => {},
     },
+    settings: new SqliteSettings(db),
+    prompts: new SqlitePrompts(db),
     close: () => {},
   };
 }
@@ -50,6 +54,7 @@ function makeDeps(): CommonDeps {
     memory: makeMemoryStore(),
     senderFor: () => ({ send: async () => {} }) as TelegramSender,
     goalRunner: { fire: vi.fn(async () => {}) } satisfies GoalRunner,
+    basePrompt: 'test base prompt',
     buildAgent: vi.fn(
       () =>
         ({ opts: { session: { reset: vi.fn() } } }) as unknown as ReturnType<

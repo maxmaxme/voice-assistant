@@ -161,14 +161,16 @@ export async function dispatch(
 }
 
 export async function main(): Promise<void> {
+  // Init first: it layers DB-backed settings over process.env, so AGENT_MODE /
+  // OPENAI_WEB_SEARCH / TZ below reflect web-edited values.
+  const deps = await initializeCommonDependencies();
+
   const mode = parseAgentMode(process.env.AGENT_MODE);
   const webSearch = process.env.OPENAI_WEB_SEARCH === '1' ? ' WEB_SEARCH=on' : '';
   log.info(
     { mode, tz: getServerTimezone(), webSearch: process.env.OPENAI_WEB_SEARCH === '1' },
     `AGENT_MODE=${mode} TZ=${getServerTimezone()}${webSearch}`,
   );
-
-  const deps = await initializeCommonDependencies();
 
   let realtimeServer: RealtimeServer | null = null;
   if (deps.config.realtime.enabled) {
@@ -207,7 +209,10 @@ export async function main(): Promise<void> {
           reasoningEffort: deps.config.realtime.reasoningEffort,
           idleResetMs: deps.config.realtime.idleResetMs,
           outputPacingMs: deps.config.realtime.outputPacingMs,
-          instructions: appendUserContext(buildSystemPromptFor('realtime'), profile.recall()),
+          instructions: appendUserContext(
+            buildSystemPromptFor('realtime', deps.basePrompt),
+            profile.recall(),
+          ),
           tools: [
             ...mcpToolsToRealtime(applyHaToolSuffixes(await deps.mcp.listTools())),
             ...localToolsToRealtime(localToolset.tools),

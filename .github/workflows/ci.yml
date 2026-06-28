@@ -106,6 +106,23 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Config web panel (web/). Separate Nuxt SSR image consumed by home-infra
+      # as ghcr.io/maxmaxme/voice-assistant-config-web. Build context is web/.
+      - uses: docker/build-push-action@v7
+        with:
+          context: web
+          file: web/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/maxmaxme/voice-assistant-config-web:latest
+            ghcr.io/maxmaxme/voice-assistant-config-web:sha-${{ steps.sha.outputs.short }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
   # Telegram ping once the main build settles — green or red. Runs only on
   # main (push / manual), never on PRs. `if: always()` so a failed upstream
   # job still triggers it; we inspect needs.*.result to pick the message.

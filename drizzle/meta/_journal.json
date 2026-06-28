@@ -15,6 +15,13 @@
       "when": 1781039056026,
       "tag": "0001_amazing_ravenous",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1782648099985,
+      "tag": "0002_gray_nitro",
+      "breakpoints": true
     }
   ]
 }
