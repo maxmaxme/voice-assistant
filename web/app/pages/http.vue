@@ -6,19 +6,22 @@ useHead({ title: 'HTTP API' })
 const toast = useToast()
 const { data, refresh } = await useFetch<HttpResponse>('/api/http')
 
-const form = reactive<{ enabled: boolean }>({ enabled: false })
+const form = reactive<{ text: boolean, audio: boolean }>({ text: false, audio: false })
 watchEffect(() => {
   if (!data.value) return
-  form.enabled = data.value.enabled
+  form.text = data.value.text
+  form.audio = data.value.audio
 })
 
-const dirty = computed(() => !!data.value && form.enabled !== data.value.enabled)
+const dirty = computed(() =>
+  !!data.value && (form.text !== data.value.text || form.audio !== data.value.audio),
+)
 
 const saving = ref(false)
 async function save() {
   saving.value = true
   try {
-    await $fetch('/api/http', { method: 'PUT', body: { ...form } })
+    await $fetch('/api/http', { method: 'PUT', body: { text: form.text, audio: form.audio } })
     toast.add({ title: 'Saved', description: 'Applies after the next restart.', color: 'success' })
     await refresh()
   }
@@ -46,18 +49,11 @@ const endpoints = [
     note: 'Transcribed (Whisper) then answered.',
   },
   {
-    method: 'POST',
-    path: '/assist',
-    body: 'JSON { text, conversation_id? }',
-    returns: '{ response, continue_conversation }',
-    note: 'Keeps a per-conversation_id session; continue_conversation hints the client to reopen the mic.',
-  },
-  {
     method: 'GET',
     path: '/health',
     body: '—',
     returns: '{ status: "ok" }',
-    note: 'No auth.',
+    note: 'No auth, always available (used by the container healthcheck).',
   },
 ]
 
@@ -73,18 +69,28 @@ const curl = `curl -X POST http://<host>:3000/text \\
         HTTP API
       </h1>
       <p class="text-[var(--ui-text-muted)] mt-1">
-        A small HTTP server for non-Voice-PE clients (Apple Shortcuts, curl, custom bridges). Changes apply on the next restart.
+        A small HTTP server for non-Voice-PE clients (Apple Shortcuts, curl, custom bridges).
+        <code>/health</code> is always on; each input endpoint is toggled separately.
+        Changes apply on the next restart.
       </p>
     </header>
 
     <div class="space-y-6">
       <UCard>
-        <UFormField
-          label="Enabled"
-          description="Start the HTTP server (/text, /audio, /assist, /health). Leave off if you only use Telegram or Voice. Listens on HTTP_SERVER_PORT (default 3000)."
-        >
-          <USwitch v-model="form.enabled" />
-        </UFormField>
+        <div class="space-y-5">
+          <UFormField
+            label="Text endpoint (/text)"
+            description="POST a form field text=… and get { response }."
+          >
+            <USwitch v-model="form.text" />
+          </UFormField>
+          <UFormField
+            label="Audio endpoint (/audio)"
+            description="POST raw audio bytes; transcribed via Whisper, returns { response, transcript }."
+          >
+            <USwitch v-model="form.audio" />
+          </UFormField>
+        </div>
       </UCard>
 
       <UCard>
@@ -95,18 +101,17 @@ const curl = `curl -X POST http://<host>:3000/text \\
         </template>
 
         <div class="space-y-5 text-sm">
-          <div>
-            <p class="text-[var(--ui-text-muted)]">
-              <span class="font-medium text-[var(--ui-text)]">Auth.</span>
-              Every request (except <code>/health</code>) needs
-              <code>Authorization: Bearer &lt;token&gt;</code>. Mint a token under
-              <NuxtLink
-                to="/users"
-                class="text-[var(--ui-primary)] underline underline-offset-2"
-              >Users</NuxtLink>
-              (HTTP device) — only its hash is stored; an unknown token gets 401.
-            </p>
-          </div>
+          <p class="text-[var(--ui-text-muted)]">
+            <span class="font-medium text-[var(--ui-text)]">Auth.</span>
+            Every request (except <code>/health</code>) needs
+            <code>Authorization: Bearer &lt;token&gt;</code>. Mint a token under
+            <NuxtLink
+              to="/users"
+              class="text-[var(--ui-primary)] underline underline-offset-2"
+            >Users</NuxtLink>
+            (HTTP device) — only its hash is stored; an unknown token gets 401.
+            A disabled endpoint returns 404.
+          </p>
 
           <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
@@ -153,16 +158,12 @@ const curl = `curl -X POST http://<host>:3000/text \\
           </ul>
 
           <p class="text-[var(--ui-text-muted)]">
-            <span class="font-medium text-[var(--ui-text)]">Home Assistant.</span>
-            To use <code>/assist</code> as an Assist conversation agent, install
-            <a
-              href="https://github.com/maxmaxme/ha-http-conversation-agent"
-              target="_blank"
-              rel="noreferrer"
+            Looking for the Home Assistant Assist endpoint? It's on the
+            <NuxtLink
+              to="/assist"
               class="text-[var(--ui-primary)] underline underline-offset-2"
-            >ha-http-conversation-agent</a>
-            via HACS and point it at this server — it forwards Assist queries to
-            <code>/assist</code> and reads <code>continue_conversation</code> back.
+            >Assist</NuxtLink>
+            page.
           </p>
 
           <div>

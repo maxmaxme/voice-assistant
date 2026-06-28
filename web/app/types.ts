@@ -5,6 +5,12 @@ export interface RealtimeResponse {
 }
 
 export interface HttpResponse {
+  text: boolean
+  audio: boolean
+  assist: boolean
+}
+
+export interface TelegramResponse {
   enabled: boolean
 }
 

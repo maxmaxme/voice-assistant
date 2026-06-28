@@ -63,8 +63,9 @@ function makeDeps(): CommonDeps {
       realtime: { model: 'rt', voice: 'marin', reasoningEffort: 'low' },
     },
     telegram: { botToken: 'X' },
+    telegramEnabled: true,
     realtime: { enabled: false, outputPacingMs: 20, idleResetMs: 90_000 },
-    http: { enabled: true },
+    http: { text: true, audio: true, assist: true },
     buildAgent: vi.fn(
       () =>
         ({ opts: { session: { reset: vi.fn() } } }) as unknown as ReturnType<
@@ -102,6 +103,18 @@ describe('dispatch', () => {
     expect(deps.buildAgent).toHaveBeenCalledWith('http');
   });
 
+  it('always runs the http server (for /health) even with all endpoints off', async () => {
+    const deps = {
+      ...makeDeps(),
+      telegram: null,
+      http: { text: false, audio: false, assist: false },
+    };
+    const runners = makeRunners();
+    await dispatch(deps, runners as never);
+    expect(runners.http).toHaveBeenCalledTimes(1);
+    expect(runners.telegram).not.toHaveBeenCalled();
+  });
+
   it('skips the telegram runner when the Telegram integration is not configured', async () => {
     const deps = { ...makeDeps(), telegram: null };
     const runners = makeRunners();
@@ -110,12 +123,12 @@ describe('dispatch', () => {
     expect(runners.telegram).not.toHaveBeenCalled();
   });
 
-  it('skips the http runner when http is disabled', async () => {
-    const deps = { ...makeDeps(), http: { enabled: false } };
+  it('skips the telegram runner when telegram is not enabled', async () => {
+    const deps = { ...makeDeps(), telegramEnabled: false };
     const runners = makeRunners();
     await dispatch(deps, runners as never);
-    expect(runners.telegram).toHaveBeenCalledTimes(1);
-    expect(runners.http).not.toHaveBeenCalled();
+    expect(runners.http).toHaveBeenCalledTimes(1);
+    expect(runners.telegram).not.toHaveBeenCalled();
   });
 
   it('starts and stops the scheduler around runners', async () => {

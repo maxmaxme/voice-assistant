@@ -49,10 +49,11 @@ export function authorizeSpeaker(
 export async function dispatch(deps: CommonDeps, runners: RunnerSet): Promise<void> {
   const tasks: Promise<void>[] = [];
 
-  // Each channel self-gates: Telegram on its integration, HTTP on its enable
-  // toggle (both DB-backed, web panel). There is no AGENT_MODE any more.
+  // Each channel self-gates from DB-backed web-panel config. Telegram needs a
+  // token (integration) AND its enable toggle; HTTP always serves /health but
+  // mounts /text /audio /assist per-flag; there is no AGENT_MODE.
   const telegram = deps.telegram;
-  if (telegram) {
+  if (telegram && deps.telegramEnabled) {
     const agent = deps.buildAgent('telegram');
     // Per-chat self-persisting Sessions. No client-side TTL — when OpenAI
     // eventually evicts a stale `previous_response_id` (currently after
@@ -90,7 +91,9 @@ export async function dispatch(deps: CommonDeps, runners: RunnerSet): Promise<vo
     );
   }
 
-  if (deps.http.enabled) {
+  {
+    // The HTTP server always runs so /health is always reachable (container
+    // healthcheck). /text /audio /assist are mounted per-flag inside the runner.
     const agent = deps.buildAgent('http');
     const assistAgent = deps.buildAgent('assist');
     // Per-conversation Sessions for `/assist`. 60s idle is short enough
@@ -129,17 +132,11 @@ export async function dispatch(deps: CommonDeps, runners: RunnerSet): Promise<vo
         assistSessionFor,
         stt: new OpenAiStt({ client: deps.llm }),
         port,
+        endpoints: deps.http,
         identities: deps.memory.identities,
         profileStore: deps.memory.profileStore,
       }),
     );
-  }
-
-  if (tasks.length === 0) {
-    // Not fatal: the scheduler (below) and the realtime server (started in
-    // main(), gated separately) may still be the active surface. Promise.race
-    // over no tasks never settles, so the process stays alive for them.
-    log.warn('no Telegram or HTTP channel enabled — only the scheduler / realtime will run');
   }
 
   const scheduler = new Scheduler({
@@ -162,14 +159,15 @@ export async function main(): Promise<void> {
   const deps = await initializeCommonDependencies();
 
   const channels = {
-    telegram: deps.telegram !== null,
-    http: deps.http.enabled,
+    telegram: deps.telegram !== null && deps.telegramEnabled,
+    http: deps.http,
     realtime: deps.realtime.enabled,
   };
+  const httpStr = `text=${deps.http.text} audio=${deps.http.audio} assist=${deps.http.assist}`;
   const webSearchOn = deps.openai.webSearch;
   log.info(
     { channels, tz: getServerTimezone(), webSearch: webSearchOn },
-    `channels: telegram=${channels.telegram} http=${channels.http} realtime=${channels.realtime} TZ=${getServerTimezone()}${webSearchOn ? ' WEB_SEARCH=on' : ''}`,
+    `channels: telegram=${channels.telegram} http(${httpStr}) realtime=${channels.realtime} TZ=${getServerTimezone()}${webSearchOn ? ' WEB_SEARCH=on' : ''}`,
   );
 
   let realtimeServer: RealtimeServer | null = null;

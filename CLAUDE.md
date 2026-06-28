@@ -60,9 +60,16 @@ npm run users -- mint-http --user <id>                         # mint an HTTP to
 ```
 
 There is no `AGENT_MODE`. Each channel self-gates from DB-backed web-panel
-config: **Telegram** runs when its integration is installed+enabled, **HTTP**
-when the HTTP API page toggle is on (`http.enabled`), **Realtime** when the HA
-Voice page toggle is on (`realtime.enabled`). All apply on the next start.
+config, all applied on the next start:
+
+- **Telegram** runs when a bot token is configured (integration) **and** the
+  Telegram page toggle is on (`telegram.enabled`). Installing the integration
+  alone does nothing.
+- **HTTP** server always runs (so `/health` is always up — container
+  healthcheck); each input endpoint mounts only when its toggle is on
+  (`http.text` / `http.audio` on the HTTP API page, `http.assist` on the Assist
+  page). A disabled endpoint 404s.
+- **Realtime** runs when the HA Voice page toggle is on (`realtime.enabled`).
 
 CI builds the root `Dockerfile` and publishes
 `ghcr.io/maxmaxme/voice-assistant:latest` on every push to `main`.
@@ -82,7 +89,7 @@ no `dist/`, no `tsx`. Two consequences:
 
 **Adapter pattern for every external dependency.** Each external concern lives behind an interface in `*/types.ts`, with a concrete implementation in a sibling file. Replacing OpenAI with a local Whisper is one new adapter — never a code-wide refactor. Honour this when adding anything that talks to the outside world.
 
-**One process, self-gating channels.** `src/cli/unified.ts` is the single entry. `dispatch()` starts the `telegram` runner iff the Telegram integration is enabled and the `http` runner iff `http.enabled`; the realtime server is started in `main()` iff `realtime.enabled`. No `AGENT_MODE` — each channel is independently toggled from the web panel. Adding a new channel = a runner under `src/cli/runners/` + its gate in `dispatch()`.
+**One process, self-gating channels.** `src/cli/unified.ts` is the single entry. `dispatch()` starts the `telegram` runner iff a token is configured AND `telegram.enabled`, and always starts the `http` runner (which mounts `/text` `/audio` `/assist` per-flag and always serves `/health`); the realtime server is started in `main()` iff `realtime.enabled`. No `AGENT_MODE` — each channel is independently toggled from the web panel. Adding a new channel = a runner under `src/cli/runners/` + its gate in `dispatch()`.
 
 **Git hooks via husky.** `pre-commit` runs `lint-staged` (prettier + eslint --fix on staged files only). `pre-push` runs `npm run typecheck && npm test`. Hooks install on `npm install` via the `prepare` script. Don't bypass with `--no-verify` to "make it work" — fix the underlying issue.
 
@@ -95,7 +102,7 @@ Two channels, one process.
 | File                          | What                                                                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `src/cli/mcp-call.ts`         | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.                                                                                    |
-| `src/cli/unified.ts`          | **The entry point.** Starts each channel that is independently enabled (Telegram integration / `http.enabled` / `realtime.enabled`).                               |
+| `src/cli/unified.ts`          | **The entry point.** Starts each channel that is independently enabled (`telegram.enabled` + token / per-endpoint `http.*` / `realtime.enabled`).                  |
 | `src/cli/runners/telegram.ts` | Telegram bot loop: receiver → agent → sender.                                                                                                                      |
 | `src/cli/runners/http.ts`     | HTTP server using h3 (default port 3000, customizable via `HTTP_SERVER_PORT`). `POST /audio`, `POST /text`, `POST /assist`, `GET /health`. See HTTP section below. |
 
@@ -289,8 +296,9 @@ never hot-reloaded:
 
 - **`settings` table** (`src/settings/sqliteSettings.ts`, `SettingsStore`) — a
   key/value store of **DB-only feature config**, read by dedicated resolvers, NOT
-  via env: `http.enabled` → `resolveHttpConfig`, `realtime.*` →
-  `resolveRealtimeConfig`. There is **no env-overlay** — nothing is web-edited
+  via env: `http.{text,audio,assist}` → `resolveHttpConfig`, `telegram.enabled` →
+  `resolveTelegramEnabled`, `realtime.*` → `resolveRealtimeConfig`. There is
+  **no env-overlay** — nothing is web-edited
   _into_ `process.env`. Process-level config (`MEMORY_DB_PATH`, **`TZ`**,
   `HTTP_SERVER_PORT`, `REALTIME_PORT`) is plain env via `loadConfig()`; `TZ` is
   **required** (no UTC fallback). **No secrets in env**: OpenAI's api key, HA's
@@ -322,12 +330,14 @@ Server timezone: `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). The `[unifi
 ### Telegram (`src/telegram/`)
 
 **Telegram is a web-panel integration, not env** (`resolveTelegramConfig`,
-`src/integrations/telegram.ts`). It's **optional**: `cli/shared.ts` reads the
-`telegram` row from the `integrations` table for the bot token. When it's
-absent/disabled the **telegram runner doesn't start**, and `senderFor`
-returns a sender that **throws on send** so a stray goal/`send_to_telegram`
-fails loudly instead of dropping silently. `TELEGRAM_BOT_TOKEN` /
-`TELEGRAM_CHAT_ID` env vars are no longer read.
+`src/integrations/telegram.ts`), and runs only when **both** a token is
+configured **and** the channel's own toggle is on (`telegram.enabled`, DB-only
+setting, `resolveTelegramEnabled`, web panel's Telegram page; default off) —
+installing/enabling the integration alone doesn't start the bot. When either is
+missing the **telegram runner doesn't start**, and `senderFor` returns a sender
+that **throws on send** so a stray goal/`send_to_telegram` fails loudly instead
+of dropping silently. `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` env vars are no
+longer read.
 
 Bidirectional. **Outbound:** `TelegramSender` interface, `BotTelegramSender`
 posts to `https://api.telegram.org/bot<token>/sendMessage` for one chat id.
@@ -371,8 +381,10 @@ unknown chats are dropped. Add chats via the `users` CLI (see Memory) —
 
 ### HTTP (`src/cli/runners/http.ts`)
 
-**Gated by `http.enabled`** (DB-only setting, `resolveHttpConfig`, web panel's
-HTTP API page; default off). The runner only starts when it's on; the listen
+**The server always starts** (so `/health` is always reachable — the container
+healthcheck). Each input endpoint is mounted only when its DB-only flag is on
+(`resolveHttpConfig`, default off): `http.text` / `http.audio` (HTTP API page),
+`http.assist` (Assist page). A disabled endpoint isn't registered → 404. Listen
 port is `config.http.port` (`HTTP_SERVER_PORT`, default 3000).
 
 h3-based server. Three POST endpoints share auth + rate-limits but split

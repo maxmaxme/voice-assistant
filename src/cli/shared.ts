@@ -10,6 +10,7 @@ import { resolveOpenAiConfig, type OpenAiConfig } from '../integrations/openai.t
 import { resolveTelegramConfig, type TelegramConfig } from '../integrations/telegram.ts';
 import { resolveRealtimeConfig, type RealtimeConfig } from '../settings/realtimeConfig.ts';
 import { resolveHttpConfig, type HttpConfig } from '../settings/httpConfig.ts';
+import { resolveTelegramEnabled } from '../settings/telegramRuntime.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
@@ -112,9 +113,14 @@ export interface CommonDeps {
   /** Resolved OpenAI integration config (api key, models, realtime model/voice/
    *  effort). The realtime *enable* switch is `realtime.enabled`, not here. */
   openai: OpenAiConfig;
-  /** Resolved Telegram integration config, or null when not installed/enabled.
-   *  Null → the telegram runner doesn't start and `senderFor` throws on send. */
+  /** Resolved Telegram integration config (bot token), or null when not
+   *  installed/enabled. Credentials only — running the bot also needs
+   *  `telegramEnabled`. */
   telegram: TelegramConfig | null;
+  /** The Telegram channel's own enable toggle (web panel's Telegram page),
+   *  separate from the integration: the bot runs only when this is on AND a
+   *  token is configured. */
+  telegramEnabled: boolean;
   /** Realtime (Voice PE) config from the DB (enable + pacing + idle). The
    *  realtime server starts only when `realtime.enabled` (and a device token). */
   realtime: RealtimeConfig;
@@ -140,6 +146,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   // from env. Device token + ports come from `config`.
   const realtime = resolveRealtimeConfig(memory.settings);
   const http = resolveHttpConfig(memory.settings);
+  const telegramEnabled = resolveTelegramEnabled(memory.settings);
 
   // OpenAI comes from the web-configured integration, not env. It's mandatory —
   // fail fast with a clear message if it's not installed/enabled.
@@ -151,17 +158,18 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   }
   const llm = new OpenAI({ apiKey: openai.apiKey, baseURL: openai.baseUrl });
 
-  // Telegram comes from the web-configured integration, not env. When it's not
-  // configured, senderFor still exists (the goal runner and send_to_telegram
-  // call it unconditionally) but throws on send so the failure is visible
-  // instead of silently dropped.
+  // Telegram comes from the web-configured integration (token), not env, and
+  // the channel runs only when its own toggle is on. senderFor still exists
+  // unconditionally (the goal runner and send_to_telegram call it) but throws
+  // when Telegram isn't active, so the failure is visible instead of dropped.
   const telegram = resolveTelegramConfig(memory.integrations);
+  const telegramActive = telegram !== null && telegramEnabled;
   const senderFor = (chatId: string): TelegramSender =>
-    telegram
+    telegram && telegramActive
       ? new BotTelegramSender({ botToken: telegram.botToken, chatId })
       : {
           send: async (): Promise<void> => {
-            throw new Error('Telegram integration is not configured.');
+            throw new Error('Telegram is not enabled.');
           },
         };
 
@@ -221,8 +229,8 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
 
   let activeReceiver: TelegramReceiver | null = null;
   const telegramReceiver = (): TelegramReceiver => {
-    if (!telegram) {
-      throw new Error('Telegram integration is not configured.');
+    if (!telegram || !telegramActive) {
+      throw new Error('Telegram is not enabled.');
     }
     activeReceiver = receiverFromToken(telegram.botToken);
     return activeReceiver;
@@ -254,6 +262,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     haEnabled,
     openai,
     telegram,
+    telegramEnabled,
     realtime,
     http,
   };

@@ -10,6 +10,7 @@ import { hashToken } from '../../memory/identities.ts';
 import { makeScopedProfile, type Scope } from '../../memory/scope.ts';
 import type { IdentitiesAdapter } from '../../memory/types.ts';
 import type { SqliteProfileMemory } from '../../memory/sqliteProfileMemory.ts';
+import type { HttpConfig } from '../../settings/httpConfig.ts';
 import { createLogger } from '../../utils/logger.ts';
 import { loggerPlugin } from '../../utils/h3LoggerPlugin.ts';
 import { createRateLimiter, createSemaphore } from '../../utils/rateLimiter.ts';
@@ -32,6 +33,9 @@ export interface HttpRunnerDeps {
   assistSessionFor: (conversationId: string) => Session;
   stt: AudioFileStt;
   port: number;
+  /** Which endpoints to mount. `/health` is always mounted regardless. A
+   *  disabled endpoint is simply not registered → 404. */
+  endpoints: HttpConfig;
   identities: IdentitiesAdapter;
   profileStore: SqliteProfileMemory;
 }
@@ -93,7 +97,8 @@ function tokenKey(authHeader: string | null | undefined): string {
 }
 
 export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
-  const { agent, assistAgent, assistSessionFor, stt, port, identities, profileStore } = deps;
+  const { agent, assistAgent, assistSessionFor, stt, port, endpoints, identities, profileStore } =
+    deps;
 
   const authFailLimiter = createRateLimiter({
     windowMs: AUTH_FAIL_WINDOW_MS,
@@ -146,9 +151,10 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
     return null;
   };
 
-  const app = new H3()
-    .register(loggerPlugin({ log }))
-    .post('/audio', async (event: H3Event) => {
+  const app = new H3().register(loggerPlugin({ log }));
+
+  if (endpoints.audio) {
+    app.post('/audio', async (event: H3Event) => {
       const denied = checkAuthAndRate(event);
       if (denied) {
         return denied;
@@ -217,8 +223,11 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       } finally {
         release();
       }
-    })
-    .post('/text', async (event: H3Event) => {
+    });
+  }
+
+  if (endpoints.text) {
+    app.post('/text', async (event: H3Event) => {
       // Apple Shortcut "Get contents of URL" with Request Body=Form sends
       // application/x-www-form-urlencoded with the keys as fields. We
       // extract `text` from that. No other body shape is accepted —
@@ -264,8 +273,11 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         event.res.status = 500;
         return { error: message };
       }
-    })
-    .post('/assist', async (event: H3Event) => {
+    });
+  }
+
+  if (endpoints.assist) {
+    app.post('/assist', async (event: H3Event) => {
       // HA-style contract. Used by the http_conversation_agent HA
       // integration (sibling ha-http-conversation-agent repo) → Voice PE,
       // and available to any other client that wants per-conversation
@@ -332,15 +344,21 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
         event.res.status = 500;
         return { error: message };
       }
-    })
-    .get('/health', () => {
-      return { status: 'ok' };
     });
+  }
 
-  log.info({ port }, `listening on http://localhost:${port}`);
-  log.info(
-    'POST /audio (audio bytes), POST /text (plain text), POST /assist (HA bridge / Voice PE), GET /health',
-  );
+  app.get('/health', () => {
+    return { status: 'ok' };
+  });
+
+  const mounted = [
+    endpoints.text && 'POST /text',
+    endpoints.audio && 'POST /audio',
+    endpoints.assist && 'POST /assist',
+    'GET /health',
+  ].filter(Boolean);
+  log.info({ port, endpoints }, `listening on http://localhost:${port}`);
+  log.info(`mounted: ${mounted.join(', ')}`);
 
   // silent: skip srvx's "➜ Listening on …" / "Server closed successfully."
   // chatter; we already log startup ourselves.
