@@ -2,18 +2,8 @@ import type { IdentitiesAdapter, ScheduledActionsAdapter } from '../memory/types
 import { nextFireAt as computeNextFireAt, validateSchedule } from '../scheduling/cron.ts';
 import type { Schedule } from '../scheduling/types.ts';
 import { parseLocalWallClock, toLocalIso } from '../utils/time.ts';
-import { loadPrompt } from './prompts/load.ts';
+import { resolvePrompt } from './prompts/registry.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
-
-const SCHEDULE_ACTION_DESCRIPTION = loadPrompt(
-  './prompts/tools/schedule-action.md',
-  import.meta.url,
-);
-const LIST_SCHEDULED_DESCRIPTION = loadPrompt('./prompts/tools/list-scheduled.md', import.meta.url);
-const CANCEL_SCHEDULED_DESCRIPTION = loadPrompt(
-  './prompts/tools/cancel-scheduled.md',
-  import.meta.url,
-);
 
 export const SCHEDULED_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set([
   'schedule_action',
@@ -38,7 +28,7 @@ export function buildScheduledActionTools(): OpenAiFunctionTool[] {
     {
       type: 'function',
       name: 'schedule_action',
-      description: SCHEDULE_ACTION_DESCRIPTION,
+      description: resolvePrompt('tools/schedule-action'),
       parameters: {
         type: 'object',
         properties: {
@@ -73,7 +63,7 @@ export function buildScheduledActionTools(): OpenAiFunctionTool[] {
     {
       type: 'function',
       name: 'list_scheduled',
-      description: LIST_SCHEDULED_DESCRIPTION,
+      description: resolvePrompt('tools/list-scheduled'),
       parameters: {
         type: 'object',
         properties: {},
@@ -84,7 +74,7 @@ export function buildScheduledActionTools(): OpenAiFunctionTool[] {
     {
       type: 'function',
       name: 'cancel_scheduled',
-      description: CANCEL_SCHEDULED_DESCRIPTION,
+      description: resolvePrompt('tools/cancel-scheduled'),
       parameters: {
         type: 'object',
         properties: { id: { type: 'integer' } },

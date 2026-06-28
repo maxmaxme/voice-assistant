@@ -54,7 +54,6 @@ function makeDeps(): CommonDeps {
     memory: makeMemoryStore(),
     senderFor: () => ({ send: async () => {} }) as TelegramSender,
     goalRunner: { fire: vi.fn(async () => {}) } satisfies GoalRunner,
-    basePrompt: 'test base prompt',
     buildAgent: vi.fn(
       () =>
         ({ opts: { session: { reset: vi.fn() } } }) as unknown as ReturnType<

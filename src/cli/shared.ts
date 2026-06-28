@@ -7,8 +7,7 @@ import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
 import type { MemoryStore } from '../memory/types.ts';
-import { loadPrompt } from '../agent/prompts/load.ts';
-import { BASE_SYSTEM_PROMPT } from '../agent/systemPrompt.ts';
+import { initPromptRegistry, resolvePrompt } from '../agent/prompts/registry.ts';
 import { buildEnvOverlay } from '../settings/settable.ts';
 import { receiverFromConfig } from '../telegram/fromConfig.ts';
 import { BotTelegramSender } from '../telegram/telegramSender.ts';
@@ -63,23 +62,17 @@ export type AgentMode = (typeof AGENT_MODES)[number];
  */
 export type PromptChannel = 'telegram' | 'http' | 'assist' | 'realtime';
 
-const VOICE_ADDENDUM = loadPrompt('./prompts/voice-addendum.md', import.meta.url);
-const REALTIME_ADDENDUM = loadPrompt('./prompts/realtime-addendum.md', import.meta.url);
-
-export function buildSystemPromptFor(
-  channel: PromptChannel,
-  basePrompt: string = BASE_SYSTEM_PROMPT,
-): string {
-  const parts: string[] = [basePrompt];
+export function buildSystemPromptFor(channel: PromptChannel): string {
+  const parts: string[] = [resolvePrompt('base-system')];
   if (channel === 'assist') {
-    parts.push(VOICE_ADDENDUM);
+    parts.push(resolvePrompt('voice-addendum'));
     return parts.join('\n\n');
   }
   if (channel === 'realtime') {
     // Realtime emits audio directly — the text-channel voice rules in
     // `voice-addendum.md` would just confuse the model. Use a lean,
     // audio-only addendum and stop here.
-    parts.push(REALTIME_ADDENDUM);
+    parts.push(resolvePrompt('realtime-addendum'));
     return parts.join('\n\n');
   }
   return parts.join('\n\n');
@@ -117,9 +110,6 @@ export interface CommonDeps {
    * receiver so dispose() can stop it on shutdown. */
   telegramReceiver(): TelegramReceiver;
   goalRunner: GoalRunner;
-  /** Resolved base system prompt (DB-backed override or bundled default).
-   *  Realtime builds its session prompt from this. */
-  basePrompt: string;
 }
 
 /** Initialise everything shared across runners. Call once per process. */
@@ -138,10 +128,9 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   Object.assign(process.env, overlay);
   const config = loadConfig({ ...process.env, ...overlay });
 
-  // The bundled markdown is the source of truth on a fresh DB; thereafter the
-  // (possibly web-edited) DB row wins.
-  memory.prompts.seedIfAbsent('base-system', BASE_SYSTEM_PROMPT);
-  const basePrompt = memory.prompts.get('base-system') ?? BASE_SYSTEM_PROMPT;
+  // Seed every bundled prompt into the DB (skipping ones already edited) and
+  // route all prompt reads through the DB for the rest of the process.
+  initPromptRegistry(memory.prompts);
 
   const llm = new OpenAI({ apiKey: config.openai.apiKey });
   const mcp = new HaMcpClient({ url: config.ha.url, token: config.ha.token });
@@ -157,7 +146,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     mcp,
     memory,
     session: new Session(),
-    systemPrompt: basePrompt,
+    systemPrompt: resolvePrompt('base-system'),
     model: config.openai.model,
     reasoningEffort: config.openai.reasoningEffort,
     llmClient: llm,
@@ -174,7 +163,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       mcp,
       memory,
       session: new Session(),
-      systemPrompt: buildSystemPromptFor(channel, basePrompt),
+      systemPrompt: buildSystemPromptFor(channel),
       model: config.openai.model,
       reasoningEffort: config.openai.reasoningEffort,
       llmClient: llm,
@@ -217,6 +206,5 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     dispose,
     telegramReceiver,
     goalRunner,
-    basePrompt,
   };
 }

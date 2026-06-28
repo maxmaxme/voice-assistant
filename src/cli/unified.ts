@@ -209,10 +209,7 @@ export async function main(): Promise<void> {
           reasoningEffort: deps.config.realtime.reasoningEffort,
           idleResetMs: deps.config.realtime.idleResetMs,
           outputPacingMs: deps.config.realtime.outputPacingMs,
-          instructions: appendUserContext(
-            buildSystemPromptFor('realtime', deps.basePrompt),
-            profile.recall(),
-          ),
+          instructions: appendUserContext(buildSystemPromptFor('realtime'), profile.recall()),
           tools: [
             ...mcpToolsToRealtime(applyHaToolSuffixes(await deps.mcp.listTools())),
             ...localToolsToRealtime(localToolset.tools),

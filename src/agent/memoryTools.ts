@@ -1,19 +1,15 @@
 import type { ScopedProfile, WriteScope } from '../memory/scope.ts';
-import { loadPrompt } from './prompts/load.ts';
+import { resolvePrompt } from './prompts/registry.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
 
 export const MEMORY_TOOL_NAMES = new Set(['remember', 'recall', 'forget']);
-
-const REMEMBER_DESCRIPTION = loadPrompt('./prompts/tools/remember.md', import.meta.url);
-const RECALL_DESCRIPTION = loadPrompt('./prompts/tools/recall.md', import.meta.url);
-const FORGET_DESCRIPTION = loadPrompt('./prompts/tools/forget.md', import.meta.url);
 
 export function buildMemoryTools(): OpenAiFunctionTool[] {
   return [
     {
       type: 'function',
       name: 'remember',
-      description: REMEMBER_DESCRIPTION,
+      description: resolvePrompt('tools/remember'),
       parameters: {
         type: 'object',
         properties: {
@@ -44,7 +40,7 @@ export function buildMemoryTools(): OpenAiFunctionTool[] {
     {
       type: 'function',
       name: 'recall',
-      description: RECALL_DESCRIPTION,
+      description: resolvePrompt('tools/recall'),
       parameters: {
         type: 'object',
         properties: {
@@ -60,7 +56,7 @@ export function buildMemoryTools(): OpenAiFunctionTool[] {
     {
       type: 'function',
       name: 'forget',
-      description: FORGET_DESCRIPTION,
+      description: resolvePrompt('tools/forget'),
       parameters: {
         type: 'object',
         properties: { key: { type: 'string' } },

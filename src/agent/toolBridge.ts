@@ -1,5 +1,5 @@
 import type { McpTool } from '../mcp/types.ts';
-import { loadPrompt } from './prompts/load.ts';
+import { resolvePrompt } from './prompts/registry.ts';
 
 /**
  * Internally-tagged function tool shape for the OpenAI Responses API.
@@ -29,21 +29,20 @@ export interface OpenAiFunctionTool {
  * applies across many tools (recovery procedure, composite-intent
  * self-check), put it in BASE_SYSTEM_PROMPT.
  */
-const HA_SUFFIX_TOOLS = [
+const HA_SUFFIX_TOOLS: ReadonlySet<string> = new Set([
   'HassTurnOn',
   'HassTurnOff',
   'HassClimateSetTemperature',
   'HassListAddItem',
   'HassListRemoveItem',
   'GetLiveContext',
-] as const;
+]);
 
-export const HA_TOOL_DESCRIPTION_SUFFIX: Readonly<Record<string, string>> = Object.fromEntries(
-  HA_SUFFIX_TOOLS.map((name) => [
-    name,
-    loadPrompt(`./prompts/ha-suffix/${name}.md`, import.meta.url),
-  ]),
-);
+/** The (possibly web-edited) suffix for an HA tool, or undefined when the tool
+ *  has none. Resolved at call time so DB edits take effect. */
+function haSuffixFor(toolName: string): string | undefined {
+  return HA_SUFFIX_TOOLS.has(toolName) ? resolvePrompt(`ha-suffix/${toolName}`) : undefined;
+}
 
 /** Merge per-tool prompt suffixes into the MCP descriptions before either the
  * Responses-API or Realtime tool adapter sees them. Both code paths reach for
@@ -52,7 +51,7 @@ export function applyHaToolSuffixes<T extends { name: string; description?: stri
   tools: T[],
 ): T[] {
   return tools.map((t) => {
-    const suffix = HA_TOOL_DESCRIPTION_SUFFIX[t.name];
+    const suffix = haSuffixFor(t.name);
     if (!suffix) {
       return t;
     }
@@ -64,7 +63,7 @@ export function applyHaToolSuffixes<T extends { name: string; description?: stri
 export function mcpToolsToOpenAi(tools: McpTool[]): OpenAiFunctionTool[] {
   return tools.map((t) => {
     const base = t.description ?? '';
-    const suffix = HA_TOOL_DESCRIPTION_SUFFIX[t.name];
+    const suffix = haSuffixFor(t.name);
     return {
       type: 'function',
       name: t.name,

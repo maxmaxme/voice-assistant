@@ -152,13 +152,24 @@ shows them as a draft superseded by the final message).
 
 **Agent prompts are written in English.** Every prompt — system prompts, tool descriptions, and any prompt text injected at runtime — must be in English, even though users talk to the agent in any language (the prompts instruct the model to reply in the user's language). Keep examples in prompts English too; don't paste Russian sample phrases. This keeps prompts consistent and avoids biasing the model toward one language.
 
-**Prompt text lives in markdown files**, not in TS string literals. `src/agent/systemPrompt.ts` and friends just `fs.readFileSync` a sibling `.md` at module load (helper: `src/agent/prompts/load.ts::loadPrompt`). Layout:
+**Prompt text lives in markdown files, but is served from the DB at runtime.**
+The bundled `.md` files are the source of truth on a fresh DB; the **prompt
+registry** (`src/agent/prompts/registry.ts`) discovers them by walking the
+prompt dirs and, at bootstrap, `seedIfAbsent`s each into the `prompts` table
+(`initPromptRegistry`). Every consumer then reads via
+`resolvePrompt(name)` — DB row if present, else the bundled file (the fallback
+keeps unit tests and pre-init module loads working). So **all** prompts are
+DB-backed and web-editable; edits apply on the **next process start**. Names are
+the registry/DB keys and the labels shown in the web UI. Layout:
 
-- `src/agent/prompts/base-system.md` — cross-cutting rules (identity, HA error-recovery procedure, composite-intent self-check, style). Loaded as `BASE_SYSTEM_PROMPT`.
-- `src/agent/prompts/tools/{remember,recall,forget,schedule-action,list-scheduled,cancel-scheduled}.md` — descriptions for local tools we control.
-- `src/agent/prompts/ha-suffix/<HaToolName>.md` — per-tool suffix appended to upstream HA MCP tool descriptions in `toolBridge.ts::mcpToolsToOpenAi`.
+- `src/agent/prompts/base-system.md` → name `base-system` — cross-cutting rules (identity, HA error-recovery procedure, composite-intent self-check, style). Used by `buildSystemPromptFor`.
+- `src/agent/prompts/tools/{remember,recall,forget,schedule-action,list-scheduled,cancel-scheduled}.md` → names `tools/<file>` — descriptions for local tools we control (`memoryTools.ts`, `scheduledActionTools.ts`).
+- `src/agent/prompts/ha-suffix/<HaToolName>.md` → names `ha-suffix/<HaToolName>` — per-tool suffix appended to upstream HA MCP tool descriptions in `toolBridge.ts`.
+- `src/cli/prompts/{voice,realtime}-addendum.md` → names `voice-addendum` / `realtime-addendum` — channel suffixes added by `buildSystemPromptFor`.
 
-When adding a new tool with tool-specific rules, put those rules in a sibling `.md` file rather than expanding `base-system.md`. Cross-tool rules (e.g. "after an HA match-failed error, do X") still go in `base-system.md`.
+When adding a new tool with tool-specific rules, drop a sibling `.md` (it's
+auto-discovered + seeded) and read it via `resolvePrompt`. Cross-tool rules
+(e.g. "after an HA match-failed error, do X") still go in `base-system.md`.
 
 ### Memory (`src/memory/`)
 
@@ -276,12 +287,11 @@ never hot-reloaded:
   (`OPENAI_API_KEY`, `HA_TOKEN`, `TELEGRAM_BOT_TOKEN`, `VA_DEVICE_TOKEN`) are
   never settable and stay in `.env`.
 - **`prompts` table** (`src/settings/sqlitePrompts.ts`, `SqlitePrompts`) —
-  editable prompt text. The bundled `prompts/*.md` are the source of truth on a
-  fresh DB; `seedIfAbsent('base-system', BASE_SYSTEM_PROMPT)` copies them in at
-  startup, then the row wins. `buildSystemPromptFor(channel, basePrompt?)` takes
-  the resolved base prompt; `cli/shared.ts` reads it from the store once and
-  threads it through `CommonDeps.basePrompt` (the realtime path in `unified.ts`
-  uses it too). Only `base-system` is wired through the store today.
+  editable prompt text for **all** prompts, fronted by the prompt registry
+  (`src/agent/prompts/registry.ts`). `initPromptRegistry` (called in
+  `cli/shared.ts` bootstrap) seeds every bundled `.md` via `seedIfAbsent` and
+  binds the store; consumers read through `resolvePrompt(name)`. See the
+  "Prompt text…" subsection above for the full layout.
 
 `SETTABLE_KEYS` in `src/settings/settable.ts` is the source of truth for which
 knobs are editable; `web/server/utils/settable.ts` is a copy kept in sync until
