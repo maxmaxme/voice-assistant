@@ -127,23 +127,26 @@ export function deleteUser(id: number): boolean {
   return tx(id) > 0
 }
 
-/** Attach a device. telegram → chatId stored as-is; voice → sha256(token);
- *  http → a fresh token is minted, hashed, and returned once (never stored). */
+/** Attach a device. telegram → chatId stored as-is; voice/http → sha256(token).
+ *  For http a blank value means "generate a random token", which is returned
+ *  once (never stored); a supplied token is hashed like voice. */
 export function addDevice(userId: number, channel: Channel, value: string): { token?: string } {
   if (!tableExists('identities')) {
     throw new DbNotReadyError('identities')
   }
+  const trimmed = value.trim()
   let identity: string
   let token: string | undefined
   if (channel === 'telegram') {
-    identity = value.trim()
+    identity = trimmed
   }
-  else if (channel === 'voice') {
-    identity = hashToken(value.trim())
-  }
-  else {
+  else if (channel === 'http' && !trimmed) {
     token = genToken()
     identity = hashToken(token)
+  }
+  else {
+    // voice, or http with a user-supplied token.
+    identity = hashToken(trimmed)
   }
   try {
     getDb()
@@ -157,9 +160,9 @@ export function addDevice(userId: number, channel: Channel, value: string): { to
   return { token }
 }
 
-/** Edit a device's value in place. telegram → new chatId; voice → re-hash the
- *  new token. http hashes can't be edited (use remintDevice). Returns false if
- *  the row is gone. */
+/** Edit a device's value in place. telegram → new chatId; voice/http → re-hash
+ *  the supplied token (or use remintDevice to generate a random http one).
+ *  Returns false if the row is gone. */
 export function updateDevice(id: number, value: string): boolean {
   if (!tableExists('identities')) {
     throw new DbNotReadyError('identities')
@@ -170,13 +173,7 @@ export function updateDevice(id: number, value: string): boolean {
   if (!row) {
     return false
   }
-  if (row.channel === 'http') {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'HTTP tokens cannot be edited in place — re-mint instead.',
-    })
-  }
-  const identity = row.channel === 'voice' ? hashToken(value.trim()) : value.trim()
+  const identity = row.channel === 'telegram' ? value.trim() : hashToken(value.trim())
   try {
     return getDb().prepare(`UPDATE identities SET identity = ? WHERE id = ?`).run(identity, id).changes > 0
   }

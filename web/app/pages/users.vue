@@ -109,15 +109,27 @@ function openEditDevice(d: Device) {
   deviceFormOpen.value = true
 }
 
-const deviceValueLabel = computed(() =>
-  deviceChannel.value === 'telegram' ? 'Chat ID' : 'Device token',
-)
-const deviceValueHelp = computed(() =>
-  deviceChannel.value === 'voice'
-    ? 'The speaker\'s VA_DEVICE_TOKEN. Stored hashed; enter it again to change.'
-    : deviceChannel.value === 'telegram'
-      ? 'The Telegram chat id this user messages from.'
-      : '',
+const deviceValueLabel = computed(() => {
+  if (deviceChannel.value === 'telegram') return 'Chat ID'
+  if (deviceChannel.value === 'http') return 'Token'
+  return 'Device token'
+})
+const deviceValueHelp = computed(() => {
+  if (deviceChannel.value === 'telegram') return 'The Telegram chat id this user messages from.'
+  if (deviceChannel.value === 'voice') return 'The speaker\'s VA_DEVICE_TOKEN. Stored hashed; enter it again to change.'
+  // http
+  return deviceMode.value === 'add'
+    ? 'Leave blank to generate a strong random token (shown once).'
+    : 'Enter a new token, or use Re-mint to generate a random one.'
+})
+const devicePlaceholder = computed(() => {
+  if (deviceChannel.value === 'http' && deviceMode.value === 'add') return '(auto-generated if blank)'
+  if (deviceChannel.value === 'voice' && deviceMode.value === 'edit') return 'Enter the new token'
+  return ''
+})
+// http on add may be blank (= generate); everything else needs a value.
+const canSubmitDevice = computed(() =>
+  (deviceChannel.value === 'http' && deviceMode.value === 'add') || deviceValue.value.trim().length > 0,
 )
 
 async function submitDevice() {
@@ -414,35 +426,16 @@ async function copyToken() {
             />
           </UFormField>
 
-          <UAlert
-            v-if="deviceChannel === 'http' && deviceMode === 'add'"
-            color="info"
-            variant="subtle"
-            icon="i-lucide-key-round"
-            title="A token will be generated and shown once after you add it."
-          />
-
-          <template v-else-if="deviceChannel === 'http'">
-            <UAlert
-              color="warning"
-              variant="subtle"
-              icon="i-lucide-info"
-              title="HTTP tokens can't be edited"
-              description="Re-mint to issue a new token (the old one stops working immediately)."
-            />
-          </template>
-
           <UFormField
-            v-else
             :label="deviceValueLabel"
             :description="deviceValueHelp"
-            required
+            :required="deviceChannel !== 'http'"
           >
             <UInput
               v-model="deviceValue"
               class="w-full"
-              :type="deviceChannel === 'voice' ? 'password' : 'text'"
-              :placeholder="deviceMode === 'edit' && deviceChannel === 'voice' ? 'Enter the new token' : ''"
+              :type="deviceChannel === 'telegram' ? 'text' : 'password'"
+              :placeholder="devicePlaceholder"
             />
           </UFormField>
         </div>
@@ -458,15 +451,17 @@ async function copyToken() {
           </UButton>
           <UButton
             v-if="deviceMode === 'edit' && deviceChannel === 'http'"
+            color="neutral"
+            variant="outline"
             icon="i-lucide-rotate-cw"
             :loading="savingDevice"
             @click="remint"
           >
-            Re-mint token
+            Re-mint
           </UButton>
           <UButton
-            v-else
             :loading="savingDevice"
+            :disabled="!canSubmitDevice"
             @click="submitDevice"
           >
             {{ deviceMode === 'add' ? 'Add' : 'Save' }}
