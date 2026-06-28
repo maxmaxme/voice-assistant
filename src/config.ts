@@ -2,14 +2,9 @@ import 'dotenv/config';
 import { z } from 'zod';
 
 const ConfigSchema = z.object({
-  // Home Assistant connection is no longer an env concern — it's configured via
-  // the web panel's integrations and read from the DB at startup (see
-  // src/integrations/homeAssistant.ts).
-  openai: z.object({
-    apiKey: z.string().min(1),
-    model: z.string().default('gpt-4o'),
-    reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high']).default('low'),
-  }),
+  // Home Assistant AND OpenAI connections are no longer env concerns — they're
+  // configured via the web panel's integrations and read from the DB at startup
+  // (see src/integrations/). Only process-level + universal realtime knobs here.
   memory: z.object({
     dbPath: z.string().default('data/assistant.db'),
   }),
@@ -17,12 +12,10 @@ const ConfigSchema = z.object({
     botToken: z.string().min(1),
   }),
   realtime: z.object({
-    enabled: z.boolean().default(false),
+    // enabled / model / voice / reasoningEffort come from the OpenAI integration.
+    // port + device token stay env (infra/secret); pacing + idle stay Settings.
     port: z.coerce.number().int().min(1).max(65535).default(3001),
     token: z.string().default(''),
-    model: z.string().default('gpt-realtime-2'),
-    voice: z.string().default('marin'),
-    reasoningEffort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).default('low'),
     idleResetMs: z.coerce
       .number()
       .int()
@@ -41,17 +34,10 @@ const ConfigSchema = z.object({
 export type Config = z.infer<typeof ConfigSchema>;
 
 const PATH_TO_ENV: Record<string, string> = {
-  'openai.apiKey': 'OPENAI_API_KEY',
-  'openai.model': 'OPENAI_MODEL',
-  'openai.reasoningEffort': 'OPENAI_REASONING_EFFORT',
   'memory.dbPath': 'MEMORY_DB_PATH',
   'telegram.botToken': 'TELEGRAM_BOT_TOKEN',
-  'realtime.enabled': 'REALTIME_ENABLED',
   'realtime.port': 'REALTIME_PORT',
   'realtime.token': 'VA_DEVICE_TOKEN',
-  'realtime.model': 'OPENAI_REALTIME_MODEL',
-  'realtime.voice': 'OPENAI_REALTIME_VOICE',
-  'realtime.reasoningEffort': 'OPENAI_REALTIME_REASONING_EFFORT',
   'realtime.idleResetMs': 'REALTIME_IDLE_RESET_MS',
   'realtime.outputPacingMs': 'REALTIME_OUTPUT_PACING_MS',
 };
@@ -61,11 +47,6 @@ const PATH_TO_ENV: Record<string, string> = {
  *  before calling — `{ ...process.env, ...overrides }`. */
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const raw = {
-    openai: {
-      apiKey: env.OPENAI_API_KEY,
-      model: env.OPENAI_MODEL,
-      reasoningEffort: env.OPENAI_REASONING_EFFORT,
-    },
     memory: {
       dbPath: env.MEMORY_DB_PATH,
     },
@@ -73,12 +54,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       botToken: env.TELEGRAM_BOT_TOKEN,
     },
     realtime: {
-      enabled: env.REALTIME_ENABLED === '1',
       port: env.REALTIME_PORT,
       token: env.VA_DEVICE_TOKEN,
-      model: env.OPENAI_REALTIME_MODEL,
-      voice: env.OPENAI_REALTIME_VOICE,
-      reasoningEffort: env.OPENAI_REALTIME_REASONING_EFFORT,
       idleResetMs: env.REALTIME_IDLE_RESET_MS,
       outputPacingMs: env.REALTIME_OUTPUT_PACING_MS,
     },
@@ -94,9 +71,5 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       .join(', ');
     throw new Error(`Invalid config: ${fields}: ${parsed.error.message}`);
   }
-  const data = parsed.data;
-  if (data.realtime.enabled && !data.realtime.token) {
-    throw new Error('REALTIME_ENABLED=1 but VA_DEVICE_TOKEN is empty');
-  }
-  return data;
+  return parsed.data;
 }

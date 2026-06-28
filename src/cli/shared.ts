@@ -6,6 +6,7 @@ import { HaMcpClient } from '../mcp/haMcpClient.ts';
 import { NullMcpClient } from '../mcp/nullMcpClient.ts';
 import type { McpClient } from '../mcp/types.ts';
 import { resolveHaConfig } from '../integrations/homeAssistant.ts';
+import { resolveOpenAiConfig, type OpenAiConfig } from '../integrations/openai.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
@@ -124,6 +125,9 @@ export interface CommonDeps {
   /** Whether the Home Assistant integration is configured — gates HA-specific
    *  system-prompt rules on the realtime path. */
   haEnabled: boolean;
+  /** Resolved OpenAI integration config (api key, models, realtime settings).
+   *  The realtime server starts only when `openai.realtime.enabled`. */
+  openai: OpenAiConfig;
 }
 
 /** Initialise everything shared across runners. Call once per process. */
@@ -135,9 +139,8 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   fs.mkdirSync(path.dirname(envConfig.memory.dbPath), { recursive: true });
   const memory = openMemoryStore(envConfig.memory.dbPath);
   // Layer the DB-backed overrides over the real env. We also mutate process.env
-  // itself so the handful of consumers that read it directly — TZ,
-  // AGENT_MODE, OPENAI_WEB_SEARCH — honour the web-edited values, not just the
-  // typed `config` object.
+  // itself so the consumers that read it directly — TZ, AGENT_MODE — honour the
+  // web-edited values, not just the typed `config` object.
   const overlay = buildEnvOverlay(memory.settings);
   Object.assign(process.env, overlay);
   const config = loadConfig({ ...process.env, ...overlay });
@@ -146,7 +149,15 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   // route all prompt reads through the DB for the rest of the process.
   initPromptRegistry(memory.prompts);
 
-  const llm = new OpenAI({ apiKey: config.openai.apiKey });
+  // OpenAI comes from the web-configured integration, not env. It's mandatory —
+  // fail fast with a clear message if it's not installed/enabled.
+  const openai = resolveOpenAiConfig(memory.integrations);
+  if (!openai) {
+    throw new Error(
+      'OpenAI integration is not configured. Install & enable it in the web panel (Integrations → OpenAI).',
+    );
+  }
+  const llm = new OpenAI({ apiKey: openai.apiKey, baseURL: openai.baseUrl });
   const senderFor = (chatId: string): TelegramSender =>
     new BotTelegramSender({ botToken: config.telegram.botToken, chatId });
 
@@ -172,8 +183,9 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     memory,
     session: new Session(),
     systemPrompt: basePromptParts(haEnabled).join('\n\n'),
-    model: config.openai.model,
-    reasoningEffort: config.openai.reasoningEffort,
+    model: openai.model,
+    reasoningEffort: openai.reasoningEffort,
+    webSearch: openai.webSearch,
     llmClient: llm,
     telegram: { senderFor },
   });
@@ -189,8 +201,9 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       memory,
       session: new Session(),
       systemPrompt: buildSystemPromptFor(channel, haEnabled),
-      model: config.openai.model,
-      reasoningEffort: config.openai.reasoningEffort,
+      model: openai.model,
+      reasoningEffort: openai.reasoningEffort,
+      webSearch: openai.webSearch,
       llmClient: llm,
       telegram: { senderFor },
       // `ask` is only worth exposing where a positive expectsFollowUp
@@ -232,5 +245,6 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     telegramReceiver,
     goalRunner,
     haEnabled,
+    openai,
   };
 }

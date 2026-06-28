@@ -24,18 +24,6 @@ describe('loadConfig', () => {
     process.env = { ...originalEnv };
   });
 
-  it('reads openai api key', () => {
-    setRequired();
-    const cfg = loadConfig();
-    expect(cfg.openai.apiKey).toBe('sk-xxx');
-  });
-
-  it('throws when OPENAI_API_KEY is missing', () => {
-    setRequired();
-    delete process.env.OPENAI_API_KEY;
-    expect(() => loadConfig()).toThrow(/openai/i);
-  });
-
   it('reads telegram bot token', () => {
     setRequired();
     const cfg = loadConfig();
@@ -48,39 +36,28 @@ describe('loadConfig', () => {
     expect(() => loadConfig()).toThrow(/TELEGRAM_BOT_TOKEN/);
   });
 
-  it('realtime defaults: disabled with default port/model/voice/reasoning', () => {
+  it('realtime defaults: port 3001, empty token', () => {
     setRequired();
     const cfg = loadConfig();
-    expect(cfg.realtime.enabled).toBe(false);
     expect(cfg.realtime.port).toBe(3001);
-    expect(cfg.realtime.model).toBe('gpt-realtime-2');
-    expect(cfg.realtime.voice).toBe('marin');
-    expect(cfg.realtime.reasoningEffort).toBe('low');
+    expect(cfg.realtime.token).toBe('');
   });
 
-  it('realtime: REALTIME_ENABLED=1 with VA_DEVICE_TOKEN reads enabled+token', () => {
+  it('reads realtime port + device token from env', () => {
     setRequired();
-    process.env.REALTIME_ENABLED = '1';
+    process.env.REALTIME_PORT = '3009';
     process.env.VA_DEVICE_TOKEN = 'abc';
     const cfg = loadConfig();
-    expect(cfg.realtime.enabled).toBe(true);
+    expect(cfg.realtime.port).toBe(3009);
     expect(cfg.realtime.token).toBe('abc');
-  });
-
-  it('realtime: REALTIME_ENABLED=1 without VA_DEVICE_TOKEN throws', () => {
-    setRequired();
-    process.env.REALTIME_ENABLED = '1';
-    delete process.env.VA_DEVICE_TOKEN;
-    expect(() => loadConfig()).toThrow(/VA_DEVICE_TOKEN/);
   });
 
   it('reads from a passed env map instead of process.env', () => {
     const env = {
-      OPENAI_API_KEY: 'sk',
       TELEGRAM_BOT_TOKEN: 'tg',
-      OPENAI_MODEL: 'gpt-override',
+      REALTIME_PORT: '3030',
     };
     const cfg = loadConfig(env);
-    expect(cfg.openai.model).toBe('gpt-override');
+    expect(cfg.realtime.port).toBe(3030);
   });
 });

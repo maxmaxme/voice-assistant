@@ -5,9 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 Personal voice assistant for smart-home control. Targets a Raspberry Pi 5
-runtime, dev happens on macOS. Cloud-heavy stack: OpenAI for STT
-(`gpt-4o-transcribe`) and the LLM (`gpt-5-mini`, via `OPENAI_MODEL`); Home Assistant via the
-official MCP Server integration for device control.
+runtime, dev happens on macOS. Cloud-heavy stack: OpenAI for STT and the LLM;
+Home Assistant via the official MCP Server integration for device control. Both
+OpenAI and HA are configured through the **web panel's Integrations** (DB-backed),
+not env — OpenAI is mandatory, HA is optional. See the MCP client section.
 
 Inputs into the agent core, and who actually drives each one today:
 
@@ -402,10 +403,10 @@ Whisper spend on a Pi.
 ### Realtime bridge (`src/realtime/`)
 
 The Voice PE direct-streaming path. A second server runs alongside the
-HTTP runner (gated by `REALTIME_ENABLED=1`) and exposes a WebSocket at
-`:3001/voice`. Each device opens one WS; the bridge brokers between
-the device, OpenAI's Realtime API, and the same `HaMcpClient` the agent
-core uses.
+HTTP runner — **gated by the OpenAI integration's `realtimeEnabled` toggle**
+(plus `VA_DEVICE_TOKEN` present) — and exposes a WebSocket at `:3001/voice`.
+Each device opens one WS; the bridge brokers between the device, OpenAI's
+Realtime API, and the MCP client the agent core uses.
 
 Key files:
 
@@ -453,16 +454,14 @@ Important behaviour:
   session (separate from the Realtime model's own internal STT) so
   user transcripts are available for logging / memory.
 
-Env vars:
+Config sources:
 
-| Var                                | Default               | Purpose                                                      |
-| ---------------------------------- | --------------------- | ------------------------------------------------------------ |
-| `REALTIME_ENABLED`                 | unset                 | Set to `1` to start the WS server alongside the HTTP runner. |
-| `VA_DEVICE_TOKEN`                  | required when enabled | Bearer token devices must present on the WS handshake.       |
-| `REALTIME_PORT`                    | `3001`                | WS listen port.                                              |
-| `OPENAI_REALTIME_MODEL`            | `gpt-realtime-2`      | Realtime model id.                                           |
-| `OPENAI_REALTIME_VOICE`            | `marin`               | Realtime TTS voice.                                          |
-| `OPENAI_REALTIME_REASONING_EFFORT` | `low`                 | Forwarded into the `session.update` reasoning config.        |
+| Setting                          | Source                                                                                                             |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| enabled / model / voice / effort | **OpenAI integration** (`realtimeEnabled`, `realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`)            |
+| `VA_DEVICE_TOKEN`                | env — bearer token devices present on the WS handshake; realtime is skipped (with a warning) if enabled but unset. |
+| `REALTIME_PORT`                  | env, default `3001`.                                                                                               |
+| idle reset / output pacing       | Settings (`REALTIME_IDLE_RESET_MS`, `REALTIME_OUTPUT_PACING_MS`) — universal realtime timings.                     |
 
 ### MCP client (`src/mcp/haMcpClient.ts`)
 
@@ -483,7 +482,13 @@ integration **owns** prompts (HA: `ha-addendum` + `ha-suffix/*`, declared in
 integration's prompts (rows are kept, just filtered). The `mcp:call` CLI reads
 the same row and errors if HA isn't installed/enabled.
 
-### `/update` Telegram command — host contract
+**OpenAI is also a web-panel integration, not env** (`resolveOpenAiConfig`,
+`src/integrations/openai.ts`). It's **mandatory** — `cli/shared.ts` throws at
+startup if the `openai` row is absent/disabled/keyless. It supplies the api key,
+optional base URL, chat model + reasoning effort, `web_search` toggle, and the
+realtime model/voice/effort + the `realtimeEnabled` toggle. `OPENAI_*` env vars
+are no longer read. Only `model`/`reasoningEffort`/`voice` etc. have code
+defaults applied when blank; the api key is required.
 
 The `/update` command writes the string `trigger\n` to `/tmp/va-update`
 (expected to be a host-mounted FIFO; falls back to a no-op if the path

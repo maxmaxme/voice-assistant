@@ -54,6 +54,9 @@ export interface OpenAiAgentOptions {
    * tool routing and most household requests, keeps reasoning-token spend
    * bounded. Bump to 'medium'/'high' for puzzle-heavy workloads. */
   reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+  /** Expose OpenAI's hosted `web_search` tool to the model. Costs tokens per
+   *  call. Comes from the OpenAI integration. Default: false. */
+  webSearch?: boolean;
 }
 
 export class OpenAiAgent implements Agent {
@@ -140,10 +143,8 @@ export class OpenAiAgent implements Agent {
     }));
     // Hosted tools (e.g. OpenAI's web_search) have a different shape than
     // function tools — no name/parameters, just `{ type: 'web_search' }`.
-    // Re-read the env var on every turn so toggling it on a running process
-    // takes effect immediately, no restart required.
     const tools: Tool[] = [...functionTools];
-    if (process.env.OPENAI_WEB_SEARCH === '1') {
+    if (this.opts.webSearch) {
       tools.push({ type: 'web_search' });
     }
 
@@ -430,10 +431,9 @@ export class OpenAiAgent implements Agent {
     const timeBlock =
       `\n\nCurrent time: ${nowUtcIso} UTC = ${nowLocal} (server timezone: ${tzName}).` +
       ` Unix ms now: ${nowMs}.`;
-    const webSearchBlock =
-      process.env.OPENAI_WEB_SEARCH === '1'
-        ? `\n\nThe web_search tool is available — use it for weather, news, and general-knowledge queries that no Home Assistant entity covers.`
-        : '';
+    const webSearchBlock = this.opts.webSearch
+      ? `\n\nThe web_search tool is available — use it for weather, news, and general-knowledge queries that no Home Assistant entity covers.`
+      : '';
     if (Object.keys(facts).length === 0) {
       return base + timeBlock + webSearchBlock;
     }

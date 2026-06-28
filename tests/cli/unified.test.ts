@@ -57,6 +57,13 @@ function makeDeps(): CommonDeps {
     senderFor: () => ({ send: async () => {} }) as TelegramSender,
     goalRunner: { fire: vi.fn(async () => {}) } satisfies GoalRunner,
     haEnabled: true,
+    openai: {
+      apiKey: 'sk-test',
+      model: 'gpt-test',
+      reasoningEffort: 'low',
+      webSearch: false,
+      realtime: { enabled: false, model: 'rt', voice: 'marin', reasoningEffort: 'low' },
+    },
     buildAgent: vi.fn(
       () =>
         ({ opts: { session: { reset: vi.fn() } } }) as unknown as ReturnType<

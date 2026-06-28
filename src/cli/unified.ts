@@ -162,18 +162,23 @@ export async function dispatch(
 
 export async function main(): Promise<void> {
   // Init first: it layers DB-backed settings over process.env, so AGENT_MODE /
-  // OPENAI_WEB_SEARCH / TZ below reflect web-edited values.
+  // TZ below reflect web-edited values. web_search comes from the resolved
+  // OpenAI integration.
   const deps = await initializeCommonDependencies();
 
   const mode = parseAgentMode(process.env.AGENT_MODE);
-  const webSearch = process.env.OPENAI_WEB_SEARCH === '1' ? ' WEB_SEARCH=on' : '';
+  const webSearchOn = deps.openai.webSearch;
   log.info(
-    { mode, tz: getServerTimezone(), webSearch: process.env.OPENAI_WEB_SEARCH === '1' },
-    `AGENT_MODE=${mode} TZ=${getServerTimezone()}${webSearch}`,
+    { mode, tz: getServerTimezone(), webSearch: webSearchOn },
+    `AGENT_MODE=${mode} TZ=${getServerTimezone()}${webSearchOn ? ' WEB_SEARCH=on' : ''}`,
   );
 
   let realtimeServer: RealtimeServer | null = null;
-  if (deps.config.realtime.enabled) {
+  // Realtime is opt-in via the OpenAI integration's `realtimeEnabled` toggle.
+  if (deps.openai.realtime.enabled && !deps.config.realtime.token) {
+    log.warn('realtime is enabled but VA_DEVICE_TOKEN is not set — skipping realtime server');
+  }
+  if (deps.openai.realtime.enabled && deps.config.realtime.token) {
     // Process-wide cache shared across all bridges (each WS connection
     // spawns a fresh RealtimeBridge but they all hit the same HA — there's
     // no per-user state to isolate). Re-created on process restart so a
@@ -203,10 +208,10 @@ export async function main(): Promise<void> {
           telegram: { senderFor: deps.senderFor },
         });
         return {
-          apiKey: deps.config.openai.apiKey,
-          model: deps.config.realtime.model,
-          voice: deps.config.realtime.voice,
-          reasoningEffort: deps.config.realtime.reasoningEffort,
+          apiKey: deps.openai.apiKey,
+          model: deps.openai.realtime.model,
+          voice: deps.openai.realtime.voice,
+          reasoningEffort: deps.openai.realtime.reasoningEffort,
           idleResetMs: deps.config.realtime.idleResetMs,
           outputPacingMs: deps.config.realtime.outputPacingMs,
           instructions: appendUserContext(
