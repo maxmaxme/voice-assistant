@@ -3,15 +3,15 @@
 // Nitro server bundles cleanly without cross-root TS imports. A future refactor
 // should extract a shared package. Secrets are deliberately never listed here.
 
-export type SettableKind = 'string' | 'number' | 'enum' | 'boolean';
+export type SettableKind = 'string' | 'number' | 'enum' | 'boolean'
 
 export interface SettableKey {
-  key: string;
-  label: string;
-  kind: SettableKind;
-  options?: string[];
-  group: 'openai' | 'realtime' | 'general';
-  help?: string;
+  key: string
+  label: string
+  kind: SettableKind
+  options?: string[]
+  group: 'openai' | 'realtime' | 'general'
+  help?: string
 }
 
 export const SETTABLE_KEYS: SettableKey[] = [
@@ -49,27 +49,27 @@ export const SETTABLE_KEYS: SettableKey[] = [
     group: 'general',
   },
   { key: 'TZ', label: 'Server timezone (IANA)', kind: 'string', group: 'general' },
-];
+]
 
 export const SETTABLE_BY_KEY: Map<string, SettableKey> = new Map(
-  SETTABLE_KEYS.map((k) => [k.key, k]),
-);
+  SETTABLE_KEYS.map(k => [k.key, k]),
+)
 
 /** Validate a proposed value for a settable key. Returns an error message, or
  *  null when the value is acceptable. */
 export function validateSetting(key: string, value: string): string | null {
-  const meta = SETTABLE_BY_KEY.get(key);
+  const meta = SETTABLE_BY_KEY.get(key)
   if (!meta) {
-    return `Unknown or non-settable key: ${key}`;
+    return `Unknown or non-settable key: ${key}`
   }
   if (meta.kind === 'enum' && meta.options && !meta.options.includes(value)) {
-    return `${key} must be one of: ${meta.options.join(', ')}`;
+    return `${key} must be one of: ${meta.options.join(', ')}`
   }
   if (meta.kind === 'number' && value !== '' && Number.isNaN(Number(value))) {
-    return `${key} must be a number`;
+    return `${key} must be a number`
   }
   if (meta.kind === 'boolean' && value !== '' && value !== '1') {
-    return `${key} must be '1' (on) or '' (off)`;
+    return `${key} must be '1' (on) or '' (off)`
   }
-  return null;
+  return null
 }

@@ -67,6 +67,47 @@ jobs:
 
       - run: npm run format -- --check
 
+  # Lint the web/ Nuxt project with its own ESLint (@nuxt/eslint). `npm ci`
+  # runs `nuxt prepare` (postinstall), which generates the .nuxt/eslint config
+  # that web/eslint.config.mjs extends.
+  lint-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run lint
+
+  # Type-check the web/ Nuxt project (nuxt typecheck → vue-tsc). `npm ci` runs
+  # `nuxt prepare`, generating the .nuxt types the check relies on.
+  typecheck-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
   build:
     needs: [lint, typecheck, test, format]
     if: github.event_name != 'pull_request'
@@ -110,7 +151,7 @@ jobs:
   # as ghcr.io/maxmaxme/voice-assistant-config-web. Built in its own job so it
   # runs in parallel with the main image (independent caches + failures).
   build-web:
-    needs: [lint, typecheck, test, format]
+    needs: [lint-web, typecheck-web]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     steps:
@@ -147,7 +188,7 @@ jobs:
   # main (push / manual), never on PRs. `if: always()` so a failed upstream
   # job still triggers it; we inspect needs.*.result to pick the message.
   notify:
-    needs: [lint, typecheck, test, format, build, build-web]
+    needs: [lint, typecheck, test, format, lint-web, typecheck-web, build, build-web]
     if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:

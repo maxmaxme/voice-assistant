@@ -1,19 +1,19 @@
 export interface SettableKey {
-  key: string;
-  label: string;
-  kind: 'string' | 'number' | 'enum' | 'boolean';
-  options?: string[];
-  group: 'openai' | 'realtime' | 'general';
-  help?: string;
+  key: string
+  label: string
+  kind: 'string' | 'number' | 'enum' | 'boolean'
+  options?: string[]
+  group: 'openai' | 'realtime' | 'general'
+  help?: string
 }
 
 export interface SettingsResponse {
-  settable: SettableKey[];
-  values: Record<string, string>;
+  settable: SettableKey[]
+  values: Record<string, string>
 }
 
 export interface PromptRow {
-  name: string;
-  content: string;
-  updatedAt: number;
+  name: string
+  content: string
+  updatedAt: number
 }
