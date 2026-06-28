@@ -1,4 +1,5 @@
-import { setSetting, deleteSetting, DbNotReadyError } from '../utils/db'
+import { setSetting, deleteSetting } from '../utils/db/settings'
+import { DbNotReadyError } from '../utils/db/client'
 import { REALTIME_KEYS, validateNumber } from '../utils/realtime'
 
 interface PutBody {

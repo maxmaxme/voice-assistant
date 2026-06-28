@@ -1,4 +1,5 @@
-import { getIntegration, setIntegrationEnabled, DbNotReadyError } from '../../../utils/db'
+import { getIntegration, setIntegrationEnabled } from '../../../utils/db/integrations'
+import { DbNotReadyError } from '../../../utils/db/client'
 import { INTEGRATION_BY_TYPE, testIntegration } from '../../../utils/integrations'
 
 interface Body {

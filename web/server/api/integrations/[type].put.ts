@@ -1,4 +1,5 @@
-import { getIntegration, upsertIntegration, DbNotReadyError } from '../../utils/db'
+import { getIntegration, upsertIntegration } from '../../utils/db/integrations'
+import { DbNotReadyError } from '../../utils/db/client'
 import { INTEGRATION_BY_TYPE, mergeAndValidate, testIntegration } from '../../utils/integrations'
 
 interface PutBody {

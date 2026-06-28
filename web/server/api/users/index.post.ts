@@ -1,4 +1,4 @@
-import { createUser, dbErrorToHttp } from '../../utils/db'
+import { createUser, dbErrorToHttp } from '../../utils/db/users'
 
 interface PostBody {
   name?: string

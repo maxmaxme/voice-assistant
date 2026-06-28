@@ -1,4 +1,5 @@
-import { setPrompt, getPrompt, DbNotReadyError } from '../utils/db'
+import { setPrompt, getPrompt } from '../utils/db/prompts'
+import { DbNotReadyError } from '../utils/db/client'
 
 interface PutBody {
   name?: string

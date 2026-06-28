@@ -1,4 +1,4 @@
-import { listIntegrations } from '../../utils/db'
+import { listIntegrations } from '../../utils/db/integrations'
 import { INTEGRATIONS, INTEGRATION_BY_TYPE, maskConfig, publicDef } from '../../utils/integrations'
 
 export default defineEventHandler(() => {

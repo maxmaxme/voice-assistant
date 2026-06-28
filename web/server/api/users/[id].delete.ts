@@ -1,4 +1,4 @@
-import { deleteUser, dbErrorToHttp } from '../../utils/db'
+import { deleteUser, dbErrorToHttp } from '../../utils/db/users'
 
 export default defineEventHandler((event) => {
   const id = Number(getRouterParam(event, 'id'))

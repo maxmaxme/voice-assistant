@@ -1,4 +1,4 @@
-import { addDevice, dbErrorToHttp, type Channel } from '../../../utils/db'
+import { addDevice, dbErrorToHttp, type Channel } from '../../../utils/db/users'
 
 interface PostBody {
   channel?: string

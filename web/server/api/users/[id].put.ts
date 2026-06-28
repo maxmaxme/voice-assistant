@@ -1,4 +1,4 @@
-import { updateUser, dbErrorToHttp } from '../../utils/db'
+import { updateUser, dbErrorToHttp } from '../../utils/db/users'
 
 interface PutBody {
   name?: string

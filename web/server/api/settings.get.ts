@@ -1,4 +1,4 @@
-import { getAllSettings } from '../utils/db'
+import { getAllSettings } from '../utils/db/settings'
 import { SETTABLE_KEYS, SETTABLE_BY_KEY } from '../utils/settable'
 
 export default defineEventHandler(() => {

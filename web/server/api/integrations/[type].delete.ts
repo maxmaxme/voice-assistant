@@ -1,4 +1,5 @@
-import { deleteIntegration, DbNotReadyError } from '../../utils/db'
+import { deleteIntegration } from '../../utils/db/integrations'
+import { DbNotReadyError } from '../../utils/db/client'
 
 export default defineEventHandler((event) => {
   const type = getRouterParam(event, 'type')

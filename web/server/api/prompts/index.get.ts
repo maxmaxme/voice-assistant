@@ -1,4 +1,5 @@
-import { listPrompts, listIntegrations } from '../../utils/db'
+import { listPrompts } from '../../utils/db/prompts'
+import { listIntegrations } from '../../utils/db/integrations'
 import { promptOwner } from '../../utils/integrations'
 
 export default defineEventHandler(() => {

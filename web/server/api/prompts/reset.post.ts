@@ -1,4 +1,5 @@
-import { resetPrompt, DbNotReadyError } from '../../utils/db'
+import { resetPrompt } from '../../utils/db/prompts'
+import { DbNotReadyError } from '../../utils/db/client'
 
 interface ResetBody {
   name?: string
