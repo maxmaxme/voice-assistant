@@ -47,7 +47,7 @@ describe('resolveOpenAiConfig', () => {
       model: 'gpt-5-mini',
       reasoningEffort: 'low',
       webSearch: false,
-      realtime: { enabled: false, model: 'gpt-realtime-2', voice: 'marin', reasoningEffort: 'low' },
+      realtime: { model: 'gpt-realtime-2', voice: 'marin', reasoningEffort: 'low' },
     });
   });
 
@@ -58,7 +58,6 @@ describe('resolveOpenAiConfig', () => {
       model: 'gpt-6',
       reasoningEffort: 'high',
       webSearch: '1',
-      realtimeEnabled: '1',
       realtimeModel: 'rt-9',
       realtimeVoice: 'cedar',
       realtimeReasoningEffort: 'xhigh',
@@ -69,7 +68,7 @@ describe('resolveOpenAiConfig', () => {
       model: 'gpt-6',
       reasoningEffort: 'high',
       webSearch: true,
-      realtime: { enabled: true, model: 'rt-9', voice: 'cedar', reasoningEffort: 'xhigh' },
+      realtime: { model: 'rt-9', voice: 'cedar', reasoningEffort: 'xhigh' },
     });
   });
 

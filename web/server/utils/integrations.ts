@@ -90,12 +90,6 @@ export const INTEGRATIONS: IntegrationDef[] = [
         help: 'Enables OpenAI hosted web_search. Costs tokens per call.',
       },
       {
-        key: 'realtimeEnabled',
-        label: 'Enable realtime (Voice PE)',
-        type: 'boolean',
-        help: 'Turn on the realtime voice path. Leave off if you only use chat.',
-      },
-      {
         key: 'realtimeModel',
         label: 'Realtime model',
         type: 'text',

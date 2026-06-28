@@ -8,6 +8,7 @@ import type { McpClient } from '../mcp/types.ts';
 import { resolveHaConfig } from '../integrations/homeAssistant.ts';
 import { resolveOpenAiConfig, type OpenAiConfig } from '../integrations/openai.ts';
 import { resolveTelegramConfig, type TelegramConfig } from '../integrations/telegram.ts';
+import { resolveRealtimeConfig, type RealtimeConfig } from '../settings/realtimeConfig.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
@@ -126,12 +127,15 @@ export interface CommonDeps {
   /** Whether the Home Assistant integration is configured — gates HA-specific
    *  system-prompt rules on the realtime path. */
   haEnabled: boolean;
-  /** Resolved OpenAI integration config (api key, models, realtime settings).
-   *  The realtime server starts only when `openai.realtime.enabled`. */
+  /** Resolved OpenAI integration config (api key, models, realtime model/voice/
+   *  effort). The realtime *enable* switch is `realtime.enabled`, not here. */
   openai: OpenAiConfig;
   /** Resolved Telegram integration config, or null when not installed/enabled.
    *  Null → the telegram runner doesn't start and `senderFor` throws on send. */
   telegram: TelegramConfig | null;
+  /** Realtime (Voice PE) config from the DB (enable + pacing + idle). The
+   *  realtime server starts only when `realtime.enabled` (and a device token). */
+  realtime: RealtimeConfig;
 }
 
 /** Initialise everything shared across runners. Call once per process. */
@@ -152,6 +156,10 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   // Seed every bundled prompt into the DB (skipping ones already edited) and
   // route all prompt reads through the DB for the rest of the process.
   initPromptRegistry(memory.prompts);
+
+  // Realtime config (enable + pacing + idle) is DB-only, read like an
+  // integration — never from env. Device token + port come from `config`.
+  const realtime = resolveRealtimeConfig(memory.settings);
 
   // OpenAI comes from the web-configured integration, not env. It's mandatory —
   // fail fast with a clear message if it's not installed/enabled.
@@ -266,5 +274,6 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     haEnabled,
     openai,
     telegram,
+    realtime,
   };
 }

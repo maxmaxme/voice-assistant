@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const links = [
   { label: 'Settings', icon: 'i-lucide-sliders-horizontal', to: '/settings' },
+  { label: 'Realtime', icon: 'i-lucide-radio', to: '/realtime' },
   { label: 'Prompts', icon: 'i-lucide-message-square-text', to: '/prompts' },
   { label: 'Integrations', icon: 'i-lucide-plug', to: '/integrations' },
 ]

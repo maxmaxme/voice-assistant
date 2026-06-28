@@ -18,21 +18,10 @@ export interface SettableKey {
  *  env-var names so `buildEnvOverlay` can layer them straight over
  *  `process.env`. */
 // Provider-specific knobs (model, reasoning effort, voice, web_search, realtime
-// model + enable) live on the OpenAI *integration*. Only universal realtime
-// timings and process-level settings remain here.
+// model) live on the OpenAI *integration*. Realtime enable + pacing + idle are
+// DB-only config read via `resolveRealtimeConfig` (not env), so they're not
+// here either. Only process-level env overrides remain.
 export const SETTABLE_KEYS: SettableKey[] = [
-  {
-    key: 'REALTIME_OUTPUT_PACING_MS',
-    label: 'Output pacing (ms)',
-    kind: 'number',
-    group: 'realtime',
-  },
-  {
-    key: 'REALTIME_IDLE_RESET_MS',
-    label: 'Idle reset (ms)',
-    kind: 'number',
-    group: 'realtime',
-  },
   {
     key: 'AGENT_MODE',
     label: 'Agent mode',

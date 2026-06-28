@@ -14,12 +14,11 @@ export interface SettableKey {
   help?: string
 }
 
-// OpenAI knobs (model, reasoning effort, web_search, realtime model) and the
-// realtime enable toggle live on the OpenAI integration now, not here.
+// OpenAI knobs (model, reasoning effort, web_search, realtime model) live on the
+// OpenAI integration. Realtime enable + pacing + idle are DB-only config with
+// their own /api/realtime endpoint + page (see realtime.ts), not env overrides.
 // KEEP IN SYNC with voice-assistant src/settings/settable.ts.
 export const SETTABLE_KEYS: SettableKey[] = [
-  { key: 'REALTIME_OUTPUT_PACING_MS', label: 'Output pacing (ms)', kind: 'number', group: 'realtime' },
-  { key: 'REALTIME_IDLE_RESET_MS', label: 'Idle reset (ms)', kind: 'number', group: 'realtime' },
   {
     key: 'AGENT_MODE',
     label: 'Agent mode',

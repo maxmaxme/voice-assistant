@@ -181,11 +181,12 @@ export async function main(): Promise<void> {
   );
 
   let realtimeServer: RealtimeServer | null = null;
-  // Realtime is opt-in via the OpenAI integration's `realtimeEnabled` toggle.
-  if (deps.openai.realtime.enabled && !deps.config.realtime.token) {
+  // Realtime is opt-in via the DB-backed enable switch (web panel's Realtime
+  // page); the device token + port stay env (infra/secret).
+  if (deps.realtime.enabled && !deps.config.realtime.token) {
     log.warn('realtime is enabled but VA_DEVICE_TOKEN is not set — skipping realtime server');
   }
-  if (deps.openai.realtime.enabled && deps.config.realtime.token) {
+  if (deps.realtime.enabled && deps.config.realtime.token) {
     // Process-wide cache shared across all bridges (each WS connection
     // spawns a fresh RealtimeBridge but they all hit the same HA — there's
     // no per-user state to isolate). Re-created on process restart so a
@@ -219,8 +220,8 @@ export async function main(): Promise<void> {
           model: deps.openai.realtime.model,
           voice: deps.openai.realtime.voice,
           reasoningEffort: deps.openai.realtime.reasoningEffort,
-          idleResetMs: deps.config.realtime.idleResetMs,
-          outputPacingMs: deps.config.realtime.outputPacingMs,
+          idleResetMs: deps.realtime.idleResetMs,
+          outputPacingMs: deps.realtime.outputPacingMs,
           instructions: appendUserContext(
             buildSystemPromptFor('realtime', deps.haEnabled),
             profile.recall(),

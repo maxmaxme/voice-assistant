@@ -12,8 +12,9 @@ export interface OpenAiConfig {
   model: string;
   reasoningEffort: ChatReasoningEffort;
   webSearch: boolean;
+  /** Realtime model/voice/effort are provider-specific. The realtime *enable*
+   *  switch is universal and lives in Settings (`REALTIME_ENABLED`), not here. */
   realtime: {
-    enabled: boolean;
     model: string;
     voice: string;
     reasoningEffort: RealtimeReasoningEffort;
@@ -72,7 +73,6 @@ export function resolveOpenAiConfig(store: SqliteIntegrations): OpenAiConfig | n
     reasoningEffort: chatEffort(c.reasoningEffort),
     webSearch: c.webSearch === '1',
     realtime: {
-      enabled: c.realtimeEnabled === '1',
       model: val('realtimeModel') || DEFAULT_REALTIME_MODEL,
       voice: val('realtimeVoice') || DEFAULT_REALTIME_VOICE,
       reasoningEffort: realtimeEffort(c.realtimeReasoningEffort),

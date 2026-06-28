@@ -6,8 +6,6 @@ describe('loadConfig', () => {
 
   beforeEach(() => {
     delete process.env.OPENAI_API_KEY;
-    delete process.env.TELEGRAM_BOT_TOKEN;
-    delete process.env.REALTIME_ENABLED;
     delete process.env.REALTIME_PORT;
     delete process.env.VA_DEVICE_TOKEN;
     delete process.env.OPENAI_REALTIME_MODEL;

@@ -12,6 +12,12 @@ export interface SettingsResponse {
   values: Record<string, string>
 }
 
+export interface RealtimeResponse {
+  enabled: boolean
+  outputPacingMs: string
+  idleResetMs: string
+}
+
 export interface PromptRow {
   name: string
   content: string

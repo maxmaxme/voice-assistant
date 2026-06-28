@@ -60,9 +60,10 @@ function makeDeps(): CommonDeps {
       model: 'gpt-test',
       reasoningEffort: 'low',
       webSearch: false,
-      realtime: { enabled: false, model: 'rt', voice: 'marin', reasoningEffort: 'low' },
+      realtime: { model: 'rt', voice: 'marin', reasoningEffort: 'low' },
     },
     telegram: { botToken: 'X' },
+    realtime: { enabled: false, outputPacingMs: 20, idleResetMs: 90_000 },
     buildAgent: vi.fn(
       () =>
         ({ opts: { session: { reset: vi.fn() } } }) as unknown as ReturnType<

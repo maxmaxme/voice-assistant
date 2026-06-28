@@ -19,9 +19,9 @@ watchEffect(() => {
   }
 })
 
+// `realtime` settings have their own page (Realtime) — not shown here.
 const groups: { id: SettableKey['group'], label: string }[] = [
   { id: 'openai', label: 'OpenAI' },
-  { id: 'realtime', label: 'Realtime (Voice PE)' },
   { id: 'general', label: 'General' },
 ]
 function keysIn(group: string): SettableKey[] {

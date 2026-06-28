@@ -413,8 +413,9 @@ Whisper spend on a Pi.
 ### Realtime bridge (`src/realtime/`)
 
 The Voice PE direct-streaming path. A second server runs alongside the
-HTTP runner — **gated by the OpenAI integration's `realtimeEnabled` toggle**
-(plus `VA_DEVICE_TOKEN` present) — and exposes a WebSocket at `:3001/voice`.
+HTTP runner — **gated by the DB-backed realtime enable switch** (the web
+panel's Realtime page; read via `resolveRealtimeConfig`, not env) plus
+`VA_DEVICE_TOKEN` present — and exposes a WebSocket at `:3001/voice`.
 Each device opens one WS; the bridge brokers between the device, OpenAI's
 Realtime API, and the MCP client the agent core uses.
 
@@ -466,12 +467,12 @@ Important behaviour:
 
 Config sources:
 
-| Setting                          | Source                                                                                                             |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| enabled / model / voice / effort | **OpenAI integration** (`realtimeEnabled`, `realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`)            |
-| `VA_DEVICE_TOKEN`                | env — bearer token devices present on the WS handshake; realtime is skipped (with a warning) if enabled but unset. |
-| `REALTIME_PORT`                  | env, default `3001`.                                                                                               |
-| idle reset / output pacing       | Settings (`REALTIME_IDLE_RESET_MS`, `REALTIME_OUTPUT_PACING_MS`) — universal realtime timings.                     |
+| Setting                             | Source                                                                                                                                                                                                                                 |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| enable + idle reset + output pacing | **DB-only realtime config** (`resolveRealtimeConfig`, `src/settings/realtimeConfig.ts`) — read from the `settings` table under `realtime.*` keys via the web panel's Realtime page (`/api/realtime`). NOT env, NOT in `SETTABLE_KEYS`. |
+| model / voice / effort              | **OpenAI integration** (`realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`) — provider-specific.                                                                                                                              |
+| `VA_DEVICE_TOKEN`                   | env — bearer token devices present on the WS handshake; realtime is skipped (with a warning) if enabled but unset.                                                                                                                     |
+| `REALTIME_PORT`                     | env, default `3001`.                                                                                                                                                                                                                   |
 
 ### MCP client (`src/mcp/haMcpClient.ts`)
 
@@ -496,9 +497,11 @@ the same row and errors if HA isn't installed/enabled.
 `src/integrations/openai.ts`). It's **mandatory** — `cli/shared.ts` throws at
 startup if the `openai` row is absent/disabled/keyless. It supplies the api key,
 optional base URL, chat model + reasoning effort, `web_search` toggle, and the
-realtime model/voice/effort + the `realtimeEnabled` toggle. `OPENAI_*` env vars
-are no longer read. Only `model`/`reasoningEffort`/`voice` etc. have code
-defaults applied when blank; the api key is required.
+realtime model/voice/effort (provider-specific). The realtime _enable_ switch +
+pacing/idle are **not** here — they're DB-only realtime config (`resolveRealtimeConfig`,
+Realtime page).
+`OPENAI_*` env vars are no longer read. Only `model`/`reasoningEffort`/`voice`
+etc. have code defaults applied when blank; the api key is required.
 
 The `/update` command writes the string `trigger\n` to `/tmp/va-update`
 (expected to be a host-mounted FIFO; falls back to a no-op if the path
