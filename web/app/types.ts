@@ -15,5 +15,6 @@ export interface SettingsResponse {
 export interface PromptRow {
   name: string
   content: string
+  defaultContent: string
   updatedAt: number
 }

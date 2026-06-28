@@ -2,19 +2,51 @@
 import type { PromptRow } from '~/types'
 
 const toast = useToast()
+const route = useRoute()
+const router = useRouter()
 const { data: promptList, refresh } = await useFetch<{ prompts: PromptRow[] }>('/api/prompts')
 
-const selected = ref<string | undefined>()
-const content = ref('')
+// Initialise synchronously (so content is populated during SSR) from the
+// `?prompt=` query when valid — survives F5 — else the first prompt.
+const initial = promptList.value?.prompts ?? []
+const names = initial.map(p => p.name)
+const queryName = typeof route.query.prompt === 'string' ? route.query.prompt : undefined
+const startName = queryName && names.includes(queryName) ? queryName : initial[0]?.name
+const selected = ref<string | undefined>(startName)
+const content = ref(initial.find(p => p.name === startName)?.content ?? '')
 
-watchEffect(() => {
-  const list = promptList.value?.prompts ?? []
-  if (!selected.value && list.length) {
-    selected.value = list[0]!.name
+const selectedRow = computed(() =>
+  promptList.value?.prompts.find(p => p.name === selected.value),
+)
+const savedContent = computed(() => selectedRow.value?.content ?? '')
+const defaultContent = computed(() => selectedRow.value?.defaultContent ?? '')
+// vs default → drives the diff, badge and reset. vs saved → drives Save.
+const isModified = computed(() => content.value !== defaultContent.value)
+const isDirty = computed(() => content.value !== savedContent.value)
+const diff = computed(() => lineDiff(defaultContent.value, content.value))
+
+// Grouped select: base prompts on top, then tools, then HA suffixes. Labels
+// are non-selectable group headings; values stay the full prompt name.
+const groups: { label: string, match: (n: string) => boolean }[] = [
+  { label: 'Base', match: n => !n.includes('/') },
+  { label: 'Tools', match: n => n.startsWith('tools/') },
+  { label: 'Home Assistant', match: n => n.startsWith('ha-suffix/') },
+]
+const selectItems = computed(() => {
+  const out: ({ type: 'label', label: string } | { label: string, value: string })[] = []
+  for (const g of groups) {
+    const inGroup = names.filter(g.match)
+    if (!inGroup.length) continue
+    out.push({ type: 'label', label: g.label })
+    for (const n of inGroup) out.push({ label: n.includes('/') ? n.split('/').pop()! : n, value: n })
   }
+  return out
 })
-watch(selected, (name) => {
-  content.value = promptList.value?.prompts.find(p => p.name === name)?.content ?? ''
+
+// Switching prompts loads its saved content and reflects the choice in the URL.
+watch(selected, (n) => {
+  content.value = savedContent.value
+  router.replace({ query: { ...route.query, prompt: n } })
 })
 
 const saving = ref(false)
@@ -22,9 +54,9 @@ async function save() {
   if (!selected.value) return
   saving.value = true
   try {
-    await $fetch(`/api/prompts/${selected.value}`, {
+    await $fetch('/api/prompts', {
       method: 'PUT',
-      body: { content: content.value },
+      body: { name: selected.value, content: content.value },
     })
     toast.add({ title: 'Saved', description: 'Applies after the next restart.', color: 'success' })
     await refresh()
@@ -36,6 +68,26 @@ async function save() {
     saving.value = false
   }
 }
+
+const confirmReset = ref(false)
+const resetting = ref(false)
+async function resetToDefault() {
+  if (!selected.value) return
+  resetting.value = true
+  try {
+    await $fetch('/api/prompts/reset', { method: 'POST', body: { name: selected.value } })
+    await refresh()
+    content.value = selectedRow.value?.content ?? ''
+    toast.add({ title: 'Reset to default', description: 'Applies after the next restart.', color: 'success' })
+    confirmReset.value = false
+  }
+  catch (e: unknown) {
+    toast.add({ title: 'Reset failed', description: errMessage(e), color: 'error' })
+  }
+  finally {
+    resetting.value = false
+  }
+}
 </script>
 
 <template>
@@ -45,7 +97,7 @@ async function save() {
         Prompts
       </h1>
       <p class="text-[var(--ui-text-muted)] mt-1">
-        Edit the assistant's prompt text. Seeded from the bundled defaults.
+        Edit the assistant's prompt text. Each has a built-in default you can always restore.
       </p>
     </header>
 
@@ -55,20 +107,60 @@ async function save() {
           label="Prompt"
           hint="name"
         >
-          <USelect
-            v-model="selected"
-            class="w-full sm:w-80"
-            :items="(promptList?.prompts ?? []).map((p) => p.name)"
-            placeholder="Select a prompt"
-          />
+          <div class="flex items-center gap-2">
+            <USelect
+              v-model="selected"
+              class="w-full sm:w-80"
+              :items="(promptList?.prompts ?? []).map((p) => p.name)"
+              placeholder="Select a prompt"
+            />
+            <UBadge
+              :color="isModified ? 'warning' : 'neutral'"
+              variant="subtle"
+            >
+              {{ isModified ? 'Modified' : 'Default' }}
+            </UBadge>
+          </div>
         </UFormField>
+
         <UTextarea
           v-model="content"
-          :rows="22"
+          autoresize
+          :rows="10"
           class="w-full font-mono"
           :disabled="!selected"
         />
-        <div class="flex justify-end">
+
+        <div v-if="isModified">
+          <p class="text-sm font-medium mb-1">
+            Diff vs default
+          </p>
+          <div class="rounded-md ring ring-default overflow-x-auto bg-elevated/30 text-xs font-mono leading-relaxed py-2">
+            <div
+              v-for="(l, idx) in diff"
+              :key="idx"
+              class="px-3 whitespace-pre-wrap"
+              :class="{
+                'bg-green-500/15 text-green-700 dark:text-green-300': l.type === 'add',
+                'bg-red-500/15 text-red-700 dark:text-red-300': l.type === 'del',
+                'text-[var(--ui-text-dimmed)]': l.type === 'same',
+              }"
+            >
+              {{ l.type === 'add' ? '+ ' : l.type === 'del' ? '- ' : '  ' }}{{ l.text }}
+            </div>
+          </div>
+        </div>
+
+        <div class="flex justify-between">
+          <UButton
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-rotate-ccw"
+            :disabled="!selected || !isModified"
+            @click="confirmReset = true"
+          >
+            Reset to default
+          </UButton>
           <UButton
             :loading="saving"
             :disabled="!selected"
@@ -89,5 +181,31 @@ async function save() {
       title="No prompts yet"
       description="Start the voice-assistant process once against this database so it seeds the editable prompts."
     />
+
+    <UModal
+      v-model:open="confirmReset"
+      title="Reset to default?"
+      :description="`This replaces the current text of '${selected}' with its built-in default. Applies after the next restart.`"
+    >
+      <template #footer>
+        <div class="flex justify-end gap-2 w-full">
+          <UButton
+            color="neutral"
+            variant="ghost"
+            @click="confirmReset = false"
+          >
+            Cancel
+          </UButton>
+          <UButton
+            color="error"
+            icon="i-lucide-rotate-ccw"
+            :loading="resetting"
+            @click="resetToDefault"
+          >
+            Reset
+          </UButton>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

@@ -37,4 +37,31 @@ describe('SqlitePrompts', () => {
     const names = store.list().map((p) => p.name);
     expect(names).toEqual(expect.arrayContaining(['base-system', 'voice-addendum']));
   });
+
+  it('seedWithDefault sets content and default on a fresh prompt', () => {
+    store.seedWithDefault('base-system', 'bundled text');
+    const row = store.list().find((p) => p.name === 'base-system');
+    expect(row?.content).toBe('bundled text');
+    expect(row?.defaultContent).toBe('bundled text');
+  });
+
+  it('seedWithDefault refreshes default but never clobbers an edited content', () => {
+    store.seedWithDefault('base-system', 'v1 default');
+    store.set('base-system', 'user edit');
+    store.seedWithDefault('base-system', 'v2 default'); // e.g. new image ships a newer default
+    const row = store.list().find((p) => p.name === 'base-system');
+    expect(row?.content).toBe('user edit');
+    expect(row?.defaultContent).toBe('v2 default');
+  });
+
+  it('resetToDefault restores content from the stored default', () => {
+    store.seedWithDefault('base-system', 'the default');
+    store.set('base-system', 'edited');
+    expect(store.resetToDefault('base-system')).toBe(true);
+    expect(store.get('base-system')).toBe('the default');
+  });
+
+  it('resetToDefault returns false for an unknown prompt', () => {
+    expect(store.resetToDefault('nope')).toBe(false);
+  });
 });

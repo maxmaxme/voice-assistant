@@ -82,6 +82,9 @@ export const settings = sqliteTable('settings', {
 export const prompts = sqliteTable('prompts', {
   name: text('name').primaryKey(),
   content: text('content').notNull(),
+  // The bundled default, refreshed from the `.md` source on every startup.
+  // Lets the web panel show "modified" and reset without reading image files.
+  defaultContent: text('default_content').notNull().default(''),
   updatedAt: integer('updated_at').notNull(),
 });
 

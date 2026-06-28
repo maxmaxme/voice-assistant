@@ -1,0 +1,1 @@
+ALTER TABLE `prompts` ADD `default_content` text DEFAULT '' NOT NULL;

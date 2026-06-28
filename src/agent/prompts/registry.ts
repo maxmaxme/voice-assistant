@@ -48,7 +48,7 @@ let store: SqlitePrompts | null = null;
 export function initPromptRegistry(promptStore: SqlitePrompts): void {
   store = promptStore;
   for (const [name, content] of BUNDLED) {
-    promptStore.seedIfAbsent(name, content);
+    promptStore.seedWithDefault(name, content);
   }
 }
 
