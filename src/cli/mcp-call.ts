@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { loadConfig } from '../config.ts';
+import { openMemoryStore } from '../memory/memoryStore.ts';
+import { resolveHaConfig } from '../integrations/homeAssistant.ts';
 import { HaMcpClient } from '../mcp/haMcpClient.ts';
 
 function usage(): never {
@@ -20,7 +22,15 @@ async function main(): Promise<void> {
   }
 
   const cfg = loadConfig();
-  const client = new HaMcpClient({ url: cfg.ha.url, token: cfg.ha.token });
+  const memory = openMemoryStore(cfg.memory.dbPath);
+  const ha = resolveHaConfig(memory.integrations);
+  if (!ha) {
+    console.error(
+      'Home Assistant integration is not configured — install it in the web panel (Integrations).',
+    );
+    process.exit(2);
+  }
+  const client = new HaMcpClient({ url: ha.url, token: ha.token });
   await client.connect();
   try {
     if (cmd === 'list') {
@@ -50,6 +60,7 @@ async function main(): Promise<void> {
     }
   } finally {
     await client.disconnect();
+    memory.close();
   }
 }
 

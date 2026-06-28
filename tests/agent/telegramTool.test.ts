@@ -5,6 +5,7 @@ import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import { IdentitiesStore } from '../../src/memory/identities.ts';
 import { SqliteSettings } from '../../src/settings/sqliteSettings.ts';
 import { SqlitePrompts } from '../../src/settings/sqlitePrompts.ts';
+import { SqliteIntegrations } from '../../src/integrations/sqliteIntegrations.ts';
 import { freshTestDb } from '../memory/helpers.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
 import type { Channel, IdentitiesAdapter, MemoryStore } from '../../src/memory/types.ts';
@@ -43,6 +44,7 @@ function emptyMemory(): MemoryStore {
     },
     settings: new SqliteSettings(db),
     prompts: new SqlitePrompts(db),
+    integrations: new SqliteIntegrations(db),
     close: () => {},
   };
 }

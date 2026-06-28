@@ -39,6 +39,7 @@ export interface InstalledIntegration {
   def: IntegrationDef
   config: Record<string, string>
   secretsSet: Record<string, boolean>
+  enabled: boolean
   updatedAt: number
 }
 

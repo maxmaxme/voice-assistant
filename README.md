@@ -59,7 +59,8 @@ npm install
 
 # 2. .env
 cp .env.example .env
-# Fill HA_URL, HA_TOKEN, OPENAI_API_KEY, TELEGRAM_BOT_TOKEN.
+# Fill OPENAI_API_KEY, TELEGRAM_BOT_TOKEN. (Home Assistant is configured in the
+# web panel's Integrations, not here — see web/.)
 # HTTP/Telegram auth and outbound recipients are DB-backed — create
 # users/tokens and bind chats with `npm run users` (see below). There is no
 # HTTP_API_KEYS / TELEGRAM_ALLOWED_CHAT_IDS / TELEGRAM_CHAT_ID env.

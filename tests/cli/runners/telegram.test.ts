@@ -14,6 +14,7 @@ import { SqliteProfileMemory } from '../../../src/memory/sqliteProfileMemory.ts'
 import { IdentitiesStore } from '../../../src/memory/identities.ts';
 import { SqliteSettings } from '../../../src/settings/sqliteSettings.ts';
 import { SqlitePrompts } from '../../../src/settings/sqlitePrompts.ts';
+import { SqliteIntegrations } from '../../../src/integrations/sqliteIntegrations.ts';
 import { HOUSEHOLD_OWNER } from '../../../src/memory/scope.ts';
 import type { MemoryStore } from '../../../src/memory/types.ts';
 import { freshTestDb } from '../../memory/helpers.ts';
@@ -65,6 +66,7 @@ function fakeMemory(attachChats: number[] = [], adminChats: number[] = []): Fake
     },
     settings: new SqliteSettings(db),
     prompts: new SqlitePrompts(db),
+    integrations: new SqliteIntegrations(db),
     close: () => {},
   };
   return { memory, identities, profileStore };

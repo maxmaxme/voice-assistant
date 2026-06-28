@@ -36,6 +36,13 @@
       "when": 1782654989435,
       "tag": "0004_mysterious_shockwave",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1782657109128,
+      "tag": "0005_skinny_electro",
+      "breakpoints": true
     }
   ]
 }

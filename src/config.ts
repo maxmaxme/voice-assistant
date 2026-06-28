@@ -2,10 +2,9 @@ import 'dotenv/config';
 import { z } from 'zod';
 
 const ConfigSchema = z.object({
-  ha: z.object({
-    url: z.string().url(),
-    token: z.string().min(1),
-  }),
+  // Home Assistant connection is no longer an env concern — it's configured via
+  // the web panel's integrations and read from the DB at startup (see
+  // src/integrations/homeAssistant.ts).
   openai: z.object({
     apiKey: z.string().min(1),
     model: z.string().default('gpt-4o'),
@@ -42,8 +41,6 @@ const ConfigSchema = z.object({
 export type Config = z.infer<typeof ConfigSchema>;
 
 const PATH_TO_ENV: Record<string, string> = {
-  'ha.url': 'HA_URL',
-  'ha.token': 'HA_TOKEN',
   'openai.apiKey': 'OPENAI_API_KEY',
   'openai.model': 'OPENAI_MODEL',
   'openai.reasoningEffort': 'OPENAI_REASONING_EFFORT',
@@ -64,10 +61,6 @@ const PATH_TO_ENV: Record<string, string> = {
  *  before calling — `{ ...process.env, ...overrides }`. */
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const raw = {
-    ha: {
-      url: env.HA_URL,
-      token: env.HA_TOKEN,
-    },
     openai: {
       apiKey: env.OPENAI_API_KEY,
       model: env.OPENAI_MODEL,

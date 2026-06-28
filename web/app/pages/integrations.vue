@@ -83,6 +83,23 @@ function placeholderFor(key: string): string | undefined {
   if (formMode.value === 'edit' && form.secretsSet[key]) return '•••••••• (leave blank to keep)'
   return formDef.value?.fields.find(f => f.key === key)?.placeholder
 }
+
+const togglingType = ref<string | null>(null)
+async function setEnabled(inst: InstalledIntegration, enabled: boolean) {
+  togglingType.value = inst.def.type
+  try {
+    await $fetch(`/api/integrations/${inst.def.type}/enabled`, { method: 'POST', body: { enabled } })
+    toast.add({ title: enabled ? 'Enabled' : 'Disabled', color: 'success' })
+  }
+  catch (e: unknown) {
+    // e.g. enabling a broken connection (422) — surface and leave it disabled.
+    toast.add({ title: 'Failed', description: errMessage(e), color: 'error' })
+  }
+  finally {
+    togglingType.value = null
+    await refresh() // reflect the actual stored state (reverts an optimistic flip)
+  }
+}
 </script>
 
 <template>
@@ -113,17 +130,22 @@ function placeholderFor(key: string): string | undefined {
               <div class="flex items-center gap-2">
                 <span class="font-semibold">{{ inst.def.title }}</span>
                 <UBadge
-                  color="success"
+                  :color="inst.enabled ? 'success' : 'neutral'"
                   variant="subtle"
                 >
-                  Installed
+                  {{ inst.enabled ? 'Enabled' : 'Disabled' }}
                 </UBadge>
               </div>
               <p class="text-sm text-[var(--ui-text-muted)] mt-1">
                 {{ inst.def.description }}
               </p>
             </div>
-            <div class="flex gap-2 shrink-0">
+            <div class="flex items-center gap-2 shrink-0">
+              <USwitch
+                :model-value="inst.enabled"
+                :loading="togglingType === inst.def.type"
+                @update:model-value="(v: boolean) => setEnabled(inst, v)"
+              />
               <UButton
                 color="neutral"
                 variant="outline"

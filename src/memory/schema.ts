@@ -85,6 +85,9 @@ export const settings = sqliteTable('settings', {
 export const integrations = sqliteTable('integrations', {
   type: text('type').primaryKey(),
   config: text('config').notNull(),
+  // Installed = row present; enabled = active. Disabling keeps the config but
+  // deactivates the integration (agent ignores it, its prompts hide from the UI).
+  enabled: integer('enabled').notNull().default(1),
   updatedAt: integer('updated_at').notNull(),
 });
 

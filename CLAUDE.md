@@ -162,14 +162,16 @@ keeps unit tests and pre-init module loads working). So **all** prompts are
 DB-backed and web-editable; edits apply on the **next process start**. Names are
 the registry/DB keys and the labels shown in the web UI. Layout:
 
-- `src/agent/prompts/base-system.md` → name `base-system` — cross-cutting rules (identity, HA error-recovery procedure, composite-intent self-check, style). Used by `buildSystemPromptFor`.
+- `src/agent/prompts/base-system.md` → name `base-system` — **HA-agnostic** cross-cutting rules: identity (general personal assistant), the "fill sensible defaults, don't ask" rule, style. Always included.
+- `src/agent/prompts/ha-addendum.md` → name `ha-addendum` — HA device-control rules (ACT-don't-ask, `GetLiveContext`, the error-recovery procedure, multi-tool device intent). `buildSystemPromptFor(channel, haEnabled)` appends it **only when HA is configured**, so a no-HA install gets a clean general-assistant prompt.
 - `src/agent/prompts/tools/{remember,recall,forget,schedule-action,list-scheduled,cancel-scheduled}.md` → names `tools/<file>` — descriptions for local tools we control (`memoryTools.ts`, `scheduledActionTools.ts`).
 - `src/agent/prompts/ha-suffix/<HaToolName>.md` → names `ha-suffix/<HaToolName>` — per-tool suffix appended to upstream HA MCP tool descriptions in `toolBridge.ts`.
 - `src/cli/prompts/{voice,realtime}-addendum.md` → names `voice-addendum` / `realtime-addendum` — channel suffixes added by `buildSystemPromptFor`.
 
 When adding a new tool with tool-specific rules, drop a sibling `.md` (it's
-auto-discovered + seeded) and read it via `resolvePrompt`. Cross-tool rules
-(e.g. "after an HA match-failed error, do X") still go in `base-system.md`.
+auto-discovered + seeded) and read it via `resolvePrompt`. Keep HA-specific
+behaviour in `ha-addendum.md` (not `base-system.md`), so it only loads when HA
+is on.
 
 ### Memory (`src/memory/`)
 
@@ -284,8 +286,9 @@ never hot-reloaded:
   precedence is **DB > env > zod default**. `buildEnvOverlay`
   (`src/settings/settable.ts`) filters stored rows to the `SETTABLE_KEYS`
   whitelist, so a stray row can never override a **secret** — secrets
-  (`OPENAI_API_KEY`, `HA_TOKEN`, `TELEGRAM_BOT_TOKEN`, `VA_DEVICE_TOKEN`) are
-  never settable and stay in `.env`.
+  (`OPENAI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `VA_DEVICE_TOKEN`) are never settable
+  and stay in `.env`. (Home Assistant's url/token are no longer env at all —
+  they live in the `integrations` table, see the MCP client section.)
 - **`prompts` table** (`src/settings/sqlitePrompts.ts`, `SqlitePrompts`) —
   editable prompt text for **all** prompts, fronted by the prompt registry
   (`src/agent/prompts/registry.ts`). `initPromptRegistry` (called in
@@ -464,6 +467,21 @@ Env vars:
 ### MCP client (`src/mcp/haMcpClient.ts`)
 
 Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth against HA's `/api/mcp`. Single replaceable adapter — the `McpClient` interface is the contract used by everything else.
+
+**Home Assistant is configured via the web panel, not env.** `HA_URL`/`HA_TOKEN`
+are gone. At startup `cli/shared.ts` reads the `home-assistant` row from the
+`integrations` table (`resolveHaConfig`, `src/integrations/`). HA is active iff
+the row is **present, `enabled`, and has url+token** → `HaMcpClient`; otherwise
+→ `NullMcpClient` (`src/mcp/nullMcpClient.ts`), which exposes **zero tools**, so
+the agent runs fine without HA — no HA MCP tools on any channel, and
+`haEnabled=false` drops the `ha-addendum` from the system prompt. The
+`integrations` table has an `enabled` flag (disable keeps the config but
+deactivates). Install/edit/enable in the panel's Integrations (dry-runs a
+connection test before saving or enabling); disabling is instant. Each
+integration **owns** prompts (HA: `ha-addendum` + `ha-suffix/*`, declared in
+`web/server/utils/integrations.ts`); the Prompts page hides a disabled/absent
+integration's prompts (rows are kept, just filtered). The `mcp:call` CLI reads
+the same row and errors if HA isn't installed/enabled.
 
 ### `/update` Telegram command — host contract
 

@@ -19,6 +19,9 @@ export interface IntegrationDef {
   /** Optional live connectivity check, co-located with the integration so
    *  adding one is a single place. Runs server-side; omit if none. */
   test?: (config: Config) => Promise<TestResult> | TestResult
+  /** Prompt names this integration owns. Such prompts only show in the Prompts
+   *  page while the integration is enabled (the agent gates them too). */
+  ownsPrompt?: (name: string) => boolean
 }
 
 export const INTEGRATIONS: IntegrationDef[] = [
@@ -44,8 +47,21 @@ export const INTEGRATIONS: IntegrationDef[] = [
       },
     ],
     test: testHomeAssistant,
+    // The HA addendum + per-tool suffixes belong to this integration.
+    ownsPrompt: name => name === 'ha-addendum' || name.startsWith('ha-suffix/'),
   },
 ]
+
+/** Which integration (by type) owns a given prompt name, or null if it's a
+ *  core prompt owned by no integration. */
+export function promptOwner(name: string): string | null {
+  for (const def of INTEGRATIONS) {
+    if (def.ownsPrompt?.(name)) {
+      return def.type
+    }
+  }
+  return null
+}
 
 export const INTEGRATION_BY_TYPE: Map<string, IntegrationDef> = new Map(
   INTEGRATIONS.map(i => [i.type, i]),

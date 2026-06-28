@@ -135,7 +135,19 @@ export function resetPrompt(name: string): boolean {
 export interface IntegrationRow {
   type: string
   config: Record<string, string>
+  enabled: boolean
   updatedAt: number
+}
+
+interface RawIntegration {
+  type: string
+  config: string
+  enabled: number
+  updatedAt: number
+}
+
+function parseIntegration(r: RawIntegration): IntegrationRow {
+  return { type: r.type, config: JSON.parse(r.config), enabled: r.enabled === 1, updatedAt: r.updatedAt }
 }
 
 export function listIntegrations(): IntegrationRow[] {
@@ -143,9 +155,9 @@ export function listIntegrations(): IntegrationRow[] {
     return []
   }
   const rows = db()
-    .prepare(`SELECT type, config, updated_at AS updatedAt FROM integrations`)
-    .all() as { type: string, config: string, updatedAt: number }[]
-  return rows.map(r => ({ type: r.type, config: JSON.parse(r.config), updatedAt: r.updatedAt }))
+    .prepare(`SELECT type, config, enabled, updated_at AS updatedAt FROM integrations`)
+    .all() as RawIntegration[]
+  return rows.map(parseIntegration)
 }
 
 export function getIntegration(type: string): IntegrationRow | null {
@@ -153,11 +165,13 @@ export function getIntegration(type: string): IntegrationRow | null {
     return null
   }
   const row = db()
-    .prepare(`SELECT type, config, updated_at AS updatedAt FROM integrations WHERE type = ?`)
-    .get(type) as { type: string, config: string, updatedAt: number } | undefined
-  return row ? { type: row.type, config: JSON.parse(row.config), updatedAt: row.updatedAt } : null
+    .prepare(`SELECT type, config, enabled, updated_at AS updatedAt FROM integrations WHERE type = ?`)
+    .get(type) as RawIntegration | undefined
+  return row ? parseIntegration(row) : null
 }
 
+// Insert leaves `enabled` at its column default (1); on edit we update config
+// only, never clobbering the enabled flag.
 export function upsertIntegration(type: string, config: Record<string, string>): void {
   if (!tableExists('integrations')) {
     throw new DbNotReadyError('integrations')
@@ -168,6 +182,17 @@ export function upsertIntegration(type: string, config: Record<string, string>):
        ON CONFLICT(type) DO UPDATE SET config = excluded.config, updated_at = excluded.updated_at`,
     )
     .run(type, JSON.stringify(config), Date.now())
+}
+
+export function setIntegrationEnabled(type: string, enabled: boolean): boolean {
+  if (!tableExists('integrations')) {
+    throw new DbNotReadyError('integrations')
+  }
+  return (
+    db()
+      .prepare(`UPDATE integrations SET enabled = ?, updated_at = ? WHERE type = ?`)
+      .run(enabled ? 1 : 0, Date.now(), type).changes > 0
+  )
 }
 
 export function deleteIntegration(type: string): boolean {

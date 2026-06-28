@@ -7,6 +7,7 @@ import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import { IdentitiesStore } from '../../src/memory/identities.ts';
 import { SqliteSettings } from '../../src/settings/sqliteSettings.ts';
 import { SqlitePrompts } from '../../src/settings/sqlitePrompts.ts';
+import { SqliteIntegrations } from '../../src/integrations/sqliteIntegrations.ts';
 import { freshTestDb } from '../memory/helpers.ts';
 import type { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
 import type { MemoryStore, ScheduledActionsAdapter } from '../../src/memory/types.ts';
@@ -40,6 +41,7 @@ function makeMemoryStore(): MemoryStore {
     },
     settings: new SqliteSettings(db),
     prompts: new SqlitePrompts(db),
+    integrations: new SqliteIntegrations(db),
     close: () => {},
   };
 }
@@ -54,6 +56,7 @@ function makeDeps(): CommonDeps {
     memory: makeMemoryStore(),
     senderFor: () => ({ send: async () => {} }) as TelegramSender,
     goalRunner: { fire: vi.fn(async () => {}) } satisfies GoalRunner,
+    haEnabled: true,
     buildAgent: vi.fn(
       () =>
         ({ opts: { session: { reset: vi.fn() } } }) as unknown as ReturnType<

@@ -3,6 +3,9 @@ import * as path from 'node:path';
 import OpenAI from 'openai';
 import { loadConfig, type Config } from '../config.ts';
 import { HaMcpClient } from '../mcp/haMcpClient.ts';
+import { NullMcpClient } from '../mcp/nullMcpClient.ts';
+import type { McpClient } from '../mcp/types.ts';
+import { resolveHaConfig } from '../integrations/homeAssistant.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
@@ -62,18 +65,26 @@ export type AgentMode = (typeof AGENT_MODES)[number];
  */
 export type PromptChannel = 'telegram' | 'http' | 'assist' | 'realtime';
 
-export function buildSystemPromptFor(channel: PromptChannel): string {
-  const parts: string[] = [resolvePrompt('base-system')];
+/** base-system, plus the HA device-control rules only when HA is configured.
+ *  Without HA the agent is a general chat assistant (memory, weather, reminders)
+ *  and must NOT be told to drive non-existent device tools. */
+function basePromptParts(haEnabled: boolean): string[] {
+  const parts = [resolvePrompt('base-system')];
+  if (haEnabled) {
+    parts.push(resolvePrompt('ha-addendum'));
+  }
+  return parts;
+}
+
+export function buildSystemPromptFor(channel: PromptChannel, haEnabled = true): string {
+  const parts = basePromptParts(haEnabled);
   if (channel === 'assist') {
     parts.push(resolvePrompt('voice-addendum'));
-    return parts.join('\n\n');
-  }
-  if (channel === 'realtime') {
+  } else if (channel === 'realtime') {
     // Realtime emits audio directly — the text-channel voice rules in
     // `voice-addendum.md` would just confuse the model. Use a lean,
-    // audio-only addendum and stop here.
+    // audio-only addendum.
     parts.push(resolvePrompt('realtime-addendum'));
-    return parts.join('\n\n');
   }
   return parts.join('\n\n');
 }
@@ -96,7 +107,7 @@ export function parseAgentMode(raw: string | undefined): AgentMode {
 export interface CommonDeps {
   config: Config;
   llm: OpenAI;
-  mcp: HaMcpClient;
+  mcp: McpClient;
   memory: MemoryStore;
   /** Build a Telegram sender bound to a chat id. The single outbound primitive
    * now that there is no fixed default chat — `send_to_telegram` and the goal
@@ -110,6 +121,9 @@ export interface CommonDeps {
    * receiver so dispose() can stop it on shutdown. */
   telegramReceiver(): TelegramReceiver;
   goalRunner: GoalRunner;
+  /** Whether the Home Assistant integration is configured — gates HA-specific
+   *  system-prompt rules on the realtime path. */
+  haEnabled: boolean;
 }
 
 /** Initialise everything shared across runners. Call once per process. */
@@ -133,11 +147,22 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   initPromptRegistry(memory.prompts);
 
   const llm = new OpenAI({ apiKey: config.openai.apiKey });
-  const mcp = new HaMcpClient({ url: config.ha.url, token: config.ha.token });
   const senderFor = (chatId: string): TelegramSender =>
     new BotTelegramSender({ botToken: config.telegram.botToken, chatId });
 
-  await connectMcpWithRetry(mcp);
+  // Home Assistant comes from the web-configured integration, not env. No
+  // integration → a null MCP client (zero tools), so the agent runs without HA.
+  const ha = resolveHaConfig(memory.integrations);
+  const haEnabled = ha !== null;
+  let mcp: McpClient;
+  if (ha) {
+    const haClient = new HaMcpClient({ url: ha.url, token: ha.token });
+    await connectMcpWithRetry(haClient);
+    mcp = haClient;
+  } else {
+    log.warn('home-assistant integration not configured — HA MCP tools disabled');
+    mcp = new NullMcpClient();
+  }
 
   // Goal-mode agent: dedicated session, base system prompt (no channel suffix);
   // goal mode produces a written summary, never speaks.
@@ -146,7 +171,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     mcp,
     memory,
     session: new Session(),
-    systemPrompt: resolvePrompt('base-system'),
+    systemPrompt: basePromptParts(haEnabled).join('\n\n'),
     model: config.openai.model,
     reasoningEffort: config.openai.reasoningEffort,
     llmClient: llm,
@@ -163,7 +188,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
       mcp,
       memory,
       session: new Session(),
-      systemPrompt: buildSystemPromptFor(channel),
+      systemPrompt: buildSystemPromptFor(channel, haEnabled),
       model: config.openai.model,
       reasoningEffort: config.openai.reasoningEffort,
       llmClient: llm,
@@ -206,5 +231,6 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     dispose,
     telegramReceiver,
     goalRunner,
+    haEnabled,
   };
 }
