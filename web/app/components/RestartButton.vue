@@ -1,4 +1,6 @@
 <script setup lang="ts">
+const { data: cap } = await useFetch<{ available: boolean }>('/api/restart')
+
 const toast = useToast()
 const open = ref(false)
 const restarting = ref(false)
@@ -24,7 +26,7 @@ async function confirm() {
 </script>
 
 <template>
-  <div>
+  <div v-if="cap?.available">
     <UButton
       block
       color="neutral"
