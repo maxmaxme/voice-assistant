@@ -1,24 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { verifyBearer } from '../../src/realtime/auth.ts';
+import { bearerToken } from '../../src/realtime/auth.ts';
 
-describe('verifyBearer', () => {
-  it('accepts correct token', () => {
-    expect(verifyBearer('Bearer abc123', 'abc123')).toBe(true);
+describe('bearerToken', () => {
+  it('extracts the token from a Bearer header', () => {
+    expect(bearerToken('Bearer abc123')).toBe('abc123');
   });
 
-  it('rejects wrong token', () => {
-    expect(verifyBearer('Bearer wrong', 'abc123')).toBe(false);
+  it('returns null for a non-Bearer scheme', () => {
+    expect(bearerToken('Basic abc123')).toBeNull();
   });
 
-  it('rejects missing header', () => {
-    expect(verifyBearer(undefined, 'abc123')).toBe(false);
+  it('returns null when the header is missing', () => {
+    expect(bearerToken(undefined)).toBeNull();
   });
 
-  it('rejects non-Bearer scheme', () => {
-    expect(verifyBearer('Basic abc123', 'abc123')).toBe(false);
-  });
-
-  it('rejects empty expected token', () => {
-    expect(verifyBearer('Bearer abc123', '')).toBe(false);
+  it('returns null for an empty token', () => {
+    expect(bearerToken('Bearer ')).toBeNull();
   });
 });

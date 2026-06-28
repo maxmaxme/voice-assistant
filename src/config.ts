@@ -10,11 +10,11 @@ const ConfigSchema = z.object({
     dbPath: z.string().default('data/assistant.db'),
   }),
   realtime: z.object({
-    // Only infra/secret bits live here. The realtime enable switch + pacing +
-    // idle are DB-only config, read via `resolveRealtimeConfig` (settings table)
-    // — never from env. Model / voice / effort are on the OpenAI integration.
+    // Only the listen port lives here. The enable switch + pacing + idle are
+    // DB-only config (`resolveRealtimeConfig`); devices authenticate per-
+    // connection against the `voice` identities, so there is no env token.
+    // Model / voice / effort are on the OpenAI integration.
     port: z.coerce.number().int().min(1).max(65535).default(3001),
-    token: z.string().default(''),
   }),
 });
 
@@ -23,7 +23,6 @@ export type Config = z.infer<typeof ConfigSchema>;
 const PATH_TO_ENV: Record<string, string> = {
   'memory.dbPath': 'MEMORY_DB_PATH',
   'realtime.port': 'REALTIME_PORT',
-  'realtime.token': 'VA_DEVICE_TOKEN',
 };
 
 /** Read config from `env` (defaults to `process.env`). DB-backed setting
@@ -36,7 +35,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     realtime: {
       port: env.REALTIME_PORT,
-      token: env.VA_DEVICE_TOKEN,
     },
   };
   const parsed = ConfigSchema.safeParse(raw);

@@ -57,7 +57,7 @@ npm run http                       # http only
 
 npm run users -- add-user --name Alex                          # create a principal (person or speaker)
 npm run users -- attach-telegram --user <id> --chat <chatId>   # bind a Telegram chat to a user
-npm run users -- attach-voice --user <id> --token <token>      # bind a speaker's device token (VA_DEVICE_TOKEN)
+npm run users -- attach-voice --user <id> --token <token>      # bind a speaker's device token (presented on the WS handshake)
 npm run users -- mint-http --user <id>                         # mint an HTTP token (printed once; only its hash is stored)
 ```
 
@@ -232,8 +232,8 @@ owner (delete is exact-`(owner, key)`).
 **Per-request scope resolution.** `OpenAiAgent.respond()` takes an optional
 `profile: ScopedProfile` (falls back to a household view). The HTTP runner
 resolves the Bearer token → `{ userId }` (`resolveHttpScope`), the Telegram
-runner resolves the chatId (`resolveTelegramScope`), and the realtime bridge
-resolves the device token (`speakerProfile` in `unified.ts`) — each passes the
+runner resolves the chatId (`resolveTelegramScope`), and the realtime WS
+resolves the device token (`authorizeSpeaker` in `unified.ts`) — each passes the
 scoped profile in. So your Telegram chat, your HTTP token, and the speaker each
 read `household ∪ their own personal` and write personal by default; none sees
 another principal's personal.
@@ -248,12 +248,14 @@ identities are created and managed entirely via the `users` CLI (below).
   token's sha256 hash has an `http` identity (`httpTokenAllowed`);
   unknown/missing → 401. Scope = the resolved identity's `personal` + household.
   `/assist` resolves to whatever token the caller presents.
-- **Realtime `/voice`** authenticates the WS handshake against `VA_DEVICE_TOKEN`
-  (`wsServer.ts`); the bridge then resolves that token as a `voice` identity
-  (`speakerProfile`) so the **speaker has its own personal memory** (e.g.
-  "you are in the living room" → the speaker's personal, biasing its tool
-  choices). If the device token isn't registered as an identity, it falls back
-  to a household-only view.
+- **Realtime `/voice`** is DB-gated exactly like HTTP: the WS handshake's
+  Bearer token is sha256-hashed and looked up as a `voice` identity
+  (`authorizeSpeaker` → `wsServer.ts`); unknown/missing → handshake rejected
+  (`4401`). The resolved principal gives the **speaker its own personal memory**
+  (e.g. "you are in the living room" → the speaker's personal, biasing its tool
+  choices). There is no shared env token and no household fallback — each
+  speaker carries its own per-device token (registered via the web panel's
+  Users page or `attach-voice`).
 
 **Bootstrap (fresh DB).** A new DB has zero identities, so nobody can
 authenticate until you add principals via the CLI:
@@ -264,11 +266,11 @@ npm run users -- attach-telegram --user <id> --chat <chatId>
 npm run users -- mint-http --user <id>                       # prints the token once
 
 npm run users -- add-user --name living-room                 # the speaker
-npm run users -- attach-voice --user <id> --token <VA_DEVICE_TOKEN>
+npm run users -- attach-voice --user <id> --token <device-token>
 ```
 
-`VA_DEVICE_TOKEN` is still read for the WS handshake; `HTTP_API_KEYS` and
-`TELEGRAM_ALLOWED_CHAT_IDS` are **no longer used at all** (removed from config).
+`VA_DEVICE_TOKEN`, `HTTP_API_KEYS` and `TELEGRAM_ALLOWED_CHAT_IDS` are **no
+longer used at all** — every channel authenticates against DB identities.
 
 **Management CLI:** `npm run users -- <cmd>` (`cli/users.ts`): `add-user`,
 `attach-telegram`, `attach-voice`, `mint-http`, `set-admin`. `mint-http` prints
@@ -292,11 +294,11 @@ never hot-reloaded:
   `loadConfig({ ...process.env, ...buildEnvOverlay(memory.settings) })`. So
   precedence is **DB > env > zod default**. `buildEnvOverlay`
   (`src/settings/settable.ts`) filters stored rows to the `SETTABLE_KEYS`
-  whitelist, so a stray row can never override a **secret** — the only secret
-  left in env is `VA_DEVICE_TOKEN` (the realtime WS handshake), never settable
-  and stays in `.env`. (OpenAI's api key, Home Assistant's url/token, and the
-  Telegram bot token are no longer env at all — they live in the `integrations`
-  table, see the MCP client section.)
+  whitelist, so a stray row can never override anything sensitive. **No secrets
+  live in env any more**: OpenAI's api key, Home Assistant's url/token, and the
+  Telegram bot token are in the `integrations` table; realtime device tokens are
+  `voice` identities (hashes) in the `identities` table. (See the MCP client and
+  Realtime sections.)
 - **`prompts` table** (`src/settings/sqlitePrompts.ts`, `SqlitePrompts`) —
   editable prompt text for **all** prompts, fronted by the prompt registry
   (`src/agent/prompts/registry.ts`). `initPromptRegistry` (called in
@@ -419,16 +421,18 @@ Whisper spend on a Pi.
 
 The Voice PE direct-streaming path. A second server runs alongside the
 HTTP runner — **gated by the DB-backed realtime enable switch** (the web
-panel's Realtime page; read via `resolveRealtimeConfig`, not env) plus
-`VA_DEVICE_TOKEN` present — and exposes a WebSocket at `:3001/voice`.
-Each device opens one WS; the bridge brokers between the device, OpenAI's
-Realtime API, and the MCP client the agent core uses.
+panel's Realtime page; read via `resolveRealtimeConfig`, not env) — and exposes
+a WebSocket at `:3001/voice`. Devices authenticate per-connection against the
+`voice` identities (no shared env token). Each device opens one WS; the bridge
+brokers between the device, OpenAI's Realtime API, and the MCP client the agent
+core uses.
 
 Key files:
 
 - `src/realtime/wsServer.ts` — HTTP+WS on `REALTIME_PORT` (default
-  `3001`). Bearer-token auth via `VA_DEVICE_TOKEN`, single path
-  `/voice`. Spawns one `RealtimeBridge` per accepted connection.
+  `3001`). Bearer-token auth by `voice`-identity hash lookup
+  (`authorize` → `authorizeSpeaker`), single path `/voice`. Spawns one
+  `RealtimeBridge` per accepted connection, scoped to the resolved speaker.
 - `src/realtime/realtimeBridge.ts` — per-session orchestrator: device
   WS ↔ OpenAI Realtime ↔ HA MCP. Owns the phase state machine
   (`idle` / `listening` / `thinking` / `replying`), audio passthrough
@@ -476,7 +480,7 @@ Config sources:
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | enable + idle reset + output pacing | **DB-only realtime config** (`resolveRealtimeConfig`, `src/settings/realtimeConfig.ts`) — read from the `settings` table under `realtime.*` keys via the web panel's Realtime page (`/api/realtime`). NOT env, NOT in `SETTABLE_KEYS`. |
 | model / voice / effort              | **OpenAI integration** (`realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`) — provider-specific.                                                                                                                              |
-| `VA_DEVICE_TOKEN`                   | env — bearer token devices present on the WS handshake; realtime is skipped (with a warning) if enabled but unset.                                                                                                                     |
+| device token                        | **`voice` identity** in the `identities` table (sha256 of the per-device token). The WS hash-looks-up the presented Bearer; unknown → `4401`. Registered via the Users page / `attach-voice`. No env token.                            |
 | `REALTIME_PORT`                     | env, default `3001`.                                                                                                                                                                                                                   |
 
 ### MCP client (`src/mcp/haMcpClient.ts`)

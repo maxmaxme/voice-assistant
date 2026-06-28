@@ -71,7 +71,7 @@ async function save() {
       <UCard>
         <UFormField
           label="Enabled"
-          description="Start the realtime WebSocket server for Voice PE speakers. Leave off if you only use chat. Requires VA_DEVICE_TOKEN to be set."
+          description="Start the realtime WebSocket server for Voice PE speakers. Leave off if you only use chat. Each speaker authenticates with its own device token — add one under Users."
         >
           <USwitch v-model="form.enabled" />
         </UFormField>

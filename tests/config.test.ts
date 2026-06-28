@@ -5,45 +5,25 @@ describe('loadConfig', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    delete process.env.OPENAI_API_KEY;
     delete process.env.REALTIME_PORT;
-    delete process.env.VA_DEVICE_TOKEN;
-    delete process.env.OPENAI_REALTIME_MODEL;
-    delete process.env.OPENAI_REALTIME_VOICE;
-    delete process.env.OPENAI_REALTIME_REASONING_EFFORT;
   });
-
-  function setRequired(): void {
-    process.env.OPENAI_API_KEY = 'sk-xxx';
-    process.env.TELEGRAM_BOT_TOKEN = 'tg_tok';
-  }
 
   afterEach(() => {
     process.env = { ...originalEnv };
   });
 
-  it('realtime defaults: port 3001, empty token', () => {
-    setRequired();
+  it('realtime defaults: port 3001', () => {
     const cfg = loadConfig();
     expect(cfg.realtime.port).toBe(3001);
-    expect(cfg.realtime.token).toBe('');
   });
 
-  it('reads realtime port + device token from env', () => {
-    setRequired();
+  it('reads realtime port from env', () => {
     process.env.REALTIME_PORT = '3009';
-    process.env.VA_DEVICE_TOKEN = 'abc';
-    const cfg = loadConfig();
-    expect(cfg.realtime.port).toBe(3009);
-    expect(cfg.realtime.token).toBe('abc');
+    expect(loadConfig().realtime.port).toBe(3009);
   });
 
   it('reads from a passed env map instead of process.env', () => {
-    const env = {
-      TELEGRAM_BOT_TOKEN: 'tg',
-      REALTIME_PORT: '3030',
-    };
-    const cfg = loadConfig(env);
+    const cfg = loadConfig({ REALTIME_PORT: '3030' });
     expect(cfg.realtime.port).toBe(3030);
   });
 });

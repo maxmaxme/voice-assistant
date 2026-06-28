@@ -13,10 +13,9 @@ import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
 import { mcpToolsToRealtime, localToolsToRealtime } from '../realtime/toolAdapter.ts';
 import { applyHaToolSuffixes } from '../agent/toolBridge.ts';
 import { buildLocalToolset } from '../agent/localTools.ts';
-import { householdProfile, makeScopedProfile, type ScopedProfile } from '../memory/scope.ts';
+import { makeScopedProfile } from '../memory/scope.ts';
 import { hashToken } from '../memory/identities.ts';
 import type { IdentitiesAdapter } from '../memory/types.ts';
-import type { SqliteProfileMemory } from '../memory/sqliteProfileMemory.ts';
 import { appendUserContext } from '../agent/systemPrompt.ts';
 import { ToolResultCache, CACHEABLE_TOOLS } from '../realtime/toolCache.ts';
 import { Session } from '../agent/session.ts';
@@ -34,21 +33,21 @@ export interface RunnerSet {
   http: (deps: HttpRunnerDeps) => Promise<void>;
 }
 
-/** The memory profile for the Voice PE speaker: its own personal scope
- *  (household ∪ personal) when the device token is a registered `voice`
- *  identity, else a household-only view. */
-export function speakerProfile(
+/** Authenticate a Voice PE device by its bearer token: hash → `voice` identity.
+ *  Returns the owning principal, or null when the token is not a registered
+ *  device (the WS handshake then rejects it — there is no household fallback).
+ *  Stamps `last_used_at` on success. */
+export function authorizeSpeaker(
   identities: IdentitiesAdapter,
-  profileStore: SqliteProfileMemory,
-  deviceToken: string,
-): ScopedProfile {
-  const hash = deviceToken ? hashToken(deviceToken) : null;
-  const res = hash ? identities.resolve('voice', hash) : null;
-  if (!res || !hash) {
-    return householdProfile(profileStore);
+  token: string,
+): { userId: number } | null {
+  const hash = hashToken(token);
+  const res = identities.resolve('voice', hash);
+  if (!res) {
+    return null;
   }
   identities.touch('voice', hash);
-  return makeScopedProfile(profileStore, { userId: res.userId });
+  return { userId: res.userId };
 }
 
 /** Dispatch logic, exported for tests. Does NOT call initializeCommonDependencies
@@ -182,11 +181,9 @@ export async function main(): Promise<void> {
 
   let realtimeServer: RealtimeServer | null = null;
   // Realtime is opt-in via the DB-backed enable switch (web panel's Realtime
-  // page); the device token + port stay env (infra/secret).
-  if (deps.realtime.enabled && !deps.config.realtime.token) {
-    log.warn('realtime is enabled but VA_DEVICE_TOKEN is not set — skipping realtime server');
-  }
-  if (deps.realtime.enabled && deps.config.realtime.token) {
+  // page). Devices authenticate per-connection against the registered `voice`
+  // identities — no shared env token. Port stays env (infra).
+  if (deps.realtime.enabled) {
     // Process-wide cache shared across all bridges (each WS connection
     // spawns a fresh RealtimeBridge but they all hit the same HA — there's
     // no per-user state to isolate). Re-created on process restart so a
@@ -195,24 +192,19 @@ export async function main(): Promise<void> {
     const TOOL_CACHE_TTL_MS = 5_000;
     realtimeServer = await startRealtimeServer({
       port: deps.config.realtime.port,
-      token: deps.config.realtime.token,
-      buildBridgeDeps: async () => {
-        const profile = speakerProfile(
-          deps.memory.identities,
-          deps.memory.profileStore,
-          deps.config.realtime.token,
-        );
-        // The speaker's own principal (its voice identity), so scheduled-action
-        // tools are owner-aware. A speaker has no Telegram, so scheduling from
-        // it is refused by the tool — correct until speaker-side delivery exists.
-        const speakerRes = deps.config.realtime.token
-          ? deps.memory.identities.resolve('voice', hashToken(deps.config.realtime.token))
-          : null;
+      authorize: (token) => authorizeSpeaker(deps.memory.identities, token),
+      buildBridgeDeps: async (auth) => {
+        // The handshake already resolved the device to its owning principal, so
+        // the speaker reads household ∪ its own personal memory, and
+        // scheduled-action tools are owner-aware. A speaker has no Telegram, so
+        // scheduling from it is refused by the tool — correct until speaker-side
+        // delivery exists.
+        const profile = makeScopedProfile(deps.memory.profileStore, { userId: auth.userId });
         const localToolset = buildLocalToolset({
           profile,
           scheduledActions: deps.memory.scheduledActions,
           identities: deps.memory.identities,
-          ownerUserId: speakerRes?.userId ?? null,
+          ownerUserId: auth.userId,
           telegram: { senderFor: deps.senderFor },
         });
         return {

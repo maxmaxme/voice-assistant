@@ -116,7 +116,7 @@ const deviceValueLabel = computed(() => {
 })
 const deviceValueHelp = computed(() => {
   if (deviceChannel.value === 'telegram') return 'The Telegram chat id this user messages from.'
-  if (deviceChannel.value === 'voice') return 'The token the Voice PE speaker presents on its WebSocket connection (the firmware\'s VA_DEVICE_TOKEN / .env value). Stored as a hash — re-enter it to change.'
+  if (deviceChannel.value === 'voice') return 'The device token this speaker presents on its WebSocket connection (in the firmware\'s secrets.yaml). Stored as a hash — re-enter it to change.'
   // http
   return deviceMode.value === 'add'
     ? 'Leave blank to generate a strong random token (shown once).'

@@ -1,15 +1,22 @@
 import { createServer, type Server } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { createLogger } from '../utils/logger.ts';
-import { verifyBearer } from './auth.ts';
+import { bearerToken } from './auth.ts';
 import { RealtimeBridge, type BridgeDeps } from './realtimeBridge.ts';
 
 const log = createLogger('realtime-ws-server');
 
+/** A device that authenticated against the registered `voice` identities. */
+export interface SpeakerAuth {
+  userId: number;
+}
+
 export interface StartOptions {
   port: number;
-  token: string;
-  buildBridgeDeps: () => Promise<BridgeDeps>;
+  /** Resolve a device's bearer token to its owning principal (hash lookup
+   *  against the `voice` identities), or null to reject the handshake (4401). */
+  authorize: (token: string) => SpeakerAuth | null;
+  buildBridgeDeps: (auth: SpeakerAuth) => Promise<BridgeDeps>;
 }
 
 export interface RealtimeServer {
@@ -29,13 +36,15 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      if (!verifyBearer(req.headers.authorization, opts.token)) {
+      const token = bearerToken(req.headers.authorization);
+      const auth = token ? opts.authorize(token) : null;
+      if (!auth) {
         ws.close(4401, 'unauthorized');
         return;
       }
       void (async () => {
         try {
-          const deps = await opts.buildBridgeDeps();
+          const deps = await opts.buildBridgeDeps(auth);
           const bridge = new RealtimeBridge(ws, deps);
           await bridge.start();
         } catch (err) {

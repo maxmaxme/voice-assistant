@@ -9,17 +9,28 @@ const links = [
 
 const route = useRoute()
 const isActive = (to: string): boolean => route.path === to || route.path.startsWith(to + '/')
+
+// `import.meta.dev` is true in the dev server, false in the built prod image —
+// recolour the sidebar so a local tab is never confused with the Pi.
+const isLocal = import.meta.dev
 </script>
 
 <template>
   <div class="min-h-screen flex bg-[var(--ui-bg-muted)] text-[var(--ui-text)]">
-    <aside class="w-60 shrink-0 bg-violet-700 text-white flex flex-col">
+    <aside
+      class="w-60 shrink-0 text-white flex flex-col"
+      :class="isLocal ? 'bg-emerald-700' : 'bg-violet-700'"
+    >
       <div class="flex items-center gap-2.5 px-6 h-16">
         <UIcon
           name="i-lucide-mic"
           class="size-6"
         />
         <span class="text-lg font-semibold tracking-tight">Voice Assistant</span>
+        <span
+          v-if="isLocal"
+          class="ml-auto text-[10px] font-bold tracking-wider bg-black/25 rounded px-1.5 py-0.5"
+        >LOCAL</span>
       </div>
       <nav class="flex-1 px-3 mt-2 space-y-1">
         <NuxtLink
