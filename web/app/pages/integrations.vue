@@ -131,19 +131,25 @@ async function setEnabled(inst: InstalledIntegration, enabled: boolean) {
           :key="inst.def.type"
         >
           <div class="flex items-start justify-between gap-4">
-            <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="font-semibold">{{ inst.def.title }}</span>
-                <UBadge
-                  :color="inst.enabled ? 'success' : 'neutral'"
-                  variant="subtle"
-                >
-                  {{ inst.enabled ? 'Enabled' : 'Disabled' }}
-                </UBadge>
+            <div class="flex items-start gap-3 min-w-0">
+              <IntegrationLogo
+                :type="inst.def.type"
+                :alt="inst.def.title"
+              />
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold">{{ inst.def.title }}</span>
+                  <UBadge
+                    :color="inst.enabled ? 'success' : 'neutral'"
+                    variant="subtle"
+                  >
+                    {{ inst.enabled ? 'Enabled' : 'Disabled' }}
+                  </UBadge>
+                </div>
+                <p class="text-sm text-[var(--ui-text-muted)] mt-1">
+                  {{ inst.def.description }}
+                </p>
               </div>
-              <p class="text-sm text-[var(--ui-text-muted)] mt-1">
-                {{ inst.def.description }}
-              </p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <USwitch
@@ -186,11 +192,17 @@ async function setEnabled(inst: InstalledIntegration, enabled: boolean) {
           :key="def.type"
         >
           <div class="flex items-start justify-between gap-4">
-            <div class="min-w-0">
-              <span class="font-semibold">{{ def.title }}</span>
-              <p class="text-sm text-[var(--ui-text-muted)] mt-1">
-                {{ def.description }}
-              </p>
+            <div class="flex items-start gap-3 min-w-0">
+              <IntegrationLogo
+                :type="def.type"
+                :alt="def.title"
+              />
+              <div class="min-w-0">
+                <span class="font-semibold">{{ def.title }}</span>
+                <p class="text-sm text-[var(--ui-text-muted)] mt-1">
+                  {{ def.description }}
+                </p>
+              </div>
             </div>
             <UButton
               icon="i-lucide-plus"
@@ -216,6 +228,18 @@ async function setEnabled(inst: InstalledIntegration, enabled: boolean) {
     >
       <template #body>
         <div class="space-y-4">
+          <div
+            v-if="formDef"
+            class="flex items-center gap-3"
+          >
+            <IntegrationLogo
+              :type="formDef.type"
+              :alt="formDef.title"
+            />
+            <div class="font-semibold">
+              {{ formDef.title }}
+            </div>
+          </div>
           <UFormField
             v-for="f in formDef?.fields ?? []"
             :key="f.key"
