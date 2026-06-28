@@ -135,7 +135,7 @@ export async function dispatch(
       }
       return entry.session;
     };
-    const port = parseInt(process.env.HTTP_SERVER_PORT ?? '3000', 10);
+    const port = deps.config.http.port;
     tasks.push(
       runners.http({
         agent,

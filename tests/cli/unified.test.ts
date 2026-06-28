@@ -48,7 +48,7 @@ function makeMemoryStore(): MemoryStore {
 
 function makeDeps(): CommonDeps {
   return {
-    config: {} as unknown as CommonDeps['config'],
+    config: { http: { port: 3000 } } as unknown as CommonDeps['config'],
     llm: {} as unknown as OpenAI,
     mcp: {} as unknown as HaMcpClient,
     memory: makeMemoryStore(),
