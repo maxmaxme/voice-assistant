@@ -32,13 +32,18 @@ const groups: { label: string, match: (n: string) => boolean }[] = [
   { label: 'Tools', match: n => n.startsWith('tools/') },
   { label: 'Home Assistant', match: n => n.startsWith('ha-suffix/') },
 ]
-const selectItems = computed(() => {
-  const out: ({ type: 'label', label: string } | { label: string, value: string })[] = []
+// Options are plain strings (the full prompt name = the value); label/separator
+// objects form the group headings. This is the shape USelect infers a string
+// model from — mixing in {label,value} objects breaks that inference.
+type SelectItem = { type: 'label', label: string } | { type: 'separator' } | string
+const selectItems = computed<SelectItem[]>(() => {
+  const out: SelectItem[] = []
   for (const g of groups) {
     const inGroup = names.filter(g.match)
     if (!inGroup.length) continue
+    if (out.length) out.push({ type: 'separator' })
     out.push({ type: 'label', label: g.label })
-    for (const n of inGroup) out.push({ label: n.includes('/') ? n.split('/').pop()! : n, value: n })
+    out.push(...inGroup)
   }
   return out
 })
@@ -111,7 +116,7 @@ async function resetToDefault() {
             <USelect
               v-model="selected"
               class="w-full sm:w-80"
-              :items="(promptList?.prompts ?? []).map((p) => p.name)"
+              :items="selectItems"
               placeholder="Select a prompt"
             />
             <UBadge
@@ -163,7 +168,7 @@ async function resetToDefault() {
           </UButton>
           <UButton
             :loading="saving"
-            :disabled="!selected"
+            :disabled="!selected || !isDirty"
             icon="i-lucide-save"
             @click="save"
           >
