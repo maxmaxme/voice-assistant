@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import { createHash, randomBytes } from 'node:crypto'
 import Database from 'better-sqlite3'
 
 let handle: Database.Database | null = null
@@ -200,4 +201,215 @@ export function deleteIntegration(type: string): boolean {
     throw new DbNotReadyError('integrations')
   }
   return db().prepare(`DELETE FROM integrations WHERE type = ?`).run(type).changes > 0
+}
+
+// ── Users & devices (identities) ────────────────────────────────────────────
+// voice-assistant owns the `users` + `identities` schema (see src/memory/). We
+// only read/write existing rows. Hashing + token generation mirror
+// src/memory/identities.ts (sha256) and src/cli/users.ts (randomBytes(24).hex)
+// so a device minted here authenticates the same as one made via the CLI.
+
+export type Channel = 'telegram' | 'http' | 'voice'
+
+export interface DeviceRow {
+  id: number
+  channel: Channel
+  /** Raw chatId for telegram; sha256 hash for http/voice (never the token). */
+  identity: string
+  createdAt: number
+  lastUsedAt: number | null
+}
+
+export interface UserRow {
+  id: number
+  name: string
+  isAdmin: boolean
+  createdAt: number
+  devices: DeviceRow[]
+}
+
+/** Raised on a UNIQUE(channel, identity) collision so the API can answer 409. */
+export class IdentityConflictError extends Error {
+  constructor() {
+    super('That chat / token is already attached to a user.')
+    this.name = 'IdentityConflictError'
+  }
+}
+
+/** Map a known DB-layer error to an HTTP response; rethrow anything else. */
+export function dbErrorToHttp(e: unknown): never {
+  if (e instanceof DbNotReadyError) {
+    throw createError({ statusCode: 503, statusMessage: e.message })
+  }
+  if (e instanceof IdentityConflictError) {
+    throw createError({ statusCode: 409, statusMessage: e.message })
+  }
+  throw e
+}
+
+function hashToken(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex')
+}
+
+function genToken(): string {
+  return randomBytes(24).toString('hex')
+}
+
+function isUniqueViolation(e: unknown): boolean {
+  return Boolean(
+    e && typeof e === 'object' && 'code' in e
+    && String((e as { code: unknown }).code).startsWith('SQLITE_CONSTRAINT'),
+  )
+}
+
+export function listUsers(): UserRow[] {
+  if (!tableExists('users')) {
+    return []
+  }
+  const users = db()
+    .prepare(`SELECT id, name, is_admin AS isAdmin, created_at AS createdAt FROM users ORDER BY id`)
+    .all() as { id: number, name: string, isAdmin: number, createdAt: number }[]
+
+  const devices = tableExists('identities')
+    ? (db()
+        .prepare(
+          `SELECT id, channel, identity, user_id AS userId,
+                  created_at AS createdAt, last_used_at AS lastUsedAt
+           FROM identities ORDER BY id`,
+        )
+        .all() as (DeviceRow & { userId: number })[])
+    : []
+
+  const byUser = new Map<number, DeviceRow[]>()
+  for (const d of devices) {
+    const list = byUser.get(d.userId) ?? []
+    list.push({ id: d.id, channel: d.channel, identity: d.identity, createdAt: d.createdAt, lastUsedAt: d.lastUsedAt })
+    byUser.set(d.userId, list)
+  }
+
+  return users.map(u => ({
+    id: u.id,
+    name: u.name,
+    isAdmin: u.isAdmin === 1,
+    createdAt: u.createdAt,
+    devices: byUser.get(u.id) ?? [],
+  }))
+}
+
+export function createUser(name: string, isAdmin: boolean): number {
+  if (!tableExists('users')) {
+    throw new DbNotReadyError('users')
+  }
+  const r = db()
+    .prepare(`INSERT INTO users (name, created_at, is_admin) VALUES (?, ?, ?)`)
+    .run(name, Date.now(), isAdmin ? 1 : 0)
+  return Number(r.lastInsertRowid)
+}
+
+export function updateUser(id: number, name: string, isAdmin: boolean): boolean {
+  if (!tableExists('users')) {
+    throw new DbNotReadyError('users')
+  }
+  return db()
+    .prepare(`UPDATE users SET name = ?, is_admin = ? WHERE id = ?`)
+    .run(name, isAdmin ? 1 : 0, id).changes > 0
+}
+
+/** Delete a user and all its devices in one transaction (FK enforcement is off
+ *  on this connection, so we clear identities explicitly rather than rely on
+ *  ON DELETE CASCADE). */
+export function deleteUser(id: number): boolean {
+  if (!tableExists('users')) {
+    throw new DbNotReadyError('users')
+  }
+  const tx = db().transaction((uid: number): number => {
+    if (tableExists('identities')) {
+      db().prepare(`DELETE FROM identities WHERE user_id = ?`).run(uid)
+    }
+    return db().prepare(`DELETE FROM users WHERE id = ?`).run(uid).changes
+  })
+  return tx(id) > 0
+}
+
+/** Attach a device. telegram → chatId stored as-is; voice → sha256(token);
+ *  http → a fresh token is minted, hashed, and returned once (never stored). */
+export function addDevice(userId: number, channel: Channel, value: string): { token?: string } {
+  if (!tableExists('identities')) {
+    throw new DbNotReadyError('identities')
+  }
+  let identity: string
+  let token: string | undefined
+  if (channel === 'telegram') {
+    identity = value.trim()
+  }
+  else if (channel === 'voice') {
+    identity = hashToken(value.trim())
+  }
+  else {
+    token = genToken()
+    identity = hashToken(token)
+  }
+  try {
+    db()
+      .prepare(`INSERT INTO identities (channel, identity, user_id, created_at) VALUES (?, ?, ?, ?)`)
+      .run(channel, identity, userId, Date.now())
+  }
+  catch (e) {
+    if (isUniqueViolation(e)) throw new IdentityConflictError()
+    throw e
+  }
+  return { token }
+}
+
+/** Edit a device's value in place. telegram → new chatId; voice → re-hash the
+ *  new token. http hashes can't be edited (use remintDevice). Returns false if
+ *  the row is gone. */
+export function updateDevice(id: number, value: string): boolean {
+  if (!tableExists('identities')) {
+    throw new DbNotReadyError('identities')
+  }
+  const row = db().prepare(`SELECT channel FROM identities WHERE id = ?`).get(id) as
+    | { channel: Channel }
+    | undefined
+  if (!row) {
+    return false
+  }
+  if (row.channel === 'http') {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'HTTP tokens cannot be edited in place — re-mint instead.',
+    })
+  }
+  const identity = row.channel === 'voice' ? hashToken(value.trim()) : value.trim()
+  try {
+    return db().prepare(`UPDATE identities SET identity = ? WHERE id = ?`).run(identity, id).changes > 0
+  }
+  catch (e) {
+    if (isUniqueViolation(e)) throw new IdentityConflictError()
+    throw e
+  }
+}
+
+/** Issue a new http token for an existing http device, returning it once. Null
+ *  if the row is absent or not an http device. */
+export function remintDevice(id: number): { token: string } | null {
+  if (!tableExists('identities')) {
+    throw new DbNotReadyError('identities')
+  }
+  const row = db().prepare(`SELECT channel FROM identities WHERE id = ?`).get(id) as
+    | { channel: Channel }
+    | undefined
+  if (!row || row.channel !== 'http') {
+    return null
+  }
+  const token = genToken()
+  db().prepare(`UPDATE identities SET identity = ? WHERE id = ?`).run(hashToken(token), id)
+  return { token }
+}
+
+export function deleteDevice(id: number): boolean {
+  if (!tableExists('identities')) {
+    throw new DbNotReadyError('identities')
+  }
+  return db().prepare(`DELETE FROM identities WHERE id = ?`).run(id).changes > 0
 }

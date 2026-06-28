@@ -4,6 +4,7 @@ const links = [
   { label: 'Realtime', icon: 'i-lucide-radio', to: '/realtime' },
   { label: 'Prompts', icon: 'i-lucide-message-square-text', to: '/prompts' },
   { label: 'Integrations', icon: 'i-lucide-plug', to: '/integrations' },
+  { label: 'Users', icon: 'i-lucide-users', to: '/users' },
 ]
 
 const route = useRoute()

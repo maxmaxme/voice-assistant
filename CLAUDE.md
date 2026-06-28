@@ -30,9 +30,11 @@ build. Deployment (compose, systemd, healthchecks, rollback) lives
 outside this repo and is none of this codebase's concern.
 
 The `web/` subdir is a **separate Nuxt 4 SSR app** (its own image, its own
-Nitro server) — a config panel that edits the `settings` and `prompts` tables
-in the same SQLite DB. The core stays no-build; `web/` has its own toolchain.
-See `web/README.md` and the "Web config" section below.
+Nitro server) — a config panel that edits the `settings`, `prompts` and
+`integrations` tables (apply on next restart) and manages `users` + `identities`
+(applied live — auth reads them per request) in the same SQLite DB. The core
+stays no-build; `web/` has its own toolchain. See `web/README.md` and the "Web
+config" section below.
 
 ## Commands
 
@@ -269,9 +271,12 @@ npm run users -- attach-voice --user <id> --token <VA_DEVICE_TOKEN>
 `TELEGRAM_ALLOWED_CHAT_IDS` are **no longer used at all** (removed from config).
 
 **Management CLI:** `npm run users -- <cmd>` (`cli/users.ts`): `add-user`,
-`attach-telegram`, `attach-voice`, `mint-http`. `mint-http` prints the token
-once and stores only its hash. Editing/merging existing users & identities is
-done directly in the DB (or a future sqlite-web admin, out of this repo's scope).
+`attach-telegram`, `attach-voice`, `mint-http`, `set-admin`. `mint-http` prints
+the token once and stores only its hash. The **web panel's Users page** does the
+same CRUD (create/rename/admin-toggle users; add/edit/delete devices; mint &
+re-mint http tokens — same sha256 hashing as the CLI). Both write the same
+`users`/`identities` rows, which auth reads **live** (per request), so edits
+take effect immediately — no restart.
 
 ### Web config (settings & prompts)
 

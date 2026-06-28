@@ -55,3 +55,25 @@ export interface IntegrationsResponse {
   installed: InstalledIntegration[]
   available: IntegrationDef[]
 }
+
+export type Channel = 'telegram' | 'http' | 'voice'
+
+export interface Device {
+  id: number
+  channel: Channel
+  identity: string
+  createdAt: number
+  lastUsedAt: number | null
+}
+
+export interface User {
+  id: number
+  name: string
+  isAdmin: boolean
+  createdAt: number
+  devices: Device[]
+}
+
+export interface UsersResponse {
+  users: User[]
+}
