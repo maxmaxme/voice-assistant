@@ -42,6 +42,10 @@ export interface BridgeDeps {
   // a fresh conversation. 0 disables the timer (legacy behaviour — the
   // session only resets on OpenAI's hard 30/60-minute cap).
   idleResetMs?: number;
+  // Re-clock output audio to the device into fixed frames of this many ms
+  // rather than forwarding each OpenAI delta verbatim (which bursts ~8× real
+  // time and makes the device hiss). 0 disables pacing (legacy behaviour).
+  outputPacingMs?: number;
 }
 
 export class RealtimeBridge {
@@ -105,6 +109,25 @@ export class RealtimeBridge {
   // which marks the start of a genuinely new response.
   private dropResponseAudio = false;
 
+  // --- Output audio pacing ---------------------------------------------------
+  // OpenAI streams a reply far faster than real time (measured ~8×: a 2.9 s
+  // reply arrives in ~360 ms across a few large deltas). Forwarding each delta
+  // to the device the instant it lands dumps the whole reply as one burst,
+  // which the device playback chain can't absorb → hiss. When paceMs > 0 we
+  // instead buffer the PCM and meter it out in fixed paceMs frames on a timer,
+  // re-clocking the burst to ~real time (what pipecat does on the reference
+  // stack). The device's 150 ms prebuffer absorbs the residual timer jitter.
+  private readonly paceMs: number;
+  // Pending PCM16 @ 24 kHz not yet sent to the device. Grows as deltas arrive,
+  // drains one frame per timer tick. Only used when paceMs > 0.
+  private paceBuf: Buffer = Buffer.alloc(0);
+  private paceTimer: NodeJS.Timeout | null = null;
+  // Control actions that must reach the device AFTER the buffered audio (the
+  // end-of-reply phase=idle / request_follow_up). Run when paceBuf drains —
+  // otherwise the device would see "reply over" while seconds of audio are
+  // still queued here and close the turn / open the follow-up mic too early.
+  private afterDrainActions: Array<() => void> = [];
+
   // Tool calls for the in-progress response. Each `function_call_arguments.done`
   // pushes the promise that runs the tool + submits its `function_call_output`.
   // `response.done` awaits this list and then fires ONE `response.create` —
@@ -163,6 +186,7 @@ export class RealtimeBridge {
     this.deviceWs = deviceWs;
     this.deps = deps;
     this.idleResetMs = deps.idleResetMs ?? 0;
+    this.paceMs = deps.outputPacingMs ?? 0;
     // Inject two built-in flow-control tools ahead of MCP tools:
     //   - wait_for_user: incoming audio is silence/noise/echo; stay silent.
     //   - request_follow_up: model asked the user a clarifying question and
@@ -220,6 +244,9 @@ export class RealtimeBridge {
         'openai closed — will lazy-reconnect on next device audio',
       );
       this.openaiState = 'disconnected';
+      // The session (and the response its audio belonged to) is gone — drop
+      // any paced tail + deferred idle so they don't fire against a dead turn.
+      this.flushPaceQueue_();
       // Drop any in-flight follow-up watchdog: if we were mid-window when
       // the upstream went away, there's nothing to wait for.
       this.clearFollowUpWatchdog();
@@ -245,6 +272,7 @@ export class RealtimeBridge {
       log.info({ sessionId: this.sessionId }, 'device closed');
       this.clearFollowUpWatchdog();
       this.clearIdleResetTimer();
+      this.flushPaceQueue_();
       this.metrics.log(this.sessionId);
       this.openai.close();
     });
@@ -395,6 +423,9 @@ export class RealtimeBridge {
         this.followUpWindowRequested = false;
         this.openai.cancelResponse();
         this.dropResponseAudio = true;
+        // Drop any paced tail of the reply we're barging through (and its
+        // deferred idle), so it can't keep dribbling out under the new turn.
+        this.flushPaceQueue_();
         this.setPhase('listening');
       } else if (msg.type === 'interrupt') {
         // Device is aborting the current turn and returning to idle — a Stop
@@ -408,6 +439,8 @@ export class RealtimeBridge {
         this.followUpWindowRequested = false;
         this.openai.cancelResponse();
         this.dropResponseAudio = true;
+        // Stop word / no-speech abort: drop the paced tail + deferred idle.
+        this.flushPaceQueue_();
         this.setPhase('idle');
       } else if (msg.type === 'ping') {
         this.sendDevice({ type: 'pong' });
@@ -484,9 +517,11 @@ export class RealtimeBridge {
         this.metrics.mark('first_audio_out');
         if (typeof ev.delta === 'string') {
           const pcm24k = base64ToPcm16(ev.delta);
-          this.deviceWs.send(pcm24k, { binary: true });
-          this.setPhase('replying');
+          // Diagnostics measure the OpenAI→bridge edge, so record the delta as
+          // RECEIVED (the burst), regardless of how we then meter it out.
           this.recordAudioDelta_(pcm24k);
+          this.setPhase('replying');
+          this.sendAudio_(pcm24k);
         }
         break;
       }
@@ -596,10 +631,14 @@ export class RealtimeBridge {
               // Model spoke its question — now the follow-up mic window after
               // the reply makes sense. Open it and close out the phase.
               log.info('request_follow_up — opening device follow-up mic window');
-              this.sendDevice({ type: 'request_follow_up' });
               this.followUpPending = false;
-              this.setPhase('idle');
-              this.armFollowUpWatchdog();
+              // Defer past any paced audio: the follow-up mic must open AFTER
+              // the reply finishes playing, not while it's still draining here.
+              this.afterAudioDrain_(() => {
+                this.sendDevice({ type: 'request_follow_up' });
+                this.setPhase('idle');
+                this.armFollowUpWatchdog();
+              });
               break;
             }
             // Silent request_follow_up: a mic window with nothing spoken is
@@ -647,7 +686,9 @@ export class RealtimeBridge {
           // back to idle. Builtin flow-control tools have already set their own
           // phase. This covers pure-text responses.
           if (this.currentPhase === 'thinking' || this.currentPhase === 'replying') {
-            this.setPhase('idle');
+            // Defer past any paced audio so the device doesn't see the reply
+            // end (and go idle / drain) while frames are still queued here.
+            this.afterAudioDrain_(() => this.setPhase('idle'));
           }
           break;
         }
@@ -777,6 +818,72 @@ export class RealtimeBridge {
 
   private sendDevice(msg: ServerMessage): void {
     this.deviceWs.send(encodeServerMessage(msg));
+  }
+
+  /** Send one PCM16 @ 24 kHz chunk to the device. With pacing off, forward it
+   * verbatim (legacy burst). With pacing on, buffer it and let the timer meter
+   * it out in paceMs frames. */
+  private sendAudio_(pcm: Buffer): void {
+    if (this.paceMs <= 0) {
+      this.deviceWs.send(pcm, { binary: true });
+      return;
+    }
+    this.paceBuf = this.paceBuf.length === 0 ? pcm : Buffer.concat([this.paceBuf, pcm]);
+    if (this.paceTimer === null) {
+      const t = setInterval(() => this.drainPace_(), this.paceMs);
+      t.unref?.();
+      this.paceTimer = t;
+    }
+  }
+
+  /** Run `fn` once the paced audio queue has fully drained to the device — or
+   * immediately when pacing is off / the queue is already empty. Used for the
+   * end-of-reply control messages (idle phase, request_follow_up) that must
+   * reach the device AFTER its audio, not while frames are still queued here. */
+  private afterAudioDrain_(fn: () => void): void {
+    if (this.paceMs <= 0 || this.paceBuf.length === 0) {
+      fn();
+      return;
+    }
+    this.afterDrainActions.push(fn);
+  }
+
+  /** Pacer tick: emit one paced frame; when the queue empties, stop the timer
+   * and run any deferred end-of-reply actions. */
+  private drainPace_(): void {
+    if (this.paceBuf.length === 0) {
+      this.stopPaceTimer_();
+      const actions = this.afterDrainActions;
+      this.afterDrainActions = [];
+      for (const fn of actions) {
+        fn();
+      }
+      return;
+    }
+    // Even byte count so a PCM16 sample is never split across frames.
+    const frameBytes = Math.max(
+      2,
+      Math.floor((RealtimeBridge.REALTIME_BYTES_PER_SEC * this.paceMs) / 1000 / 2) * 2,
+    );
+    const n = Math.min(frameBytes, this.paceBuf.length);
+    this.deviceWs.send(this.paceBuf.subarray(0, n), { binary: true });
+    this.paceBuf = this.paceBuf.subarray(n);
+  }
+
+  /** Drop all buffered audio + deferred end-of-reply actions and stop the
+   * pacer. Called when the reply is cancelled (barge-in / interrupt) or the
+   * session / device goes away — the queued tail is no longer wanted. */
+  private flushPaceQueue_(): void {
+    this.paceBuf = Buffer.alloc(0);
+    this.afterDrainActions = [];
+    this.stopPaceTimer_();
+  }
+
+  private stopPaceTimer_(): void {
+    if (this.paceTimer !== null) {
+      clearInterval(this.paceTimer);
+      this.paceTimer = null;
+    }
   }
 
   /** Diagnostics only. Track one OpenAI→bridge audio delta (already past the

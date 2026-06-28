@@ -29,6 +29,13 @@ const ConfigSchema = z.object({
       .int()
       .min(0)
       .default(90 * 1000),
+    // Re-clock OpenAI's output audio to the device into fixed frames of this
+    // many ms instead of forwarding each delta the instant it arrives. OpenAI
+    // bursts a reply far faster than real time (measured ~8× — a 2.9 s reply
+    // delivered in ~360 ms); the device's playback chain can't absorb that and
+    // hisses. Pacing meters the burst out at ~real time, mirroring what
+    // pipecat does. 0 = disabled (forward verbatim, legacy behaviour).
+    outputPacingMs: z.coerce.number().int().min(0).max(200).default(20),
   }),
 });
 
@@ -49,6 +56,7 @@ const PATH_TO_ENV: Record<string, string> = {
   'realtime.voice': 'OPENAI_REALTIME_VOICE',
   'realtime.reasoningEffort': 'OPENAI_REALTIME_REASONING_EFFORT',
   'realtime.idleResetMs': 'REALTIME_IDLE_RESET_MS',
+  'realtime.outputPacingMs': 'REALTIME_OUTPUT_PACING_MS',
 };
 
 export function loadConfig(): Config {
@@ -76,6 +84,7 @@ export function loadConfig(): Config {
       voice: process.env.OPENAI_REALTIME_VOICE,
       reasoningEffort: process.env.OPENAI_REALTIME_REASONING_EFFORT,
       idleResetMs: process.env.REALTIME_IDLE_RESET_MS,
+      outputPacingMs: process.env.REALTIME_OUTPUT_PACING_MS,
     },
   };
   const parsed = ConfigSchema.safeParse(raw);

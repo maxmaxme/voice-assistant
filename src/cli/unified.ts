@@ -206,6 +206,7 @@ export async function main(): Promise<void> {
           voice: deps.config.realtime.voice,
           reasoningEffort: deps.config.realtime.reasoningEffort,
           idleResetMs: deps.config.realtime.idleResetMs,
+          outputPacingMs: deps.config.realtime.outputPacingMs,
           instructions: appendUserContext(buildSystemPromptFor('realtime'), profile.recall()),
           tools: [
             ...mcpToolsToRealtime(applyHaToolSuffixes(await deps.mcp.listTools())),

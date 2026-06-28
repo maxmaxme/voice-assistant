@@ -885,3 +885,73 @@ describe('RealtimeBridge upstream error handling', () => {
     expect(serverMessages()).toContainEqual({ type: 'error', message: 'upstream blew up' });
   });
 });
+
+describe('RealtimeBridge output pacing', () => {
+  // Drive a synchronous upstream event (no internal setTimeout to flush, so it
+  // works under fake timers — the no-tool response.done path is synchronous).
+  function feedSync(client: FakeOpenAiClient, ev: unknown): void {
+    openaiEventListener(client)(ev);
+  }
+  // base64 PCM16 @ 24kHz of `ms` milliseconds (48 bytes/ms).
+  function audioDeltaMs(ms: number): string {
+    return Buffer.alloc(ms * 48).toString('base64');
+  }
+  const doneNoTools = {
+    type: 'response.done',
+    response: { id: 'r1', status: 'completed', output: [] },
+  };
+
+  it('meters audio into ~20ms frames and defers idle until the queue drains', async () => {
+    vi.useFakeTimers();
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ outputPacingMs: 20 }));
+    await bridge.start();
+    const client = currentClient();
+    feedSync(client, { type: 'response.created', response: { id: 'r1' } });
+    // 50ms of audio → three 20ms frames (960 + 960 + 480 bytes).
+    feedSync(client, { type: 'response.output_audio.delta', delta: audioDeltaMs(50) });
+    // Buffered, not yet metered out.
+    expect(audioFramesSent()).toBe(0);
+    feedSync(client, doneNoTools);
+    // The reply isn't "over" for the device yet — idle is deferred behind audio.
+    expect(phasesSent().at(-1)).toBe('replying');
+
+    await vi.advanceTimersByTimeAsync(20);
+    expect(audioFramesSent()).toBe(1);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(audioFramesSent()).toBe(2);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(audioFramesSent()).toBe(3);
+    // Queue now empty; the next tick runs the deferred end-of-reply idle.
+    await vi.advanceTimersByTimeAsync(20);
+    expect(phasesSent().at(-1)).toBe('idle');
+  });
+
+  it('forwards each delta verbatim and emits idle immediately when pacing is off', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ outputPacingMs: 0 }));
+    await bridge.start();
+    const client = currentClient();
+    await feedOpenAi(client, { type: 'response.created', response: { id: 'r1' } });
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDeltaMs(50) });
+    // Legacy behaviour: the whole delta goes out as one send, no metering.
+    expect(audioFramesSent()).toBe(1);
+    await feedOpenAi(client, doneNoTools);
+    expect(phasesSent().at(-1)).toBe('idle');
+  });
+
+  it('drops the paced tail (and deferred idle) on barge-in', async () => {
+    vi.useFakeTimers();
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ outputPacingMs: 20 }));
+    await bridge.start();
+    const client = currentClient();
+    feedSync(client, { type: 'response.created', response: { id: 'r1' } });
+    feedSync(client, { type: 'response.output_audio.delta', delta: audioDeltaMs(100) });
+    feedSync(client, doneNoTools);
+    await vi.advanceTimersByTimeAsync(20);
+    const framesBeforeBarge = audioFramesSent();
+    expect(framesBeforeBarge).toBe(1);
+    // Wake word during the reply: the queued tail must stop draining.
+    deviceControl({ type: 'start' });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(audioFramesSent()).toBe(framesBeforeBarge);
+  });
+});
