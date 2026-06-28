@@ -112,6 +112,22 @@ export const INTEGRATIONS: IntegrationDef[] = [
     ],
     test: testOpenai,
   },
+  {
+    type: 'telegram',
+    title: 'Telegram',
+    description:
+      'Chat with the assistant from a Telegram bot — text and voice messages.',
+    fields: [
+      {
+        key: 'botToken',
+        label: 'Bot token',
+        type: 'password',
+        required: true,
+        help: 'Create a bot with @BotFather and paste the token it gives you.',
+      },
+    ],
+    test: testTelegram,
+  },
 ]
 
 /** Which integration (by type) owns a given prompt name, or null if it's a
@@ -230,6 +246,34 @@ async function testHomeAssistant(config: Config): Promise<TestResult> {
       return { ok: false, message: `Home Assistant returned HTTP ${res.status}.` }
     }
     return { ok: true, message: 'Connected to Home Assistant.' }
+  }
+  catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+async function testTelegram(config: Config): Promise<TestResult> {
+  const token = (config.botToken ?? '').trim()
+  if (!token) {
+    return { ok: false, message: 'Bot token is required.' }
+  }
+  try {
+    // getMe validates the token without side effects and returns the bot's name.
+    const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (res.status === 401) {
+      return { ok: false, message: 'Unauthorized — check the bot token.' }
+    }
+    if (!res.ok) {
+      return { ok: false, message: `Telegram returned HTTP ${res.status}.` }
+    }
+    const body = await res.json() as { ok?: boolean, result?: { username?: string } }
+    if (!body.ok) {
+      return { ok: false, message: 'Telegram rejected the bot token.' }
+    }
+    const handle = body.result?.username
+    return { ok: true, message: handle ? `Connected as @${handle}.` : 'Connected to Telegram.' }
   }
   catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) }
