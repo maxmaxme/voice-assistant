@@ -32,7 +32,7 @@
   "engines": {
     "node": ">=24.0.0"
   },
-  "license": "ISC",
+  "license": "AGPL-3.0-or-later",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.13",
