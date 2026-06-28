@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { RealtimeResponse } from '~/types'
 
-useHead({ title: 'Realtime' })
+useHead({ title: 'HA Voice' })
 
 const toast = useToast()
 const { data, refresh } = await useFetch<RealtimeResponse>('/api/realtime')
@@ -46,10 +46,24 @@ async function save() {
   <div>
     <header class="mb-8">
       <h1 class="text-3xl font-bold tracking-tight">
-        Realtime
+        HA Voice
       </h1>
       <p class="text-[var(--ui-text-muted)] mt-1">
-        The Voice PE direct-streaming voice path. Changes apply on the next restart.
+        The direct-streaming voice path for
+        <a
+          href="https://www.home-assistant.io/voice-pe/"
+          target="_blank"
+          rel="noreferrer"
+          class="text-[var(--ui-primary)] underline underline-offset-2"
+        >Home Assistant Voice PE</a>
+        speakers running the
+        <a
+          href="https://github.com/maxmaxme/home-assistant-voice-pe"
+          target="_blank"
+          rel="noreferrer"
+          class="text-[var(--ui-primary)] underline underline-offset-2"
+        >home-assistant-voice-pe</a>
+        firmware. Only those speakers connect to it. Changes apply on the next restart.
       </p>
     </header>
 

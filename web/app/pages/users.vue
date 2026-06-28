@@ -116,7 +116,7 @@ const deviceValueLabel = computed(() => {
 })
 const deviceValueHelp = computed(() => {
   if (deviceChannel.value === 'telegram') return 'The Telegram chat id this user messages from.'
-  if (deviceChannel.value === 'voice') return 'The speaker\'s VA_DEVICE_TOKEN. Stored hashed; enter it again to change.'
+  if (deviceChannel.value === 'voice') return 'The token the Voice PE speaker presents on its WebSocket connection (the firmware\'s VA_DEVICE_TOKEN / .env value). Stored as a hash — re-enter it to change.'
   // http
   return deviceMode.value === 'add'
     ? 'Leave blank to generate a strong random token (shown once).'
@@ -438,6 +438,20 @@ async function copyToken() {
               :placeholder="devicePlaceholder"
             />
           </UFormField>
+
+          <p
+            v-if="deviceChannel === 'voice'"
+            class="text-xs text-[var(--ui-text-muted)]"
+          >
+            Voice is the realtime path for the
+            <a
+              href="https://github.com/maxmaxme/home-assistant-voice-pe"
+              target="_blank"
+              rel="noreferrer"
+              class="text-[var(--ui-primary)] underline underline-offset-2"
+            >home-assistant-voice-pe</a>
+            firmware only.
+          </p>
         </div>
       </template>
       <template #footer>
