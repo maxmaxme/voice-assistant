@@ -2,14 +2,12 @@ import 'dotenv/config';
 import { z } from 'zod';
 
 const ConfigSchema = z.object({
-  // Home Assistant AND OpenAI connections are no longer env concerns — they're
-  // configured via the web panel's integrations and read from the DB at startup
-  // (see src/integrations/). Only process-level + universal realtime knobs here.
+  // Home Assistant, OpenAI AND Telegram connections are no longer env concerns —
+  // they're configured via the web panel's integrations and read from the DB at
+  // startup (see src/integrations/). Only process-level + universal realtime
+  // knobs here.
   memory: z.object({
     dbPath: z.string().default('data/assistant.db'),
-  }),
-  telegram: z.object({
-    botToken: z.string().min(1),
   }),
   realtime: z.object({
     // enabled / model / voice / reasoningEffort come from the OpenAI integration.
@@ -35,7 +33,6 @@ export type Config = z.infer<typeof ConfigSchema>;
 
 const PATH_TO_ENV: Record<string, string> = {
   'memory.dbPath': 'MEMORY_DB_PATH',
-  'telegram.botToken': 'TELEGRAM_BOT_TOKEN',
   'realtime.port': 'REALTIME_PORT',
   'realtime.token': 'VA_DEVICE_TOKEN',
   'realtime.idleResetMs': 'REALTIME_IDLE_RESET_MS',
@@ -49,9 +46,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const raw = {
     memory: {
       dbPath: env.MEMORY_DB_PATH,
-    },
-    telegram: {
-      botToken: env.TELEGRAM_BOT_TOKEN,
     },
     realtime: {
       port: env.REALTIME_PORT,

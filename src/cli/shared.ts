@@ -7,13 +7,14 @@ import { NullMcpClient } from '../mcp/nullMcpClient.ts';
 import type { McpClient } from '../mcp/types.ts';
 import { resolveHaConfig } from '../integrations/homeAssistant.ts';
 import { resolveOpenAiConfig, type OpenAiConfig } from '../integrations/openai.ts';
+import { resolveTelegramConfig, type TelegramConfig } from '../integrations/telegram.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
 import type { MemoryStore } from '../memory/types.ts';
 import { initPromptRegistry, resolvePrompt } from '../agent/prompts/registry.ts';
 import { buildEnvOverlay } from '../settings/settable.ts';
-import { receiverFromConfig } from '../telegram/fromConfig.ts';
+import { receiverFromToken } from '../telegram/fromConfig.ts';
 import { BotTelegramSender } from '../telegram/telegramSender.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
 import { buildGoalRunner, type GoalRunner } from '../scheduling/goalRunner.ts';
@@ -128,6 +129,9 @@ export interface CommonDeps {
   /** Resolved OpenAI integration config (api key, models, realtime settings).
    *  The realtime server starts only when `openai.realtime.enabled`. */
   openai: OpenAiConfig;
+  /** Resolved Telegram integration config, or null when not installed/enabled.
+   *  Null → the telegram runner doesn't start and `senderFor` throws on send. */
+  telegram: TelegramConfig | null;
 }
 
 /** Initialise everything shared across runners. Call once per process. */
@@ -158,8 +162,20 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     );
   }
   const llm = new OpenAI({ apiKey: openai.apiKey, baseURL: openai.baseUrl });
+
+  // Telegram comes from the web-configured integration, not env. When it's not
+  // configured, senderFor still exists (the goal runner and send_to_telegram
+  // call it unconditionally) but throws on send so the failure is visible
+  // instead of silently dropped.
+  const telegram = resolveTelegramConfig(memory.integrations);
   const senderFor = (chatId: string): TelegramSender =>
-    new BotTelegramSender({ botToken: config.telegram.botToken, chatId });
+    telegram
+      ? new BotTelegramSender({ botToken: telegram.botToken, chatId })
+      : {
+          send: async (): Promise<void> => {
+            throw new Error('Telegram integration is not configured.');
+          },
+        };
 
   // Home Assistant comes from the web-configured integration, not env. No
   // integration → a null MCP client (zero tools), so the agent runs without HA.
@@ -217,7 +233,10 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
 
   let activeReceiver: TelegramReceiver | null = null;
   const telegramReceiver = (): TelegramReceiver => {
-    activeReceiver = receiverFromConfig(config);
+    if (!telegram) {
+      throw new Error('Telegram integration is not configured.');
+    }
+    activeReceiver = receiverFromToken(telegram.botToken);
     return activeReceiver;
   };
 
@@ -246,5 +265,6 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     goalRunner,
     haEnabled,
     openai,
+    telegram,
   };
 }

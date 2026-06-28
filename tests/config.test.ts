@@ -24,18 +24,6 @@ describe('loadConfig', () => {
     process.env = { ...originalEnv };
   });
 
-  it('reads telegram bot token', () => {
-    setRequired();
-    const cfg = loadConfig();
-    expect(cfg.telegram.botToken).toBe('tg_tok');
-  });
-
-  it('throws when TELEGRAM_BOT_TOKEN is missing', () => {
-    setRequired();
-    delete process.env.TELEGRAM_BOT_TOKEN;
-    expect(() => loadConfig()).toThrow(/TELEGRAM_BOT_TOKEN/);
-  });
-
   it('realtime defaults: port 3001, empty token', () => {
     setRequired();
     const cfg = loadConfig();

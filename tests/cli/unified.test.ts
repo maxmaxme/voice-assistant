@@ -48,9 +48,7 @@ function makeMemoryStore(): MemoryStore {
 
 function makeDeps(): CommonDeps {
   return {
-    config: {
-      telegram: { botToken: 'X' },
-    } as unknown as CommonDeps['config'],
+    config: {} as unknown as CommonDeps['config'],
     llm: {} as unknown as OpenAI,
     mcp: {} as unknown as HaMcpClient,
     memory: makeMemoryStore(),
@@ -64,6 +62,7 @@ function makeDeps(): CommonDeps {
       webSearch: false,
       realtime: { enabled: false, model: 'rt', voice: 'marin', reasoningEffort: 'low' },
     },
+    telegram: { botToken: 'X' },
     buildAgent: vi.fn(
       () =>
         ({ opts: { session: { reset: vi.fn() } } }) as unknown as ReturnType<
@@ -126,6 +125,22 @@ describe('dispatch', () => {
     expect(httpStarted).toHaveBeenCalled();
     expect(deps.buildAgent).toHaveBeenCalledWith('telegram');
     expect(deps.buildAgent).toHaveBeenCalledWith('http');
+  });
+
+  it('skips the telegram runner when the Telegram integration is not configured', async () => {
+    const deps = { ...makeDeps(), telegram: null };
+    const runners = makeRunners();
+    await dispatch('both', deps, runners as never);
+    expect(runners.http).toHaveBeenCalledTimes(1);
+    expect(runners.telegram).not.toHaveBeenCalled();
+  });
+
+  it('throws when telegram-only mode has no Telegram integration', async () => {
+    const deps = { ...makeDeps(), telegram: null };
+    const runners = makeRunners();
+    await expect(dispatch('telegram', deps, runners as never)).rejects.toThrow(
+      /No runners scheduled/,
+    );
   });
 
   it('starts and stops the scheduler around runners', async () => {

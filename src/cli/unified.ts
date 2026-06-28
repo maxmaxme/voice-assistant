@@ -60,7 +60,14 @@ export async function dispatch(
 ): Promise<void> {
   const tasks: Promise<void>[] = [];
 
-  if (mode === 'telegram' || mode === 'both') {
+  const telegram = deps.telegram;
+  const wantsTelegram = mode === 'telegram' || mode === 'both';
+  if (wantsTelegram && !telegram) {
+    log.warn(
+      'telegram mode requested but the Telegram integration is not configured — skipping telegram runner',
+    );
+  }
+  if (wantsTelegram && telegram) {
     const agent = deps.buildAgent('telegram');
     // Per-chat self-persisting Sessions. No client-side TTL — when OpenAI
     // eventually evicts a stale `previous_response_id` (currently after
@@ -86,13 +93,13 @@ export async function dispatch(
         memory: deps.memory,
         identities: deps.memory.identities,
         profileStore: deps.memory.profileStore,
-        replyTo: perChatSender(deps.config.telegram.botToken),
+        replyTo: perChatSender(telegram.botToken),
         voiceTranscriber: new BotVoiceTranscriber({
-          botToken: deps.config.telegram.botToken,
+          botToken: telegram.botToken,
           stt: new OpenAiStt({ client: deps.llm }),
         }),
         photoLoader: new BotPhotoLoader({
-          botToken: deps.config.telegram.botToken,
+          botToken: telegram.botToken,
         }),
       }),
     );

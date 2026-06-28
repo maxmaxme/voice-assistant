@@ -59,8 +59,9 @@ npm install
 
 # 2. .env
 cp .env.example .env
-# Fill OPENAI_API_KEY, TELEGRAM_BOT_TOKEN. (Home Assistant is configured in the
-# web panel's Integrations, not here — see web/.)
+# OpenAI, Home Assistant and Telegram are configured in the web panel's
+# Integrations, not here — see web/. .env only carries process/infra knobs
+# (e.g. VA_DEVICE_TOKEN for the realtime WS handshake).
 # HTTP/Telegram auth and outbound recipients are DB-backed — create
 # users/tokens and bind chats with `npm run users` (see below). There is no
 # HTTP_API_KEYS / TELEGRAM_ALLOWED_CHAT_IDS / TELEGRAM_CHAT_ID env.
@@ -83,11 +84,13 @@ The agent runs a Telegram bot that accepts text, voice, and photo input.
 Setup:
 
 1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token,
-   set `TELEGRAM_BOT_TOKEN` in `.env`.
+   then install & enable the **Telegram** integration in the web panel's
+   Integrations (paste the token there). The telegram runner only starts when
+   the integration is configured.
 2. Find your chat ID by messaging the bot once and running:
 
    ```bash
-   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates" \
+   curl -s "https://api.telegram.org/bot<token>/getUpdates" \
      | jq '.result[].message.chat.id' | sort -u
    ```
 

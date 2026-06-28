@@ -6,9 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Personal voice assistant for smart-home control. Targets a Raspberry Pi 5
 runtime, dev happens on macOS. Cloud-heavy stack: OpenAI for STT and the LLM;
-Home Assistant via the official MCP Server integration for device control. Both
-OpenAI and HA are configured through the **web panel's Integrations** (DB-backed),
-not env — OpenAI is mandatory, HA is optional. See the MCP client section.
+Home Assistant via the official MCP Server integration for device control.
+OpenAI, HA and Telegram are configured through the **web panel's Integrations**
+(DB-backed), not env — OpenAI is mandatory, HA and Telegram are optional. See the
+MCP client section.
 
 Inputs into the agent core, and who actually drives each one today:
 
@@ -286,10 +287,11 @@ never hot-reloaded:
   `loadConfig({ ...process.env, ...buildEnvOverlay(memory.settings) })`. So
   precedence is **DB > env > zod default**. `buildEnvOverlay`
   (`src/settings/settable.ts`) filters stored rows to the `SETTABLE_KEYS`
-  whitelist, so a stray row can never override a **secret** — secrets
-  (`OPENAI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `VA_DEVICE_TOKEN`) are never settable
-  and stay in `.env`. (Home Assistant's url/token are no longer env at all —
-  they live in the `integrations` table, see the MCP client section.)
+  whitelist, so a stray row can never override a **secret** — the only secret
+  left in env is `VA_DEVICE_TOKEN` (the realtime WS handshake), never settable
+  and stays in `.env`. (OpenAI's api key, Home Assistant's url/token, and the
+  Telegram bot token are no longer env at all — they live in the `integrations`
+  table, see the MCP client section.)
 - **`prompts` table** (`src/settings/sqlitePrompts.ts`, `SqlitePrompts`) —
   editable prompt text for **all** prompts, fronted by the prompt registry
   (`src/agent/prompts/registry.ts`). `initPromptRegistry` (called in
@@ -318,13 +320,21 @@ Server timezone: `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). The `[unifi
 
 ### Telegram (`src/telegram/`)
 
+**Telegram is a web-panel integration, not env** (`resolveTelegramConfig`,
+`src/integrations/telegram.ts`). It's **optional**: `cli/shared.ts` reads the
+`telegram` row from the `integrations` table for the bot token. When it's
+absent/disabled the **telegram runner doesn't start** (a warning is logged if
+`AGENT_MODE` asked for it — mirroring the realtime gate), and `senderFor`
+returns a sender that **throws on send** so a stray goal/`send_to_telegram`
+fails loudly instead of dropping silently. `TELEGRAM_BOT_TOKEN` /
+`TELEGRAM_CHAT_ID` env vars are no longer read.
+
 Bidirectional. **Outbound:** `TelegramSender` interface, `BotTelegramSender`
 posts to `https://api.telegram.org/bot<token>/sendMessage` for one chat id.
 There is **no fixed default chat** — `shared.ts` exposes a
 `senderFor(chatId)` factory, and both the `send_to_telegram` tool and the
 goal runner resolve a recipient's chat via DB identities
 (`identities.identityFor` / `listTelegramUsers`) before building a sender.
-`TELEGRAM_CHAT_ID` is **no longer used** (removed from config).
 
 **Inbound:** `TelegramReceiver` interface, `GrammyReceiver` long-polls via
 grammY (`bot.start({ drop_pending_updates: false })`; a fatal polling failure
