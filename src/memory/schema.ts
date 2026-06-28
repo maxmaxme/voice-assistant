@@ -79,6 +79,15 @@ export const settings = sqliteTable('settings', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+// Configured integrations (e.g. Home Assistant). Admin-managed via the web
+// panel; `config` is a JSON blob whose shape is defined by the integration's
+// catalog entry. A row present = installed. Not yet read by the agent core.
+export const integrations = sqliteTable('integrations', {
+  type: text('type').primaryKey(),
+  config: text('config').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const prompts = sqliteTable('prompts', {
   name: text('name').primaryKey(),
   content: text('content').notNull(),

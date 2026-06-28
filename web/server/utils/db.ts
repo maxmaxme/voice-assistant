@@ -131,3 +131,48 @@ export function resetPrompt(name: string): boolean {
     .run(Date.now(), name)
   return result.changes > 0
 }
+
+export interface IntegrationRow {
+  type: string
+  config: Record<string, string>
+  updatedAt: number
+}
+
+export function listIntegrations(): IntegrationRow[] {
+  if (!tableExists('integrations')) {
+    return []
+  }
+  const rows = db()
+    .prepare(`SELECT type, config, updated_at AS updatedAt FROM integrations`)
+    .all() as { type: string, config: string, updatedAt: number }[]
+  return rows.map(r => ({ type: r.type, config: JSON.parse(r.config), updatedAt: r.updatedAt }))
+}
+
+export function getIntegration(type: string): IntegrationRow | null {
+  if (!tableExists('integrations')) {
+    return null
+  }
+  const row = db()
+    .prepare(`SELECT type, config, updated_at AS updatedAt FROM integrations WHERE type = ?`)
+    .get(type) as { type: string, config: string, updatedAt: number } | undefined
+  return row ? { type: row.type, config: JSON.parse(row.config), updatedAt: row.updatedAt } : null
+}
+
+export function upsertIntegration(type: string, config: Record<string, string>): void {
+  if (!tableExists('integrations')) {
+    throw new DbNotReadyError('integrations')
+  }
+  db()
+    .prepare(
+      `INSERT INTO integrations (type, config, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(type) DO UPDATE SET config = excluded.config, updated_at = excluded.updated_at`,
+    )
+    .run(type, JSON.stringify(config), Date.now())
+}
+
+export function deleteIntegration(type: string): boolean {
+  if (!tableExists('integrations')) {
+    throw new DbNotReadyError('integrations')
+  }
+  return db().prepare(`DELETE FROM integrations WHERE type = ?`).run(type).changes > 0
+}

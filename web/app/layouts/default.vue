@@ -2,6 +2,7 @@
 const links = [
   { label: 'Settings', icon: 'i-lucide-sliders-horizontal', to: '/settings' },
   { label: 'Prompts', icon: 'i-lucide-message-square-text', to: '/prompts' },
+  { label: 'Integrations', icon: 'i-lucide-plug', to: '/integrations' },
 ]
 
 const route = useRoute()

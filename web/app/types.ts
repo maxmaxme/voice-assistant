@@ -18,3 +18,31 @@ export interface PromptRow {
   defaultContent: string
   updatedAt: number
 }
+
+export interface IntegrationField {
+  key: string
+  label: string
+  type: 'text' | 'password'
+  required?: boolean
+  placeholder?: string
+  help?: string
+}
+
+export interface IntegrationDef {
+  type: string
+  title: string
+  description: string
+  fields: IntegrationField[]
+}
+
+export interface InstalledIntegration {
+  def: IntegrationDef
+  config: Record<string, string>
+  secretsSet: Record<string, boolean>
+  updatedAt: number
+}
+
+export interface IntegrationsResponse {
+  installed: InstalledIntegration[]
+  available: IntegrationDef[]
+}

@@ -20,6 +20,7 @@ describe('fresh DB schema', () => {
     expect(tableNames(h)).toEqual(
       expect.arrayContaining([
         'identities',
+        'integrations',
         'profile',
         'prompts',
         'scheduled_actions',
