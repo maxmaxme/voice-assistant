@@ -22,7 +22,9 @@ export interface PromptRow {
 export interface IntegrationField {
   key: string
   label: string
-  type: 'text' | 'password'
+  type: 'text' | 'password' | 'enum' | 'boolean'
+  options?: string[]
+  default?: string
   required?: boolean
   placeholder?: string
   help?: string

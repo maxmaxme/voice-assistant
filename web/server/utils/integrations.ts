@@ -5,7 +5,12 @@
 export interface IntegrationField {
   key: string
   label: string
-  type: 'text' | 'password'
+  type: 'text' | 'password' | 'enum' | 'boolean'
+  /** Allowed values for `type: 'enum'`. */
+  options?: string[]
+  /** Concrete default for an enum — when set, the field has no "(default)"
+   *  empty choice and is always one of `options`. */
+  default?: string
   required?: boolean
   placeholder?: string
   help?: string
@@ -49,6 +54,63 @@ export const INTEGRATIONS: IntegrationDef[] = [
     test: testHomeAssistant,
     // The HA addendum + per-tool suffixes belong to this integration.
     ownsPrompt: name => name === 'ha-addendum' || name.startsWith('ha-suffix/'),
+  },
+  {
+    type: 'openai',
+    title: 'OpenAI',
+    description:
+      'API credentials and model configuration for the language and realtime models.',
+    fields: [
+      {
+        key: 'apiKey',
+        label: 'API key',
+        type: 'password',
+        required: true,
+        help: 'platform.openai.com → API keys.',
+      },
+      {
+        key: 'baseUrl',
+        label: 'Base URL',
+        type: 'text',
+        placeholder: 'https://api.openai.com/v1',
+        help: 'Override only for an OpenAI-compatible endpoint (Azure, proxy, …).',
+      },
+      { key: 'model', label: 'Model', type: 'text', placeholder: 'gpt-5-mini' },
+      {
+        key: 'reasoningEffort',
+        label: 'Reasoning effort',
+        type: 'enum',
+        options: ['minimal', 'low', 'medium', 'high'],
+        default: 'low',
+      },
+      {
+        key: 'webSearch',
+        label: 'Web search tool',
+        type: 'boolean',
+        help: 'Enables OpenAI hosted web_search. Costs tokens per call.',
+      },
+      {
+        key: 'realtimeEnabled',
+        label: 'Enable realtime (Voice PE)',
+        type: 'boolean',
+        help: 'Turn on the realtime voice path. Leave off if you only use chat.',
+      },
+      {
+        key: 'realtimeModel',
+        label: 'Realtime model',
+        type: 'text',
+        placeholder: 'gpt-realtime-2',
+      },
+      { key: 'realtimeVoice', label: 'Realtime voice', type: 'text', placeholder: 'marin' },
+      {
+        key: 'realtimeReasoningEffort',
+        label: 'Realtime reasoning effort',
+        type: 'enum',
+        options: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+        default: 'low',
+      },
+    ],
+    test: testOpenai,
   },
 ]
 
@@ -104,16 +166,28 @@ export function mergeAndValidate(
   const secrets = new Set(secretKeys(def))
   const merged: Config = {}
   for (const f of def.fields) {
-    const next = incoming[f.key]
-    if (secrets.has(f.key) && (next === undefined || next === '')) {
-      merged[f.key] = existing[f.key] ?? '' // keep existing secret
+    const raw = incoming[f.key]
+    let value: string
+    if (secrets.has(f.key) && (raw === undefined || raw === '')) {
+      value = existing[f.key] ?? '' // keep existing secret
+    }
+    else if (f.type === 'boolean') {
+      value = raw === '1' || raw === 'true' ? '1' : ''
     }
     else {
-      merged[f.key] = (next ?? '').trim()
+      value = (raw ?? '').trim()
     }
-    if (f.required && !merged[f.key]) {
+    // Enum with a concrete default is never left empty.
+    if (f.type === 'enum' && f.default && value === '') {
+      value = f.default
+    }
+    if (f.type === 'enum' && value !== '' && f.options && !f.options.includes(value)) {
+      return { error: `${f.label} must be one of: ${f.options.join(', ')}` }
+    }
+    if (f.required && !value) {
       return { error: `${f.label} is required` }
     }
+    merged[f.key] = value
   }
   return { config: merged }
 }
@@ -156,6 +230,31 @@ async function testHomeAssistant(config: Config): Promise<TestResult> {
       return { ok: false, message: `Home Assistant returned HTTP ${res.status}.` }
     }
     return { ok: true, message: 'Connected to Home Assistant.' }
+  }
+  catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+async function testOpenai(config: Config): Promise<TestResult> {
+  const base = ((config.baseUrl ?? '').trim() || 'https://api.openai.com/v1').replace(/\/+$/, '')
+  const key = (config.apiKey ?? '').trim()
+  if (!key) {
+    return { ok: false, message: 'API key is required.' }
+  }
+  try {
+    // GET /models authenticates the key without spending tokens.
+    const res = await fetch(`${base}/models`, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (res.status === 401) {
+      return { ok: false, message: 'Unauthorized — check the API key.' }
+    }
+    if (!res.ok) {
+      return { ok: false, message: `OpenAI returned HTTP ${res.status}.` }
+    }
+    return { ok: true, message: 'Connected to OpenAI.' }
   }
   catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) }

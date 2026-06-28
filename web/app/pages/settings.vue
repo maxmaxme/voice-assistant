@@ -58,7 +58,7 @@ async function save() {
 
     <div class="space-y-6">
       <UCard
-        v-for="g in groups"
+        v-for="g in groups.filter(g => keysIn(g.id).length)"
         :key="g.id"
       >
         <template #header>

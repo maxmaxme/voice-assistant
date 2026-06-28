@@ -17,36 +17,10 @@ export interface SettableKey {
  *  bearer tokens) are deliberately absent — they stay in `.env` only. Keys are
  *  env-var names so `buildEnvOverlay` can layer them straight over
  *  `process.env`. */
+// Provider-specific knobs (model, reasoning effort, voice, web_search, realtime
+// model + enable) live on the OpenAI *integration*. Only universal realtime
+// timings and process-level settings remain here.
 export const SETTABLE_KEYS: SettableKey[] = [
-  { key: 'OPENAI_MODEL', label: 'OpenAI model', kind: 'string', group: 'openai' },
-  {
-    key: 'OPENAI_REASONING_EFFORT',
-    label: 'Reasoning effort',
-    kind: 'enum',
-    options: ['minimal', 'low', 'medium', 'high'],
-    group: 'openai',
-  },
-  {
-    key: 'OPENAI_WEB_SEARCH',
-    label: 'Web search tool',
-    kind: 'boolean',
-    group: 'openai',
-    help: 'Enables OpenAI hosted web_search. Costs tokens per call.',
-  },
-  {
-    key: 'OPENAI_REALTIME_MODEL',
-    label: 'Realtime model',
-    kind: 'string',
-    group: 'realtime',
-  },
-  { key: 'OPENAI_REALTIME_VOICE', label: 'Realtime voice', kind: 'string', group: 'realtime' },
-  {
-    key: 'OPENAI_REALTIME_REASONING_EFFORT',
-    label: 'Realtime reasoning effort',
-    kind: 'enum',
-    options: ['minimal', 'low', 'medium', 'high', 'xhigh'],
-    group: 'realtime',
-  },
   {
     key: 'REALTIME_OUTPUT_PACING_MS',
     label: 'Output pacing (ms)',

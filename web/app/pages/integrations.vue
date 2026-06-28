@@ -6,6 +6,9 @@ useHead({ title: 'Integrations' })
 const toast = useToast()
 const { data, refresh } = await useFetch<IntegrationsResponse>('/api/integrations')
 
+// Reka USelect rejects an empty-string item value; '' (use default) maps to this.
+const ENUM_DEFAULT = '__default__'
+
 const formOpen = ref(false)
 const formMode = ref<'install' | 'edit'>('install')
 const formDef = ref<IntegrationDef>()
@@ -20,7 +23,7 @@ const testResult = ref<{ ok: boolean, message: string } | null>(null)
 function openInstall(def: IntegrationDef) {
   formMode.value = 'install'
   formDef.value = def
-  form.values = Object.fromEntries(def.fields.map(f => [f.key, '']))
+  form.values = Object.fromEntries(def.fields.map(f => [f.key, f.default ?? '']))
   form.secretsSet = {}
   testResult.value = null
   formOpen.value = true
@@ -28,7 +31,9 @@ function openInstall(def: IntegrationDef) {
 function openEdit(inst: InstalledIntegration) {
   formMode.value = 'edit'
   formDef.value = inst.def
-  form.values = Object.fromEntries(inst.def.fields.map(f => [f.key, inst.config[f.key] ?? '']))
+  form.values = Object.fromEntries(
+    inst.def.fields.map(f => [f.key, inst.config[f.key] ?? f.default ?? '']),
+  )
   form.secretsSet = { ...inst.secretsSet }
   testResult.value = null
   formOpen.value = true
@@ -218,7 +223,29 @@ async function setEnabled(inst: InstalledIntegration, enabled: boolean) {
             :description="f.help"
             :required="f.required"
           >
+            <USwitch
+              v-if="f.type === 'boolean'"
+              :model-value="form.values[f.key] === '1'"
+              @update:model-value="(v: boolean) => (form.values[f.key] = v ? '1' : '')"
+            />
+            <USelect
+              v-else-if="f.type === 'enum' && f.default"
+              v-model="form.values[f.key]"
+              class="w-full"
+              :items="f.options ?? []"
+            />
+            <USelect
+              v-else-if="f.type === 'enum'"
+              class="w-full"
+              :model-value="form.values[f.key] === '' ? ENUM_DEFAULT : form.values[f.key]"
+              :items="[
+                { label: '(default)', value: ENUM_DEFAULT },
+                ...(f.options ?? []).map(o => ({ label: o, value: o })),
+              ]"
+              @update:model-value="(v: string) => (form.values[f.key] = v === ENUM_DEFAULT ? '' : v)"
+            />
             <UInput
+              v-else
               v-model="form.values[f.key]"
               class="w-full"
               :type="f.type === 'password' ? 'password' : 'text'"

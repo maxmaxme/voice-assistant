@@ -14,31 +14,10 @@ export interface SettableKey {
   help?: string
 }
 
+// OpenAI knobs (model, reasoning effort, web_search, realtime model) and the
+// realtime enable toggle live on the OpenAI integration now, not here.
+// KEEP IN SYNC with voice-assistant src/settings/settable.ts.
 export const SETTABLE_KEYS: SettableKey[] = [
-  { key: 'OPENAI_MODEL', label: 'OpenAI model', kind: 'string', group: 'openai' },
-  {
-    key: 'OPENAI_REASONING_EFFORT',
-    label: 'Reasoning effort',
-    kind: 'enum',
-    options: ['minimal', 'low', 'medium', 'high'],
-    group: 'openai',
-  },
-  {
-    key: 'OPENAI_WEB_SEARCH',
-    label: 'Web search tool',
-    kind: 'boolean',
-    group: 'openai',
-    help: 'Enables OpenAI hosted web_search. Costs tokens per call.',
-  },
-  { key: 'OPENAI_REALTIME_MODEL', label: 'Realtime model', kind: 'string', group: 'realtime' },
-  { key: 'OPENAI_REALTIME_VOICE', label: 'Realtime voice', kind: 'string', group: 'realtime' },
-  {
-    key: 'OPENAI_REALTIME_REASONING_EFFORT',
-    label: 'Realtime reasoning effort',
-    kind: 'enum',
-    options: ['minimal', 'low', 'medium', 'high', 'xhigh'],
-    group: 'realtime',
-  },
   { key: 'REALTIME_OUTPUT_PACING_MS', label: 'Output pacing (ms)', kind: 'number', group: 'realtime' },
   { key: 'REALTIME_IDLE_RESET_MS', label: 'Idle reset (ms)', kind: 'number', group: 'realtime' },
   {

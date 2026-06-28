@@ -13,9 +13,9 @@ describe('buildEnvOverlay', () => {
   afterEach(() => h.sqlite.close());
 
   it('returns only whitelisted (settable) keys', () => {
-    store.set('OPENAI_MODEL', 'gpt-5');
+    store.set('AGENT_MODE', 'both');
     store.set('OPENAI_API_KEY', 'sk-should-be-ignored');
-    expect(buildEnvOverlay(store)).toEqual({ OPENAI_MODEL: 'gpt-5' });
+    expect(buildEnvOverlay(store)).toEqual({ AGENT_MODE: 'both' });
   });
 
   it('is empty when nothing settable is stored', () => {
