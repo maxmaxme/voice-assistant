@@ -1,158 +1,104 @@
-# iPhone Shortcuts Integration
+# iPhone Shortcuts integration
 
-Control the voice assistant from iPhone using Shortcuts.app.
+Drive the assistant from iOS **Shortcuts.app** over the HTTP API — record audio
+(or dictate text) and POST it to the server.
 
-## Server Setup
+## Server setup
 
-### Running the HTTP Server Locally
+The HTTP server runs as part of the single process:
 
 ```bash
-npm run http
-# or
-AGENT_MODE=http HTTP_SERVER_PORT=3000 node src/cli/unified.ts
+npm run start
 ```
 
-The server listens on `http://localhost:3000` (default port).
+It listens on `http://<host>:3000` (override with `HTTP_SERVER_PORT`). The
+`/text` and `/audio` endpoints only mount when their toggles are enabled on the
+web panel's **HTTP API** page — turn the ones you need on. `GET /health` is
+always available.
 
-### Running on Raspberry Pi
+In Docker, expose the port (handled by the host stack in the `home-infra` repo):
 
-If the service is running in Docker:
-
-```bash
-# In docker-compose.yml ensure port 3000 is exposed
+```yaml
 ports:
-  - "3000:3000"
+  - '3000:3000'
 ```
 
-URL for Shortcuts: `http://<pi-ip>:3000`
+So the URL for Shortcuts is `http://<host>:3000`.
 
-## Creating a Shortcut in iOS
+## Authentication (required)
 
-1. Open **Shortcuts.app** on iPhone
-2. Create a new shortcut (tap `+`)
-3. Add actions in the following order:
+HTTP auth is **DB-backed and mandatory** — there is no unauthenticated mode.
+Mint a token for yourself and use it as a Bearer token:
 
-### Step 1: Record Audio
-
-```
-Actions → Audio → Record Audio
-- Show when run: OFF
+```bash
+npm run users -- add-user --name iphone        # if you don't have a principal yet
+npm run users -- mint-http --user <id>         # prints the token ONCE
 ```
 
-### Step 2: Send to Server
+The raw token is never stored — only its sha256 hash. Every request must send
+`Authorization: Bearer <token>`; an unknown token gets `401`. (You can also mint
+tokens from the panel's **Users** page.) The token also picks the request's
+memory scope — replies read that principal's `household ∪ personal` memory.
 
-```
-Actions → Web → Get Contents of URL
-- URL: http://<SERVER_IP>:3000/audio
-- Method: POST
-- Request Body: File (drag "Recorded Audio" here)
-- Headers:
-  - Content-Type: audio/wav (or audio/ogg if using a different format)
-  - Authorization: Bearer <your-api-key>
-```
+## Endpoints
 
-### Step 3: Display Response (optional)
+| Endpoint      | Body                                              | Returns                  |
+| ------------- | ------------------------------------------------- | ------------------------ |
+| `POST /audio` | raw audio bytes (`Content-Type` sets the format)  | `{response, transcript}` |
+| `POST /text`  | `application/x-www-form-urlencoded`, field `text` | `{response}`             |
+| `GET /health` | —                                                 | `{status:"ok"}`          |
 
-```
-Actions → Scripting → Show Result
-```
+`/audio` is transcribed with OpenAI, then run through the agent. `/text` skips
+transcription — handy when the Shortcut dictates text instead of recording.
 
-## Example Shortcut with Script
+## Creating the Shortcut (audio)
 
-For more complex logic, use Run JavaScript over HTTP:
+1. Open **Shortcuts.app** → new shortcut (`+`).
+2. **Record Audio** (Actions → Media). Set _Show When Run_ off for a one-tap flow.
+3. **Get Contents of URL** (Actions → Web):
+   - URL: `http://<host>:3000/audio`
+   - Method: `POST`
+   - Request Body: **File** → the recorded audio
+   - Headers:
+     - `Authorization`: `Bearer <token>`
+     - `Content-Type`: `audio/wav` (match your recording format)
+4. **Get Dictionary Value** → `response` from the returned JSON.
+5. **Show Result** (or **Speak Text**) to surface the reply.
 
-```javascript
-const audioData = shortcut.getVariable('RecordedAudio');
-const response = await fetch('http://<SERVER_IP>:3000/audio', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'audio/wav',
-    Authorization: 'Bearer <your-api-key>',
-  },
-  body: audioData,
-});
-const result = await response.json();
-console.log(result);
-```
+### Text variant
+
+Swap step 2 for **Dictate Text**, and in step 3 POST to `/text` with body
+`Form` field `text` set to the dictated text. Read `response` from the JSON.
 
 ## Testing with curl
 
 ```bash
-# Test with API key
+# Audio
 curl -X POST \
-  -H "Authorization: Bearer device1-key" \
+  -H "Authorization: Bearer <token>" \
   -H "Content-Type: audio/wav" \
   --data-binary @test.wav \
   http://localhost:3000/audio
 
-# Health check
+# Text
+curl -X POST \
+  -H "Authorization: Bearer <token>" \
+  --data-urlencode "text=turn on the kitchen light" \
+  http://localhost:3000/text
+
+# Health (no auth)
 curl http://localhost:3000/health
 ```
 
-## Audio Format
+## Audio format
 
-- Supported formats: WAV, OGG, MP3 (anything OpenAI API accepts)
-- Recommended: WAV (16 kHz, 16 bit, mono)
-- Maximum size: server-dependent (unlimited by default)
+- Anything the OpenAI transcription API accepts (WAV, OGG, MP3, …).
+- Recommended: WAV, 16 kHz, 16-bit, mono.
+- `/audio` is concurrency-limited on the server (Whisper + LLM are heavy on a
+  Pi), and failed auths are rate-limited per IP.
 
-## Debugging
+## Exposing it beyond the LAN
 
-All received audio files are saved to `/tmp/audio-<timestamp>.wav` for analysis.
-
-Server logs will show:
-
-```
-[http] Received audio POST
-[http] Content-Type: audio/wav
-[http] Content-Length: 44 bytes
-[http] Saved to /tmp/audio-1777220549398.wav
-```
-
-## Security
-
-⚠️ **Important:** By default, the HTTP server listens without authentication. Configure API keys to protect against unauthorized access.
-
-### API Keys
-
-Set the `HTTP_API_KEYS` environment variable with a comma-separated list of keys:
-
-```bash
-HTTP_API_KEYS="device1-key,device2-key,smartphone-key" npm run http
-```
-
-Each request to `/audio` must include the Authorization header:
-
-```
-Authorization: Bearer <your-key>
-```
-
-Example with curl:
-
-```bash
-curl -X POST \
-  -H "Authorization: Bearer device1-key" \
-  -H "Content-Type: audio/wav" \
-  --data-binary @audio.wav \
-  http://localhost:3000/audio
-```
-
-In Shortcuts.app, add the Authorization header in the "Get Contents of URL" action:
-
-```
-Headers:
-  - Authorization: Bearer device1-key
-```
-
-### For Production on Internet
-
-Additionally configure:
-
-1. Reverse proxy with HTTPS (nginx, Caddy)
-2. Rate limiting
-3. Firewall rules to restrict access
-
-## Next Steps
-
-- Integration with Home Assistant for automation
-- Command history storage
-- Custom responses instead of just saving
+If you reach the server from outside your network, put it behind HTTPS — a
+reverse proxy (Caddy / nginx) with TLS, plus firewall rules. Tokens are bearer
+credentials, so don't send them over plain HTTP across the internet.

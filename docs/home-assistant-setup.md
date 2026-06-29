@@ -6,11 +6,13 @@ in this repo can drive it.
 
 ## 1. Reach a running HA
 
-Point `HA_URL` in `.env` at whichever HA you want to drive — a local
-install (`http://localhost:8123`), a LAN box, or a remote one tunnelled
-via Tailscale (`https://<host>.<tailnet>.ts.net`). The rest of this
-guide assumes you can open that URL in a browser and have completed the
-HA onboarding wizard (owner user created).
+You'll point the assistant at your HA from the **web panel**
+(Integrations → Home Assistant), not env — so first just make sure you
+can reach a running HA: a local install (`http://localhost:8123`), a LAN
+box, or a remote one tunnelled via Tailscale
+(`https://<host>.<tailnet>.ts.net`). The rest of this guide assumes you
+can open that URL in a browser and have completed the HA onboarding
+wizard (owner user created).
 
 ## 2. Enable the MCP Server integration
 
@@ -27,16 +29,11 @@ HA onboarding wizard (owner user created).
 
 ## 4. Wire up the project
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```
-HA_URL=http://localhost:8123
-HA_TOKEN=<paste your token>
-```
+Install the **Home Assistant** integration in the web panel
+(Integrations → Home Assistant): paste the **Base URL**
+(e.g. `http://localhost:8123`) and the **Long-Lived Access Token**, then
+enable it. The panel runs a connection test before saving, and `mcp:call`
+(step 6) reads the same DB row. HA url/token are **not** env vars.
 
 ## 5. Expose the test entity to Assist
 
@@ -64,7 +61,8 @@ The canonical, reliable way is the WebSocket service
 `homeassistant/expose_entity`:
 
 Run from your dev machine (any Python 3 with `aiohttp` installed), with
-`HA_URL` and `HA_TOKEN` exported (or sourced from `.env`):
+`HA_URL` and `HA_TOKEN` exported in your shell (just for these snippets —
+the app itself reads HA from the panel, not env):
 
 ```bash
 HA_WS_URL="${HA_URL/#http/ws}/api/websocket" python3 -c '
