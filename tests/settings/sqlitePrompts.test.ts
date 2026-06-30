@@ -15,6 +15,11 @@ describe('SqlitePrompts', () => {
     expect(store.get('base-system')).toBeUndefined();
   });
 
+  it('reports empty content as unset so reads fall back to the default', () => {
+    store.set('base-system', '');
+    expect(store.get('base-system')).toBeUndefined();
+  });
+
   it('round-trips a prompt', () => {
     store.set('base-system', 'You are a helper.');
     expect(store.get('base-system')).toBe('You are a helper.');
@@ -38,11 +43,12 @@ describe('SqlitePrompts', () => {
     expect(names).toEqual(expect.arrayContaining(['base-system', 'voice-addendum']));
   });
 
-  it('seedWithDefault sets content and default on a fresh prompt', () => {
+  it('seedWithDefault leaves content empty and stores the bundled default', () => {
     store.seedWithDefault('base-system', 'bundled text');
     const row = store.list().find((p) => p.name === 'base-system');
-    expect(row?.content).toBe('bundled text');
+    expect(row?.content).toBe('');
     expect(row?.defaultContent).toBe('bundled text');
+    expect(store.get('base-system')).toBeUndefined();
   });
 
   it('seedWithDefault refreshes default but never clobbers an edited content', () => {
@@ -54,11 +60,14 @@ describe('SqlitePrompts', () => {
     expect(row?.defaultContent).toBe('v2 default');
   });
 
-  it('resetToDefault restores content from the stored default', () => {
+  it('resetToDefault clears content so the default is read', () => {
     store.seedWithDefault('base-system', 'the default');
     store.set('base-system', 'edited');
     expect(store.resetToDefault('base-system')).toBe(true);
-    expect(store.get('base-system')).toBe('the default');
+    expect(store.get('base-system')).toBeUndefined();
+    const row = store.list().find((p) => p.name === 'base-system');
+    expect(row?.content).toBe('');
+    expect(row?.defaultContent).toBe('the default');
   });
 
   it('resetToDefault returns false for an unknown prompt', () => {

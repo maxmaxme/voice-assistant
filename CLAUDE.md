@@ -165,14 +165,20 @@ shows them as a draft superseded by the final message).
 **Agent prompts are written in English.** Every prompt — system prompts, tool descriptions, and any prompt text injected at runtime — must be in English, even though users talk to the agent in any language (the prompts instruct the model to reply in the user's language). Keep examples in prompts English too; don't paste Russian sample phrases. This keeps prompts consistent and avoids biasing the model toward one language.
 
 **Prompt text lives in markdown files, but is served from the DB at runtime.**
-The bundled `.md` files are the source of truth on a fresh DB; the **prompt
-registry** (`src/agent/prompts/registry.ts`) discovers them by walking the
-prompt dirs and, at bootstrap, `seedIfAbsent`s each into the `prompts` table
-(`initPromptRegistry`). Every consumer then reads via
-`resolvePrompt(name)` — DB row if present, else the bundled file (the fallback
-keeps unit tests and pre-init module loads working). So **all** prompts are
-DB-backed and web-editable; edits apply on the **next process start**. Names are
-the registry/DB keys and the labels shown in the web UI. Layout:
+The bundled `.md` files are the source of truth for any prompt the user hasn't
+customized; the **prompt registry** (`src/agent/prompts/registry.ts`) discovers
+them by walking the prompt dirs and, at bootstrap, `seedWithDefault`s each into
+the `prompts` table (`initPromptRegistry`) — storing the bundled text in
+`default_content` (refreshed every start) and leaving `content` **empty**. Every
+consumer reads via `resolvePrompt(name)`: a **non-empty** DB `content` (a real
+web edit) wins, otherwise it falls back to the bundled file. **An empty `content`
+is the "not customized" sentinel**, so an un-edited prompt always follows the
+live code default instead of freezing a stale copy. The web panel writes that
+sentinel whenever a saved edit matches the current default and on "Reset to
+default"; it surfaces the effective text (`content || default_content`) so the
+editor and "Modified" badge read correctly. So **all** prompts are DB-backed and
+web-editable; edits apply on the **next process start**. Names are the
+registry/DB keys and the labels shown in the web UI. Layout:
 
 - `src/agent/prompts/base-system.md` → name `base-system` — **HA-agnostic** cross-cutting rules: identity (general personal assistant), the "fill sensible defaults, don't ask" rule, style. Always included.
 - `src/agent/prompts/ha-addendum.md` → name `ha-addendum` — HA device-control rules (ACT-don't-ask, `GetLiveContext`, the error-recovery procedure, multi-tool device intent). `buildSystemPromptFor(channel, haEnabled)` appends it **only when HA is configured**, so a no-HA install gets a clean general-assistant prompt.
@@ -309,9 +315,11 @@ never hot-reloaded:
 - **`prompts` table** (`src/settings/sqlitePrompts.ts`, `SqlitePrompts`) —
   editable prompt text for **all** prompts, fronted by the prompt registry
   (`src/agent/prompts/registry.ts`). `initPromptRegistry` (called in
-  `cli/shared.ts` bootstrap) seeds every bundled `.md` via `seedIfAbsent` and
-  binds the store; consumers read through `resolvePrompt(name)`. See the
-  "Prompt text…" subsection above for the full layout.
+  `cli/shared.ts` bootstrap) seeds every bundled `.md` via `seedWithDefault`
+  (empty `content`, bundled text in `default_content`) and binds the store;
+  consumers read through `resolvePrompt(name)`, which falls back to the bundled
+  default when `content` is empty. See the "Prompt text…" subsection above for
+  the full layout.
 
 ### Scheduled actions
 

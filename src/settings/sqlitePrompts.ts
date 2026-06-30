@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Db } from '../memory/db.ts';
 import { prompts } from '../memory/schema.ts';
 
@@ -9,11 +9,13 @@ export interface StoredPrompt {
   updatedAt: number;
 }
 
-/** DB-backed store for editable prompt text. The bundled `.md` files remain
- *  the source of truth on a fresh DB — `seedWithDefault` copies them in on
- *  startup (and refreshes the stored default) without clobbering edits;
- *  thereafter `content` wins and is what the web UI edits. `default_content`
- *  lets the web reset to default without reading image files. */
+/** DB-backed store for editable prompt text. The bundled `.md` files are the
+ *  source of truth for any prompt the user hasn't customized: `seedWithDefault`
+ *  stores their text in `default_content` (refreshed every start) but leaves
+ *  `content` empty, and an **empty `content` is the "not customized" sentinel** —
+ *  `get` reports it as unset so reads fall back to the live bundled default.
+ *  Only a non-empty `content` (a real edit) wins. This keeps un-edited prompts
+ *  following the code instead of freezing a stale copy. */
 export class SqlitePrompts {
   private readonly db: Db;
 
@@ -27,7 +29,9 @@ export class SqlitePrompts {
       .from(prompts)
       .where(eq(prompts.name, name))
       .get();
-    return row?.content;
+    // Empty content means "not customized" — report unset so callers fall back
+    // to the bundled code default (see resolvePrompt).
+    return row?.content ? row.content : undefined;
   }
 
   list(): StoredPrompt[] {
@@ -60,23 +64,25 @@ export class SqlitePrompts {
       .run();
   }
 
-  /** Insert a fresh prompt (content = default = bundled), or, if it already
-   *  exists, refresh only `default_content` to the latest bundled value —
-   *  never touching the user's `content`. */
+  /** Insert a fresh prompt with empty `content` (so reads fall back to the
+   *  bundled code default) and the bundled text in `default_content`; or, if it
+   *  already exists, refresh only `default_content` to the latest bundled value
+   *  — never touching the user's `content`. */
   seedWithDefault(name: string, content: string): void {
     const now = Date.now();
     this.db
       .insert(prompts)
-      .values({ name, content, defaultContent: content, updatedAt: now })
+      .values({ name, content: '', defaultContent: content, updatedAt: now })
       .onConflictDoUpdate({ target: prompts.name, set: { defaultContent: content } })
       .run();
   }
 
-  /** Restore `content` from the stored default. Returns false if no such row. */
+  /** Clear `content` to the "not customized" sentinel so the prompt reads (and
+   *  keeps following) the bundled code default. Returns false if no such row. */
   resetToDefault(name: string): boolean {
     const result = this.db
       .update(prompts)
-      .set({ content: sql`${prompts.defaultContent}`, updatedAt: Date.now() })
+      .set({ content: '', updatedAt: Date.now() })
       .where(eq(prompts.name, name))
       .run();
     return result.changes > 0;

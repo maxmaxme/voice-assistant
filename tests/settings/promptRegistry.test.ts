@@ -34,12 +34,14 @@ describe('prompt registry', () => {
     );
   });
 
-  it('seeds every bundled prompt into the DB, all non-empty', () => {
+  it('seeds every bundled prompt with empty content and a non-empty default', () => {
     initPromptRegistry(prompts);
     const rows = prompts.list();
     expect(rows.length).toBe(bundledPromptNames().length);
     for (const r of rows) {
-      expect(r.content.trim().length).toBeGreaterThan(0);
+      expect(r.content).toBe('');
+      expect(r.defaultContent.trim().length).toBeGreaterThan(0);
+      expect(resolvePrompt(r.name).trim().length).toBeGreaterThan(0);
     }
   });
 
