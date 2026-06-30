@@ -18,7 +18,7 @@ const hasIntegration = (type: string): boolean =>
 // integration; Telegram needs the Telegram integration — hidden until present.
 const channels = computed<NavLink[]>(() =>
   [
-    { label: 'HA Voice Realtime', icon: 'i-lucide-radio', to: '/realtime' },
+    { label: 'Realtime', icon: 'i-lucide-radio', to: '/realtime' },
     hasIntegration('home-assistant')
       ? { label: 'HA Assist', icon: 'i-lucide-house', to: '/assist' }
       : null,

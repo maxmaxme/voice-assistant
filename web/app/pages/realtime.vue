@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { RealtimeResponse } from '~/types'
 
-useHead({ title: 'HA Voice Realtime' })
+useHead({ title: 'Realtime' })
 
 const toast = useToast()
 const { data, refresh } = await useFetch<RealtimeResponse>('/api/realtime')
@@ -46,24 +46,17 @@ async function save() {
   <div>
     <header class="mb-8">
       <h1 class="text-3xl font-bold tracking-tight">
-        HA Voice Realtime
+        Realtime
       </h1>
       <p class="text-[var(--ui-text-muted)] mt-1">
-        The direct-streaming voice path for
-        <a
-          href="https://www.home-assistant.io/voice-pe/"
-          target="_blank"
-          rel="noreferrer"
-          class="text-[var(--ui-primary)] underline underline-offset-2"
-        >Home Assistant Voice PE</a>
-        speakers running the
+        The direct-streaming voice path for thin-client voice devices running the
         <a
           href="https://github.com/maxmaxme/home-assistant-voice-pe"
           target="_blank"
           rel="noreferrer"
           class="text-[var(--ui-primary)] underline underline-offset-2"
         >home-assistant-voice-pe</a>
-        firmware. Only those speakers connect to it. Changes apply on the next restart.
+        firmware. Only those devices connect to it.
       </p>
     </header>
 
@@ -71,7 +64,7 @@ async function save() {
       <UCard>
         <UFormField
           label="Enabled"
-          description="Start the realtime WebSocket server for Voice PE speakers. Leave off if you only use chat. Each speaker authenticates with its own device token — add one under Users."
+          description="Start the realtime WebSocket server for voice devices. Leave off if you only use chat. Each device authenticates with its own device token — add one under Users."
         >
           <USwitch v-model="form.enabled" />
         </UFormField>
@@ -113,21 +106,14 @@ async function save() {
             </li>
             <li>
               <span class="font-medium text-[var(--ui-text)]">Firmware.</span>
-              Flash
+              Flash the
               <a
                 href="https://github.com/maxmaxme/home-assistant-voice-pe"
                 target="_blank"
                 rel="noreferrer"
                 class="text-[var(--ui-primary)] underline underline-offset-2"
               >home-assistant-voice-pe</a>
-              (<code>home-assistant-voice.va-direct.yaml</code>) to a
-              <a
-                href="https://www.home-assistant.io/voice-pe/"
-                target="_blank"
-                rel="noreferrer"
-                class="text-[var(--ui-primary)] underline underline-offset-2"
-              >Home Assistant Voice PE</a>
-              speaker.
+              firmware to a supported device (see below).
             </li>
             <li>
               <span class="font-medium text-[var(--ui-text)]">Model & voice.</span>
@@ -141,6 +127,54 @@ async function save() {
               <span class="font-medium text-[var(--ui-text)]">To go live.</span>
               Turn on the toggle above and register at least one Voice device —
               then restart.
+            </li>
+          </ul>
+        </div>
+      </UCard>
+
+      <UCard>
+        <template #header>
+          <h2 class="font-semibold">
+            Supported devices
+          </h2>
+        </template>
+
+        <div class="space-y-4 text-sm">
+          <p class="text-[var(--ui-text-muted)]">
+            Flash the
+            <a
+              href="https://github.com/maxmaxme/home-assistant-voice-pe"
+              target="_blank"
+              rel="noreferrer"
+              class="text-[var(--ui-primary)] underline underline-offset-2"
+            >home-assistant-voice-pe</a>
+            firmware to one of these, then register its device token under
+            <NuxtLink
+              to="/users"
+              class="text-[var(--ui-primary)] underline underline-offset-2"
+            >Users</NuxtLink>.
+          </p>
+
+          <ul class="space-y-3">
+            <li>
+              <a
+                href="https://www.home-assistant.io/voice-pe/"
+                target="_blank"
+                rel="noreferrer"
+                class="font-medium text-[var(--ui-text)] underline underline-offset-2"
+              >Home Assistant Voice PE</a>
+              <span class="text-[var(--ui-text-muted)]">
+                — flash <code>home-assistant-voice.va-direct.yaml</code></span>
+            </li>
+            <li>
+              <a
+                href="https://docs.m5stack.com/en/core/Atom_EchoS3R"
+                target="_blank"
+                rel="noreferrer"
+                class="font-medium text-[var(--ui-text)] underline underline-offset-2"
+              >M5Stack Atom Echo S3R</a>
+              <span class="text-[var(--ui-text-muted)]">
+                — flash <code>atom-echo-s3r.va-direct.yaml</code></span>
             </li>
           </ul>
         </div>

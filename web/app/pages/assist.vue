@@ -95,11 +95,11 @@ async function save() {
             </li>
           </ol>
           <p>
-            Note: Voice PE speakers running our firmware bypass this entirely — they stream straight to
+            Note: voice devices running our firmware bypass this entirely — they stream straight to
             <NuxtLink
               to="/realtime"
               class="text-[var(--ui-primary)] underline underline-offset-2"
-            >HA Voice Realtime</NuxtLink>. <code>/assist</code> is for HA's own Assist pipeline / other clients.
+            >Realtime</NuxtLink>. <code>/assist</code> is for HA's own Assist pipeline / other clients.
           </p>
         </div>
       </UCard>
