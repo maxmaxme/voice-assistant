@@ -22,14 +22,18 @@ const selectedRow = computed(() =>
 )
 const savedContent = computed(() => selectedRow.value?.content ?? '')
 const defaultContent = computed(() => selectedRow.value?.defaultContent ?? '')
+// Match the server's "equals default" test (web/server/utils/db/prompts.ts): a
+// trailing-newline-only difference must not read as a modification, or the UI
+// would show "Modified" after the server has already collapsed it to default.
+const normTrail = (s: string): string => s.replace(/\r\n/g, '\n').replace(/[ \t\n]+$/, '')
 // vs default → drives the diff, badge and reset. vs saved → drives Save.
-const isModified = computed(() => content.value !== defaultContent.value)
-const isDirty = computed(() => content.value !== savedContent.value)
-const diff = computed(() => lineDiff(defaultContent.value, content.value))
+const isModified = computed(() => normTrail(content.value) !== normTrail(defaultContent.value))
+const isDirty = computed(() => normTrail(content.value) !== normTrail(savedContent.value))
+const diff = computed(() => lineDiff(normTrail(defaultContent.value), normTrail(content.value)))
 
 // Prompts whose SAVED content differs from default — marked in the dropdown.
 const modifiedNames = computed(
-  () => new Set((promptList.value?.prompts ?? []).filter(p => p.content !== p.defaultContent).map(p => p.name)),
+  () => new Set((promptList.value?.prompts ?? []).filter(p => normTrail(p.content) !== normTrail(p.defaultContent)).map(p => p.name)),
 )
 
 // Grouped select: base prompts on top, then tools, then HA suffixes. Labels
