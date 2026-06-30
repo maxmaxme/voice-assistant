@@ -43,7 +43,7 @@ const linkClass = (to: string): string =>
 </script>
 
 <template>
-  <div class="min-h-screen flex bg-[var(--ui-bg-muted)] text-[var(--ui-text)]">
+  <div class="h-screen overflow-hidden flex bg-[var(--ui-bg-muted)] text-[var(--ui-text)]">
     <aside class="w-60 shrink-0 bg-violet-700 text-white flex flex-col">
       <div class="flex items-center gap-2.5 px-6 h-16">
         <UIcon
@@ -52,7 +52,7 @@ const linkClass = (to: string): string =>
         />
         <span class="text-lg font-semibold tracking-tight">Voice Assistant</span>
       </div>
-      <nav class="flex-1 px-3 mt-2 space-y-1">
+      <nav class="flex-1 min-h-0 overflow-y-auto px-3 mt-2 space-y-1">
         <!-- Channels — collapsible group of agent interaction surfaces. -->
         <button
           type="button"
