@@ -13,6 +13,7 @@ import { Session } from '../../../src/agent/session.ts';
 import { SqliteProfileMemory } from '../../../src/memory/sqliteProfileMemory.ts';
 import { IdentitiesStore } from '../../../src/memory/identities.ts';
 import { SqliteSettings } from '../../../src/settings/sqliteSettings.ts';
+import { SqliteRuntimeState } from '../../../src/settings/sqliteRuntimeState.ts';
 import { SqlitePrompts } from '../../../src/settings/sqlitePrompts.ts';
 import { SqliteIntegrations } from '../../../src/integrations/sqliteIntegrations.ts';
 import { HOUSEHOLD_OWNER } from '../../../src/memory/scope.ts';
@@ -65,6 +66,7 @@ function fakeMemory(attachChats: number[] = [], adminChats: number[] = []): Fake
       delete: () => {},
     },
     settings: new SqliteSettings(db),
+    runtimeState: new SqliteRuntimeState(db),
     prompts: new SqlitePrompts(db),
     integrations: new SqliteIntegrations(db),
     close: () => {},

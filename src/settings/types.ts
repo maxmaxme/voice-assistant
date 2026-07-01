@@ -8,3 +8,10 @@ export interface SettingsStore {
   set(key: string, value: string): void;
   delete(key: string): void;
 }
+
+/** A key/value store for facts the running process writes about itself
+ *  (not user config). See the `runtime_state` table in `schema.ts`. */
+export interface RuntimeStateStore {
+  get(key: string): string | undefined;
+  set(key: string, value: string): void;
+}

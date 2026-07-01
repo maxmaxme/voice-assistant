@@ -1,6 +1,6 @@
 import type { Schedule } from '../scheduling/types.ts';
 import type { SqliteProfileMemory } from './sqliteProfileMemory.ts';
-import type { SettingsStore } from '../settings/types.ts';
+import type { SettingsStore, RuntimeStateStore } from '../settings/types.ts';
 import type { SqlitePrompts } from '../settings/sqlitePrompts.ts';
 import type { SqliteIntegrations } from '../integrations/sqliteIntegrations.ts';
 
@@ -117,6 +117,9 @@ export interface MemoryStore {
   /** Non-secret config overrides edited via the web UI, layered over env at
    *  startup. */
   settings: SettingsStore;
+  /** Facts the running process writes about itself (e.g. when it last loaded
+   *  config), read by the web panel to detect unapplied edits. */
+  runtimeState: RuntimeStateStore;
   /** DB-backed editable prompt text (seeded from the bundled `.md` files). */
   prompts: SqlitePrompts;
   /** Configured integrations (Home Assistant, …) — read at startup to decide

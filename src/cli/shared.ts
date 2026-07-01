@@ -12,6 +12,7 @@ import { resolveRealtimeConfig, type RealtimeConfig } from '../settings/realtime
 import { resolveHttpConfig, type HttpConfig } from '../settings/httpConfig.ts';
 import { resolveTelegramEnabled } from '../settings/telegramRuntime.ts';
 import { resolveToolsConfig, type ToolsConfig } from '../settings/toolsConfig.ts';
+import { CONFIG_LOADED_AT } from '../settings/sqliteRuntimeState.ts';
 import { OpenAiAgent } from '../agent/openaiAgent.ts';
 import { Session } from '../agent/session.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
@@ -190,6 +191,11 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     log.warn('home-assistant integration not configured — HA MCP tools disabled');
     mcp = new NullMcpClient();
   }
+
+  // Stamp when this process finished reading the applied-on-restart config
+  // (settings + prompts + integrations, all read above). The web panel compares
+  // this against those tables' latest edit to show whether a restart is pending.
+  memory.runtimeState.set(CONFIG_LOADED_AT, String(Date.now()));
 
   // Goal-mode agent: dedicated session, base system prompt (no channel suffix);
   // goal mode produces a written summary, never speaks.

@@ -6,6 +6,7 @@ import type OpenAI from 'openai';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 import { IdentitiesStore } from '../../src/memory/identities.ts';
 import { SqliteSettings } from '../../src/settings/sqliteSettings.ts';
+import { SqliteRuntimeState } from '../../src/settings/sqliteRuntimeState.ts';
 import { SqlitePrompts } from '../../src/settings/sqlitePrompts.ts';
 import { SqliteIntegrations } from '../../src/integrations/sqliteIntegrations.ts';
 import { freshTestDb } from '../memory/helpers.ts';
@@ -40,6 +41,7 @@ function makeMemoryStore(): MemoryStore {
       delete: () => {},
     },
     settings: new SqliteSettings(db),
+    runtimeState: new SqliteRuntimeState(db),
     prompts: new SqlitePrompts(db),
     integrations: new SqliteIntegrations(db),
     close: () => {},

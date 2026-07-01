@@ -23,6 +23,7 @@ describe('fresh DB schema', () => {
         'integrations',
         'profile',
         'prompts',
+        'runtime_state',
         'scheduled_actions',
         'settings',
         'telegram_sessions',

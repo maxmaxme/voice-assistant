@@ -321,6 +321,17 @@ never hot-reloaded:
   default when `content` is empty. See the "Prompt text…" subsection above for
   the full layout.
 
+Because these apply only on restart, the panel shows a **config-drift
+indicator** next to "Apply changes (restart)". On bootstrap `cli/shared.ts`
+stamps `config_loaded_at` (unix ms) into a `runtime_state` table
+(`src/settings/sqliteRuntimeState.ts`, `RuntimeStateStore` — process-written
+facts, not user config) once it has read settings + prompts + integrations. The
+web `GET /api/config-status` compares it against `MAX(updated_at)` over those
+three tables (`web/server/utils/db/{runtimeState,configStatus}.ts`): loaded ≥
+last edit → up to date, else a restart is pending (`null` = never loaded). The
+integrations row's `updated_at` is reused as the edit timestamp — no separate
+marker is written on save.
+
 ### Scheduled actions
 
 The agent has a single `schedule_action(goal, schedule_kind, schedule_expr)` tool. Two forms:

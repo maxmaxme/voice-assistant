@@ -79,6 +79,16 @@ export const settings = sqliteTable('settings', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+// Facts the *running* process writes about itself (not user-editable config),
+// e.g. `config_loaded_at` — when this process last read the applied-on-restart
+// config. The web panel compares it against MAX(updated_at) of settings/prompts/
+// integrations to tell whether a live edit still needs a restart to take effect.
+export const runtimeState = sqliteTable('runtime_state', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 // Configured integrations (e.g. Home Assistant). Admin-managed via the web
 // panel; `config` is a JSON blob whose shape is defined by the integration's
 // catalog entry. A row present = installed. Not yet read by the agent core.

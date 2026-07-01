@@ -5,6 +5,7 @@ import { SqliteScheduledActions } from './sqliteScheduledActions.ts';
 import { SqliteTelegramSessions } from './sqliteTelegramSessions.ts';
 import { IdentitiesStore } from './identities.ts';
 import { SqliteSettings } from '../settings/sqliteSettings.ts';
+import { SqliteRuntimeState } from '../settings/sqliteRuntimeState.ts';
 import { SqlitePrompts } from '../settings/sqlitePrompts.ts';
 import { SqliteIntegrations } from '../integrations/sqliteIntegrations.ts';
 import type { MemoryStore } from './types.ts';
@@ -20,6 +21,7 @@ export function openMemoryStore(dbPath: string): MemoryStore {
   const telegramSessions = new SqliteTelegramSessions(db);
   const identities = new IdentitiesStore(db);
   const settings = new SqliteSettings(db);
+  const runtimeState = new SqliteRuntimeState(db);
   const prompts = new SqlitePrompts(db);
   const integrations = new SqliteIntegrations(db);
   return {
@@ -29,6 +31,7 @@ export function openMemoryStore(dbPath: string): MemoryStore {
     scheduledActions,
     telegramSessions,
     settings,
+    runtimeState,
     prompts,
     integrations,
     close() {
