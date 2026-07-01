@@ -104,9 +104,6 @@ const linkClass = (to: string): string =>
       </nav>
       <div class="px-3 py-4 space-y-2">
         <RestartButton />
-        <p class="px-3 text-xs text-white/45 leading-relaxed">
-          Changes apply on the next voice-assistant restart.
-        </p>
       </div>
     </aside>
 
