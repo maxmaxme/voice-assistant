@@ -9,6 +9,7 @@ export const REALTIME_KEYS = {
   followUpMs: 'realtime.followUpMs',
   requestFollowUpMs: 'realtime.requestFollowUpMs',
   followUpChime: 'realtime.followUpChime',
+  wakeChime: 'realtime.wakeChime',
 } as const
 
 export interface RealtimeForm {
@@ -19,6 +20,7 @@ export interface RealtimeForm {
   followUpMs: string
   requestFollowUpMs: string
   followUpChime: boolean
+  wakeChime: boolean
 }
 
 export function readRealtime(all: Record<string, string>): RealtimeForm {
@@ -30,6 +32,8 @@ export function readRealtime(all: Record<string, string>): RealtimeForm {
     requestFollowUpMs: all[REALTIME_KEYS.requestFollowUpMs] ?? '',
     // Default off: only a stored '1' turns the chime on.
     followUpChime: all[REALTIME_KEYS.followUpChime] === '1',
+    // Default on: only a stored '0' turns the wake beep off.
+    wakeChime: all[REALTIME_KEYS.wakeChime] !== '0',
   }
 }
 

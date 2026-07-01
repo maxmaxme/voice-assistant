@@ -71,6 +71,7 @@ function makeDeps(): CommonDeps {
       followUpMs: 8_000,
       requestFollowUpMs: 10_000,
       followUpChime: true,
+      wakeChime: true,
     },
     http: { text: true, audio: true, assist: true },
     tools: {

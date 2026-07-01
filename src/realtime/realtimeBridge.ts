@@ -58,6 +58,9 @@ export interface BridgeDeps {
   // (request_follow_up tool). Only affects that path; the ambient
   // after-every-reply window is always silent.
   followUpChime?: boolean;
+  // Whether the device plays its local wake-word beep. Pushed to the device in
+  // `hello` (the device has no other control surface for it).
+  wakeChime?: boolean;
 }
 
 export class RealtimeBridge {
@@ -120,6 +123,8 @@ export class RealtimeBridge {
   private readonly requestFollowUpMs: number;
   // Whether an explicit request_follow_up question opens with a chime.
   private readonly followUpChime: boolean;
+  // Whether the device plays its local wake-word beep (sent in `hello`).
+  private readonly wakeChime: boolean;
 
   // Set on device-initiated interrupt. OpenAI's response.cancel is not
   // instantaneous — the server can still flush queued response.output_audio
@@ -211,6 +216,7 @@ export class RealtimeBridge {
     this.followUpMs = deps.followUpMs ?? 0;
     this.requestFollowUpMs = deps.requestFollowUpMs ?? 0;
     this.followUpChime = deps.followUpChime ?? false;
+    this.wakeChime = deps.wakeChime ?? true;
     // Inject two built-in flow-control tools ahead of MCP tools:
     //   - wait_for_user: incoming audio is silence/noise/echo; stay silent.
     //   - request_follow_up: model asked the user a clarifying question and
@@ -301,7 +307,7 @@ export class RealtimeBridge {
       this.openai.close();
     });
 
-    this.sendDevice({ type: 'hello', audioOut: 'pcm' });
+    this.sendDevice({ type: 'hello', audioOut: 'pcm', wakeChime: this.wakeChime });
     this.setPhase('idle', { force: true });
   }
 

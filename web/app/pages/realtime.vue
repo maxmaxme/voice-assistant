@@ -6,13 +6,14 @@ useHead({ title: 'Realtime' })
 const toast = useToast()
 const { data, refresh } = await useFetch<RealtimeResponse>('/api/realtime')
 
-const form = reactive<{ enabled: boolean, outputPacingMs: string, idleResetMs: string, followUpMs: string, requestFollowUpMs: string, followUpChime: boolean }>({
+const form = reactive<{ enabled: boolean, outputPacingMs: string, idleResetMs: string, followUpMs: string, requestFollowUpMs: string, followUpChime: boolean, wakeChime: boolean }>({
   enabled: false,
   outputPacingMs: '',
   idleResetMs: '',
   followUpMs: '',
   requestFollowUpMs: '',
   followUpChime: false,
+  wakeChime: true,
 })
 watchEffect(() => {
   if (!data.value) return
@@ -22,6 +23,7 @@ watchEffect(() => {
   form.followUpMs = data.value.followUpMs
   form.requestFollowUpMs = data.value.requestFollowUpMs
   form.followUpChime = data.value.followUpChime
+  form.wakeChime = data.value.wakeChime
 })
 
 const dirty = computed(() =>
@@ -31,7 +33,8 @@ const dirty = computed(() =>
     || form.idleResetMs !== data.value.idleResetMs
     || form.followUpMs !== data.value.followUpMs
     || form.requestFollowUpMs !== data.value.requestFollowUpMs
-    || form.followUpChime !== data.value.followUpChime),
+    || form.followUpChime !== data.value.followUpChime
+    || form.wakeChime !== data.value.wakeChime),
 )
 
 const saving = ref(false)
@@ -244,6 +247,13 @@ async function save() {
             description="Play a chime when the assistant explicitly asks you a question and waits for your answer. The ambient after-every-reply window stays silent regardless."
           >
             <USwitch v-model="form.followUpChime" />
+          </UFormField>
+
+          <UFormField
+            label="Wake sound"
+            description="Play the local beep on the device when the wake word fires. Pushed to the device on connect (applies after it reconnects)."
+          >
+            <USwitch v-model="form.wakeChime" />
           </UFormField>
         </div>
       </UCard>

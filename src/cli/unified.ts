@@ -213,6 +213,7 @@ export async function main(): Promise<void> {
           followUpMs: deps.realtime.followUpMs,
           requestFollowUpMs: deps.realtime.requestFollowUpMs,
           followUpChime: deps.realtime.followUpChime,
+          wakeChime: deps.realtime.wakeChime,
           instructions: appendUserContext(
             buildSystemPromptFor('realtime', deps.haEnabled),
             profile.recall(),

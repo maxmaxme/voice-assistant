@@ -5,6 +5,7 @@ export interface RealtimeResponse {
   followUpMs: string
   requestFollowUpMs: string
   followUpChime: boolean
+  wakeChime: boolean
 }
 
 export interface HttpResponse {

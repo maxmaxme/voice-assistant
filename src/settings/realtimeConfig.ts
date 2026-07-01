@@ -11,6 +11,7 @@ export interface RealtimeConfig {
   followUpMs: number;
   requestFollowUpMs: number;
   followUpChime: boolean;
+  wakeChime: boolean;
 }
 
 export const REALTIME_KEYS = {
@@ -20,6 +21,7 @@ export const REALTIME_KEYS = {
   followUpMs: 'realtime.followUpMs',
   requestFollowUpMs: 'realtime.requestFollowUpMs',
   followUpChime: 'realtime.followUpChime',
+  wakeChime: 'realtime.wakeChime',
 } as const;
 
 const DEFAULTS: RealtimeConfig = {
@@ -39,6 +41,9 @@ const DEFAULTS: RealtimeConfig = {
   // Play a chime when the assistant explicitly asks the user a question and
   // waits for the answer (the request_follow_up tool). Off by default.
   followUpChime: false,
+  // Play the local wake-word beep when the device wakes. Pushed to the device
+  // in `hello`. On by default (matches the stock firmware behaviour).
+  wakeChime: true,
 };
 
 function num(value: string | undefined, fallback: number): number {
@@ -58,5 +63,7 @@ export function resolveRealtimeConfig(store: SettingsStore): RealtimeConfig {
     requestFollowUpMs: num(store.get(REALTIME_KEYS.requestFollowUpMs), DEFAULTS.requestFollowUpMs),
     // Default off: only a stored '1' turns the chime on.
     followUpChime: store.get(REALTIME_KEYS.followUpChime) === '1',
+    // Default on: only a stored '0' turns the wake beep off.
+    wakeChime: store.get(REALTIME_KEYS.wakeChime) !== '0',
   };
 }

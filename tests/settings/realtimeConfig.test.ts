@@ -20,6 +20,7 @@ describe('resolveRealtimeConfig', () => {
       followUpMs: 8_000,
       requestFollowUpMs: 10_000,
       followUpChime: false,
+      wakeChime: true,
     });
   });
 
@@ -30,6 +31,7 @@ describe('resolveRealtimeConfig', () => {
     store.set(REALTIME_KEYS.followUpMs, '12000');
     store.set(REALTIME_KEYS.requestFollowUpMs, '15000');
     store.set(REALTIME_KEYS.followUpChime, '0');
+    store.set(REALTIME_KEYS.wakeChime, '0');
     expect(resolveRealtimeConfig(store)).toEqual({
       enabled: true,
       outputPacingMs: 40,
@@ -37,6 +39,7 @@ describe('resolveRealtimeConfig', () => {
       followUpMs: 12000,
       requestFollowUpMs: 15000,
       followUpChime: false,
+      wakeChime: false,
     });
   });
 
@@ -61,6 +64,14 @@ describe('resolveRealtimeConfig', () => {
     expect(resolveRealtimeConfig(store).followUpChime).toBe(false);
     store.set(REALTIME_KEYS.followUpChime, '1');
     expect(resolveRealtimeConfig(store).followUpChime).toBe(true);
+  });
+
+  it('wake chime is on by default and only "0" turns it off', () => {
+    expect(resolveRealtimeConfig(store).wakeChime).toBe(true);
+    store.set(REALTIME_KEYS.wakeChime, '1');
+    expect(resolveRealtimeConfig(store).wakeChime).toBe(true);
+    store.set(REALTIME_KEYS.wakeChime, '0');
+    expect(resolveRealtimeConfig(store).wakeChime).toBe(false);
   });
 
   it('treats any non-"1" enabled value as disabled', () => {

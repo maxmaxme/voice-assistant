@@ -418,6 +418,26 @@ describe('RealtimeBridge phase / status machine', () => {
   });
 });
 
+// hello carries the wake-beep preference to the device (its only control
+// surface for it — no HA api / web server on that firmware).
+describe('RealtimeBridge hello', () => {
+  function hello(): Record<string, unknown> | undefined {
+    return serverMessages().find((m) => m.type === 'hello');
+  }
+
+  it('sends the wake-chime preference in hello (default on)', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+    expect(hello()).toEqual({ type: 'hello', audioOut: 'pcm', wakeChime: true });
+  });
+
+  it('reflects wakeChime=false in hello', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ wakeChime: false }));
+    await bridge.start();
+    expect(hello()).toEqual({ type: 'hello', audioOut: 'pcm', wakeChime: false });
+  });
+});
+
 // The follow-up mic window is server-driven and rides on its own `follow_up`
 // event (like request_follow_up), sent right before idle — but only after a
 // spoken reply, and only when the admin-configured duration is > 0. Silent
