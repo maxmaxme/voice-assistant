@@ -54,6 +54,20 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** The device-facing realtime config — exactly what the `hello` message carries
+ *  to the speaker. Today just `wakeChime`; add a field here (and to the `hello`
+ *  ServerMessage + the firmware) to expose a new device setting, and the
+ *  wsServer watcher's diff-and-re-send-hello plumbing carries it automatically —
+ *  no per-setting code. NOT for server-side realtime config (follow-up windows,
+ *  pacing, idle reset): those never reach the device and stay restart-only. */
+export interface RealtimeDeviceConfig {
+  wakeChime: boolean;
+}
+
+export function realtimeDeviceConfig(c: RealtimeConfig): RealtimeDeviceConfig {
+  return { wakeChime: c.wakeChime };
+}
+
 export function resolveRealtimeConfig(store: SettingsStore): RealtimeConfig {
   return {
     enabled: store.get(REALTIME_KEYS.enabled) === '1',

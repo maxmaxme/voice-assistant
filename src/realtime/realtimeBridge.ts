@@ -12,6 +12,7 @@ import {
 } from './protocol.ts';
 import { LatencyTracker } from './metrics.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
+import type { RealtimeDeviceConfig } from '../settings/realtimeConfig.ts';
 
 const log = createLogger('realtime-bridge');
 
@@ -115,17 +116,13 @@ export class RealtimeBridge {
   private idleResetTimer: NodeJS.Timeout | null = null;
   private readonly idleResetMs: number;
 
-  // Ambient follow-up window (sent in `follow_up` before idle after any spoken
-  // reply). 0 disables it.
+  // Server-side follow-up config, captured at construction (restart to change).
   private readonly followUpMs: number;
-  // Explicit-question window: request_follow_up always opens the mic for this
-  // long, independent of followUpMs. 0 disables even explicit follow-ups.
   private readonly requestFollowUpMs: number;
-  // Whether an explicit request_follow_up question opens with a chime.
   private readonly followUpChime: boolean;
-  // Whether the device plays its local wake-word beep (sent in `hello`).
-  // Mutable: the settings watcher pushes live changes via setWakeChime().
-  private wakeChime: boolean;
+  // Device-facing config — the payload of `hello`. Mutable: the settings watcher
+  // pushes live changes via applyDeviceConfig(), which re-sends hello.
+  private deviceConfig: RealtimeDeviceConfig;
 
   // Set on device-initiated interrupt. OpenAI's response.cancel is not
   // instantaneous — the server can still flush queued response.output_audio
@@ -217,7 +214,7 @@ export class RealtimeBridge {
     this.followUpMs = deps.followUpMs ?? 0;
     this.requestFollowUpMs = deps.requestFollowUpMs ?? 0;
     this.followUpChime = deps.followUpChime ?? false;
-    this.wakeChime = deps.wakeChime ?? true;
+    this.deviceConfig = { wakeChime: deps.wakeChime ?? true };
     // Inject two built-in flow-control tools ahead of MCP tools:
     //   - wait_for_user: incoming audio is silence/noise/echo; stay silent.
     //   - request_follow_up: model asked the user a clarifying question and
@@ -308,7 +305,7 @@ export class RealtimeBridge {
       this.openai.close();
     });
 
-    this.sendDevice({ type: 'hello', audioOut: 'pcm', wakeChime: this.wakeChime });
+    this.sendHello();
     this.setPhase('idle', { force: true });
   }
 
@@ -381,17 +378,17 @@ export class RealtimeBridge {
     return this.pendingConnect;
   }
 
-  /** Push a live change to the wake-beep preference to this device by re-sending
-   *  `hello` (whose firmware handler just re-applies the flag — idempotent).
-   *  Called by the settings watcher when `realtime.wakeChime` changes, so the
-   *  admin toggle applies without a restart or a device reconnect. No-op if the
-   *  value is unchanged. */
-  setWakeChime(wakeChime: boolean): void {
-    if (wakeChime === this.wakeChime) {
+  /** Apply device-facing config (the `hello` payload) to this live bridge —
+   *  called by the settings watcher when it changes, so admin edits reach the
+   *  speaker without a restart. Re-sends the whole `hello` (idempotent on the
+   *  firmware) when anything differs; no-op otherwise. Adding a device setting
+   *  needs no change here — it rides `RealtimeDeviceConfig` → hello. */
+  applyDeviceConfig(cfg: RealtimeDeviceConfig): void {
+    if (JSON.stringify(cfg) === JSON.stringify(this.deviceConfig)) {
       return;
     }
-    this.wakeChime = wakeChime;
-    this.sendDevice({ type: 'hello', audioOut: 'pcm', wakeChime });
+    this.deviceConfig = cfg;
+    this.sendHello();
   }
 
   private handleDevice(data: WebSocket.RawData, isBinary: boolean): void {
@@ -870,6 +867,12 @@ export class RealtimeBridge {
 
   private sendDevice(msg: ServerMessage): void {
     this.deviceWs.send(encodeServerMessage(msg));
+  }
+
+  /** Send the handshake ack + current device config. Single builder so `hello`
+   *  and any live re-send (applyDeviceConfig) always carry the same shape. */
+  private sendHello(): void {
+    this.sendDevice({ type: 'hello', audioOut: 'pcm', ...this.deviceConfig });
   }
 
   /** Send one PCM16 @ 24 kHz chunk to the device. With pacing off, forward it

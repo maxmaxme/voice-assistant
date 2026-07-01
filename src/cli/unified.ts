@@ -17,7 +17,7 @@ import { OpenAiStt } from '../audio/openaiStt.ts';
 import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
 import { BotPhotoLoader } from '../telegram/photoLoader.ts';
 import { Scheduler } from '../scheduling/scheduler.ts';
-import { resolveRealtimeConfig } from '../settings/realtimeConfig.ts';
+import { resolveRealtimeConfig, realtimeDeviceConfig } from '../settings/realtimeConfig.ts';
 import { getServerTimezone } from '../utils/time.ts';
 import { createLogger } from '../utils/logger.ts';
 
@@ -185,12 +185,12 @@ export async function main(): Promise<void> {
     realtimeServer = await startRealtimeServer({
       port: deps.config.realtime.port,
       authorize: (token) => authorizeSpeaker(deps.memory.identities, token),
-      // wakeChime is delivered live (see setWakeChime): poll the DB and push
-      // changes to connected devices, so the admin toggle applies without a
-      // restart. Other realtime.* config still applies on restart.
+      // Device-facing config (the hello payload) is delivered live: poll the DB
+      // and push changes to connected devices, so admin edits apply without a
+      // restart. Server-side realtime.* config still applies on restart.
       watchDeviceConfig: {
         intervalMs: 15_000,
-        read: () => ({ wakeChime: resolveRealtimeConfig(deps.memory.settings).wakeChime }),
+        read: () => realtimeDeviceConfig(resolveRealtimeConfig(deps.memory.settings)),
       },
       buildBridgeDeps: async (auth) => {
         // The handshake already resolved the device to its owning principal, so

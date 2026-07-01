@@ -3,6 +3,7 @@ import { WebSocketServer } from 'ws';
 import { createLogger } from '../utils/logger.ts';
 import { bearerToken } from './auth.ts';
 import { RealtimeBridge, type BridgeDeps } from './realtimeBridge.ts';
+import type { RealtimeDeviceConfig } from '../settings/realtimeConfig.ts';
 
 const log = createLogger('realtime-ws-server');
 
@@ -18,11 +19,12 @@ export interface StartOptions {
   authorize: (token: string) => SpeakerAuth | null;
   buildBridgeDeps: (auth: SpeakerAuth) => Promise<BridgeDeps>;
   /** Poll the DB-backed device-facing realtime config and push changes to
-   *  already-connected devices (currently just wakeChime, re-sent as `hello`)
-   *  so the admin toggle applies without a restart. Omit to disable polling. */
+   *  already-connected devices (re-sent as `hello`) so admin edits apply without
+   *  a restart. Diffs the whole config object, so new device settings are
+   *  carried automatically. Omit to disable polling. */
   watchDeviceConfig?: {
     intervalMs: number;
-    read: () => { wakeChime: boolean };
+    read: () => RealtimeDeviceConfig;
   };
 }
 
@@ -68,28 +70,27 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
     });
   });
 
-  // Poll the DB-backed wake-beep setting and push changes to connected devices
-  // (a re-sent `hello`) — the admin panel only writes the setting, this process
-  // owns the WS. Baseline from the current value so only later edits push.
+  // Poll the DB-backed device config and push changes to connected devices (a
+  // re-sent `hello`) — the admin panel only writes the settings, this process
+  // owns the WS. JSON-diff so any field carries automatically; baseline from the
+  // current value so only later edits push.
   let configWatch: NodeJS.Timeout | null = null;
   if (opts.watchDeviceConfig) {
     const { intervalMs, read } = opts.watchDeviceConfig;
-    let lastWakeChime = read().wakeChime;
+    let last = JSON.stringify(read());
     configWatch = setInterval(() => {
-      const { wakeChime } = read();
-      if (wakeChime === lastWakeChime) {
+      const cur = read();
+      const curStr = JSON.stringify(cur);
+      if (curStr === last) {
         return;
       }
-      lastWakeChime = wakeChime;
-      log.info(
-        { wakeChime, devices: bridges.size },
-        'wake-beep setting changed — pushing to devices',
-      );
+      last = curStr;
+      log.info({ ...cur, devices: bridges.size }, 'device config changed — pushing to devices');
       for (const bridge of bridges) {
         try {
-          bridge.setWakeChime(wakeChime);
+          bridge.applyDeviceConfig(cur);
         } catch (err) {
-          log.debug({ err }, 'failed to push wake-beep to a device (likely closing)');
+          log.debug({ err }, 'failed to push device config (device likely closing)');
         }
       }
     }, intervalMs);
