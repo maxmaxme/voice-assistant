@@ -29,6 +29,10 @@ const dotClass = computed(() => {
   return s.upToDate ? 'bg-green-400' : 'bg-amber-400'
 })
 
+// Nothing to apply when the running process is already current — the button
+// only makes sense when a restart is pending (or state is unknown).
+const showRestart = computed(() => status.value?.upToDate !== true)
+
 const toast = useToast()
 const open = ref(false)
 const restarting = ref(false)
@@ -66,40 +70,46 @@ async function confirm() {
       />
       <span>{{ statusLabel }}</span>
     </div>
-    <UButton
-      block
-      color="neutral"
-      variant="solid"
-      icon="i-lucide-rotate-cw"
-      class="bg-white/15 text-white hover:bg-white/25 ring-0 justify-center"
-      @click="open = true"
-    >
-      Apply changes (restart)
-    </UButton>
+    <template v-if="showRestart">
+      <UButton
+        block
+        color="neutral"
+        variant="solid"
+        icon="i-lucide-rotate-cw"
+        class="bg-white/15 text-white hover:bg-white/25 ring-0 justify-center"
+        @click="open = true"
+      >
+        Apply changes (restart)
+      </UButton>
 
-    <UModal
-      v-model:open="open"
-      title="Restart voice-assistant?"
-      description="Settings, prompts and integrations apply on the next start. This bounces the process to pick them up — any in-progress conversation is interrupted for a few seconds."
-    >
-      <template #footer>
-        <div class="flex justify-end gap-2 w-full">
-          <UButton
-            color="neutral"
-            variant="ghost"
-            @click="open = false"
-          >
-            Cancel
-          </UButton>
-          <UButton
-            icon="i-lucide-rotate-cw"
-            :loading="restarting"
-            @click="confirm"
-          >
-            Restart
-          </UButton>
-        </div>
-      </template>
-    </UModal>
+      <UModal
+        v-model:open="open"
+        title="Restart voice-assistant?"
+        description="Settings, prompts and integrations apply on the next start. This bounces the process to pick them up — any in-progress conversation is interrupted for a few seconds."
+      >
+        <template #footer>
+          <div class="flex justify-end gap-2 w-full">
+            <UButton
+              color="neutral"
+              variant="ghost"
+              @click="open = false"
+            >
+              Cancel
+            </UButton>
+            <UButton
+              icon="i-lucide-rotate-cw"
+              :loading="restarting"
+              @click="confirm"
+            >
+              Restart
+            </UButton>
+          </div>
+        </template>
+      </UModal>
+
+      <p class="px-3 pt-2 text-xs text-white/45 leading-relaxed">
+        Changes apply on the next voice-assistant restart.
+      </p>
+    </template>
   </div>
 </template>
