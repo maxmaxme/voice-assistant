@@ -37,13 +37,27 @@ export function readRealtime(all: Record<string, string>): RealtimeForm {
   }
 }
 
-/** Validate an optional numeric field. Returns an error message, or null. */
-export function validateNumber(label: string, value: string | undefined): string | null {
-  if (value === undefined || value === '') {
-    return null
+/**
+ * Validate + canonicalize an optional numeric field so the DB only ever stores
+ * plain integer strings. Accepts a locale decimal comma (e.g. "4000,0" from a
+ * number input in a comma-locale browser) and rounds to an integer; a blank
+ * value canonicalizes to null (= clear the key, use the built-in default).
+ * Doing this server-side protects every client and keeps commas out of storage
+ * — the runtime `num()` reader would otherwise silently fall back to the
+ * default on a value it can't parse. Returns the canonical value or an error.
+ */
+export function canonicalizeNumber(
+  label: string,
+  value: string | number | undefined,
+): { canonical: string | null, error: string | null } {
+  // A number-typed <input> yields a real number for filled fields and '' when
+  // cleared, so the value arrives as string | number over the wire.
+  if (value === undefined || (typeof value === 'string' && value.trim() === '')) {
+    return { canonical: null, error: null }
   }
-  if (Number.isNaN(Number(value))) {
-    return `${label} must be a number`
+  const n = typeof value === 'number' ? value : Number(value.replace(',', '.'))
+  if (!Number.isFinite(n)) {
+    return { canonical: null, error: `${label} must be a number` }
   }
-  return null
+  return { canonical: String(Math.round(n)), error: null }
 }

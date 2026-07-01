@@ -41,6 +41,8 @@ const saving = ref(false)
 async function save() {
   saving.value = true
   try {
+    // The server canonicalizes numeric fields (locale comma → integer), so a
+    // raw form dump is fine; `refresh()` below pulls back the stored value.
     await $fetch('/api/realtime', { method: 'PUT', body: { ...form } })
     toast.add({ title: 'Saved', description: 'Applies after the next restart.', color: 'success' })
     await refresh()
@@ -201,6 +203,8 @@ async function save() {
             <UInput
               v-model="form.outputPacingMs"
               type="number"
+              min="0"
+              step="1"
               class="w-full sm:w-60"
               placeholder="20"
             />
@@ -213,6 +217,8 @@ async function save() {
             <UInput
               v-model="form.idleResetMs"
               type="number"
+              min="0"
+              step="1"
               class="w-full sm:w-60"
               placeholder="90000"
             />
@@ -225,6 +231,8 @@ async function save() {
             <UInput
               v-model="form.followUpMs"
               type="number"
+              min="0"
+              step="1"
               class="w-full sm:w-60"
               placeholder="8000"
             />
@@ -237,6 +245,8 @@ async function save() {
             <UInput
               v-model="form.requestFollowUpMs"
               type="number"
+              min="0"
+              step="1"
               class="w-full sm:w-60"
               placeholder="10000"
             />
