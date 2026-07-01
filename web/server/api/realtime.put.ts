@@ -6,6 +6,9 @@ interface PutBody {
   enabled?: boolean
   outputPacingMs?: string
   idleResetMs?: string
+  followUpMs?: string
+  requestFollowUpMs?: string
+  followUpChime?: boolean
 }
 
 export default defineEventHandler(async (event) => {
@@ -14,6 +17,8 @@ export default defineEventHandler(async (event) => {
   for (const [label, value] of [
     ['Output pacing', body.outputPacingMs],
     ['Idle reset', body.idleResetMs],
+    ['Follow-up window', body.followUpMs],
+    ['Question follow-up window', body.requestFollowUpMs],
   ] as const) {
     const err = validateNumber(label, value)
     if (err) {
@@ -32,6 +37,11 @@ export default defineEventHandler(async (event) => {
     else deleteSetting(REALTIME_KEYS.enabled)
     writeNumber(REALTIME_KEYS.outputPacingMs, body.outputPacingMs)
     writeNumber(REALTIME_KEYS.idleResetMs, body.idleResetMs)
+    writeNumber(REALTIME_KEYS.followUpMs, body.followUpMs)
+    writeNumber(REALTIME_KEYS.requestFollowUpMs, body.requestFollowUpMs)
+    // Chime defaults to off — persist '1' only to turn it on, else clear the key.
+    if (body.followUpChime === true) setSetting(REALTIME_KEYS.followUpChime, '1')
+    else deleteSetting(REALTIME_KEYS.followUpChime)
   }
   catch (e) {
     if (e instanceof DbNotReadyError) {

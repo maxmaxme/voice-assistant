@@ -6,23 +6,32 @@ useHead({ title: 'Realtime' })
 const toast = useToast()
 const { data, refresh } = await useFetch<RealtimeResponse>('/api/realtime')
 
-const form = reactive<{ enabled: boolean, outputPacingMs: string, idleResetMs: string }>({
+const form = reactive<{ enabled: boolean, outputPacingMs: string, idleResetMs: string, followUpMs: string, requestFollowUpMs: string, followUpChime: boolean }>({
   enabled: false,
   outputPacingMs: '',
   idleResetMs: '',
+  followUpMs: '',
+  requestFollowUpMs: '',
+  followUpChime: false,
 })
 watchEffect(() => {
   if (!data.value) return
   form.enabled = data.value.enabled
   form.outputPacingMs = data.value.outputPacingMs
   form.idleResetMs = data.value.idleResetMs
+  form.followUpMs = data.value.followUpMs
+  form.requestFollowUpMs = data.value.requestFollowUpMs
+  form.followUpChime = data.value.followUpChime
 })
 
 const dirty = computed(() =>
   !!data.value
   && (form.enabled !== data.value.enabled
     || form.outputPacingMs !== data.value.outputPacingMs
-    || form.idleResetMs !== data.value.idleResetMs),
+    || form.idleResetMs !== data.value.idleResetMs
+    || form.followUpMs !== data.value.followUpMs
+    || form.requestFollowUpMs !== data.value.requestFollowUpMs
+    || form.followUpChime !== data.value.followUpChime),
 )
 
 const saving = ref(false)
@@ -204,6 +213,37 @@ async function save() {
               class="w-full sm:w-60"
               placeholder="90000"
             />
+          </UFormField>
+
+          <UFormField
+            label="Follow-up window (ms)"
+            description="After any spoken reply, reopen the mic for this many ms so the user can continue without a wake word. 0 disables it (wake word every turn). Not opened after wait_for_user. Blank = default (8000)."
+          >
+            <UInput
+              v-model="form.followUpMs"
+              type="number"
+              class="w-full sm:w-60"
+              placeholder="8000"
+            />
+          </UFormField>
+
+          <UFormField
+            label="Question follow-up window (ms)"
+            description="When the assistant explicitly asks a question (request_follow_up), always reopen the mic for this many ms — even if the window above is 0, since a question needs an answer. 0 disables it too. Blank = default (10000)."
+          >
+            <UInput
+              v-model="form.requestFollowUpMs"
+              type="number"
+              class="w-full sm:w-60"
+              placeholder="10000"
+            />
+          </UFormField>
+
+          <UFormField
+            label="Follow-up chime"
+            description="Play a chime when the assistant explicitly asks you a question and waits for your answer. The ambient after-every-reply window stays silent regardless."
+          >
+            <USwitch v-model="form.followUpChime" />
           </UFormField>
         </div>
       </UCard>

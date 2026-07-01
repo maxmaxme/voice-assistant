@@ -6,6 +6,9 @@ export const REALTIME_KEYS = {
   enabled: 'realtime.enabled',
   outputPacingMs: 'realtime.outputPacingMs',
   idleResetMs: 'realtime.idleResetMs',
+  followUpMs: 'realtime.followUpMs',
+  requestFollowUpMs: 'realtime.requestFollowUpMs',
+  followUpChime: 'realtime.followUpChime',
 } as const
 
 export interface RealtimeForm {
@@ -13,6 +16,9 @@ export interface RealtimeForm {
   /** Raw string ('' = use the built-in default), so the UI can leave it blank. */
   outputPacingMs: string
   idleResetMs: string
+  followUpMs: string
+  requestFollowUpMs: string
+  followUpChime: boolean
 }
 
 export function readRealtime(all: Record<string, string>): RealtimeForm {
@@ -20,6 +26,10 @@ export function readRealtime(all: Record<string, string>): RealtimeForm {
     enabled: all[REALTIME_KEYS.enabled] === '1',
     outputPacingMs: all[REALTIME_KEYS.outputPacingMs] ?? '',
     idleResetMs: all[REALTIME_KEYS.idleResetMs] ?? '',
+    followUpMs: all[REALTIME_KEYS.followUpMs] ?? '',
+    requestFollowUpMs: all[REALTIME_KEYS.requestFollowUpMs] ?? '',
+    // Default off: only a stored '1' turns the chime on.
+    followUpChime: all[REALTIME_KEYS.followUpChime] === '1',
   }
 }
 

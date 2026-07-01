@@ -210,6 +210,9 @@ export async function main(): Promise<void> {
           reasoningEffort: deps.openai.realtime.reasoningEffort,
           idleResetMs: deps.realtime.idleResetMs,
           outputPacingMs: deps.realtime.outputPacingMs,
+          followUpMs: deps.realtime.followUpMs,
+          requestFollowUpMs: deps.realtime.requestFollowUpMs,
+          followUpChime: deps.realtime.followUpChime,
           instructions: appendUserContext(
             buildSystemPromptFor('realtime', deps.haEnabled),
             profile.recall(),

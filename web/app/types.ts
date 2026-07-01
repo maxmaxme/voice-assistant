@@ -2,6 +2,9 @@ export interface RealtimeResponse {
   enabled: boolean
   outputPacingMs: string
   idleResetMs: string
+  followUpMs: string
+  requestFollowUpMs: string
+  followUpChime: boolean
 }
 
 export interface HttpResponse {

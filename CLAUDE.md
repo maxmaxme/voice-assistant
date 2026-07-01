@@ -469,9 +469,21 @@ Key files:
 - `src/realtime/toolAdapter.ts` — converts the MCP tool list (from
   `HaMcpClient`) into the Realtime API's `tools` schema.
 - `src/realtime/protocol.ts` — JSON wire protocol with the device:
-  server→device `hello`, `phase`, `error`, `pong`; device→server
-  `start`, `interrupt`, `ping`. Binary frames are raw PCM16 in both
-  directions.
+  server→device `hello`, `phase`, `error`, `pong`, `follow_up`;
+  device→server `start`, `interrupt`, `ping`. Binary frames are raw
+  PCM16 in both directions. `follow_up {ms, chime?}` is sent right before
+  the end-of-turn `idle`, but only after a **spoken** reply: the device
+  latches it and reopens the mic once the reply drains. Two flavours: the
+  ambient after-every-reply window (`ms` = `realtime.followUpMs`, silent)
+  and the explicit-question window (`ms` = `realtime.requestFollowUpMs`,
+  `chime:true` gated by `realtime.followUpChime`) — the latter fires
+  whenever the model calls the `request_follow_up` **tool** and is
+  independent of the ambient toggle (a question is answerable even with
+  ambient off). A silent `wait_for_user`, a barge-in interrupt, a
+  silent/tool-only response, or the initial idle send **no** `follow_up`,
+  so the mic stays closed. The server owns this decision; the device
+  never decides on its own. (`request_follow_up` is a model tool, not a
+  wire message — it maps to `follow_up {chime}`.)
 - `src/realtime/metrics.ts` — `LatencyTracker` for the
   `bridge_start → openai_connected → first_audio_in → first_audio_out`
   markers. Logged on session end.
@@ -494,12 +506,12 @@ Important behaviour:
 
 Config sources:
 
-| Setting                             | Source                                                                                                                                                                                                                  |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| enable + idle reset + output pacing | **DB-only realtime config** (`resolveRealtimeConfig`, `src/settings/realtimeConfig.ts`) — read from the `settings` table under `realtime.*` keys via the web panel's HA Voice Realtime page (`/api/realtime`). NOT env. |
-| model / voice / effort              | **OpenAI integration** (`realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`) — provider-specific.                                                                                                               |
-| device token                        | **`voice` identity** in the `identities` table (sha256 of the per-device token). The WS hash-looks-up the presented Bearer; unknown → `4401`. Registered via the Users page / `attach-voice`. No env token.             |
-| `REALTIME_PORT`                     | env, default `3001`.                                                                                                                                                                                                    |
+| Setting                                                                   | Source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| enable + idle reset + output pacing + follow-up windows + follow-up chime | **DB-only realtime config** (`resolveRealtimeConfig`, `src/settings/realtimeConfig.ts`) — read from the `settings` table under `realtime.*` keys via the web panel's HA Voice Realtime page (`/api/realtime`). NOT env. `realtime.followUpMs` (default 8000, 0 disables) = ambient window after any spoken reply; `realtime.requestFollowUpMs` (default 10000, 0 disables) = the explicit-question window, **independent** of followUpMs (a `request_follow_up` question reopens the mic even when ambient is off); `realtime.followUpChime` (default off) plays a chime on the question window. All ride the `follow_up` event sent before the end-of-reply idle. |
+| model / voice / effort                                                    | **OpenAI integration** (`realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`) — provider-specific.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| device token                                                              | **`voice` identity** in the `identities` table (sha256 of the per-device token). The WS hash-looks-up the presented Bearer; unknown → `4401`. Registered via the Users page / `attach-voice`. No env token.                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `REALTIME_PORT`                                                           | env, default `3001`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### MCP client (`src/mcp/haMcpClient.ts`)
 

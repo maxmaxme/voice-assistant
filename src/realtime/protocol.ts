@@ -24,9 +24,16 @@ export type ServerMessage =
   | { type: 'error'; message: string }
   | { type: 'pong' }
   | { type: 'hello'; audioOut: 'pcm' | 'opus' }
-  // Model explicitly requested that the user be allowed to answer without
-  // a new wake word — open the follow-up mic window on the device.
-  | { type: 'request_follow_up' };
+  // Reopen the mic after a SPOKEN reply so the user can answer without a wake
+  // word. Sent right before the end-of-turn `idle`; the device latches it and
+  // opens the window once the reply drains. `ms` = window length (from realtime
+  // config; 0 there → this message is never sent). `chime` (default false):
+  // play the "your turn" chime and use the chimed open UX — set when the model
+  // explicitly asked a question (request_follow_up tool) and only if the admin
+  // enabled the chime; the ambient after-every-reply window is silent. A
+  // silent wait_for_user, a barge-in interrupt, or the initial idle send no
+  // follow_up at all. The server owns this decision, not the device.
+  | { type: 'follow_up'; ms: number; chime?: boolean };
 
 export function parseDeviceMessage(raw: string): DeviceMessage {
   const json = JSON.parse(raw);

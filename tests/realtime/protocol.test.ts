@@ -34,6 +34,16 @@ describe('protocol', () => {
     expect(encodeServerMessage(out)).toBe('{"type":"phase","value":"listening"}');
   });
 
+  it('encodes a silent follow_up message', () => {
+    const out: ServerMessage = { type: 'follow_up', ms: 8000 };
+    expect(encodeServerMessage(out)).toBe('{"type":"follow_up","ms":8000}');
+  });
+
+  it('encodes a chimed follow_up message', () => {
+    const out: ServerMessage = { type: 'follow_up', ms: 10000, chime: true };
+    expect(encodeServerMessage(out)).toBe('{"type":"follow_up","ms":10000,"chime":true}');
+  });
+
   it('encodes an error message', () => {
     expect(encodeServerMessage({ type: 'error', message: 'boom' })).toBe(
       '{"type":"error","message":"boom"}',

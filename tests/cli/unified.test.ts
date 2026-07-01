@@ -64,7 +64,14 @@ function makeDeps(): CommonDeps {
     },
     telegram: { botToken: 'X' },
     telegramEnabled: true,
-    realtime: { enabled: false, outputPacingMs: 20, idleResetMs: 90_000 },
+    realtime: {
+      enabled: false,
+      outputPacingMs: 20,
+      idleResetMs: 90_000,
+      followUpMs: 8_000,
+      requestFollowUpMs: 10_000,
+      followUpChime: true,
+    },
     http: { text: true, audio: true, assist: true },
     tools: {
       memory: true,

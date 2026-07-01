@@ -418,6 +418,93 @@ describe('RealtimeBridge phase / status machine', () => {
   });
 });
 
+// The follow-up mic window is server-driven and rides on its own `follow_up`
+// event (like request_follow_up), sent right before idle — but only after a
+// spoken reply, and only when the admin-configured duration is > 0. Silent
+// turns (wait_for_user) and barge-in interrupts go idle with no follow_up so
+// the device keeps the mic closed.
+describe('RealtimeBridge follow-up window', () => {
+  function followUps(): Array<Record<string, unknown>> {
+    return serverMessages().filter((m) => m.type === 'follow_up');
+  }
+  // Message types in send order — to assert follow_up precedes idle.
+  function messageOrder(): string[] {
+    return serverMessages().map((m) =>
+      m.type === 'phase' ? `phase:${m.value as string}` : (m.type as string),
+    );
+  }
+
+  it('sends follow_up before the end-of-reply idle', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ followUpMs: 8000 }));
+    await bridge.start();
+    const client = currentClient();
+    deviceWs.send.mockClear();
+
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' }); // → thinking
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: { id: 'r1', output: [{ type: 'message' }] },
+    });
+
+    // Ambient window is always silent (chime:false).
+    expect(followUps()).toEqual([{ type: 'follow_up', ms: 8000, chime: false }]);
+    // Ordering matters: the device latches follow_up, then idle drives the
+    // window open once the reply drains.
+    expect(messageOrder()).toEqual(['phase:thinking', 'follow_up', 'phase:idle']);
+  });
+
+  it('sends no follow_up when the window is disabled (followUpMs = 0)', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ followUpMs: 0 }));
+    await bridge.start();
+    const client = currentClient();
+    deviceWs.send.mockClear();
+
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' });
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: { id: 'r1', output: [{ type: 'message' }] },
+    });
+
+    expect(followUps()).toEqual([]);
+    expect(messageOrder()).toEqual(['phase:thinking', 'phase:idle']);
+  });
+
+  it('sends no follow_up on the wait_for_user idle', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ followUpMs: 8000 }));
+    await bridge.start();
+    const client = currentClient();
+    deviceWs.send.mockClear();
+
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' }); // → thinking
+    await feedOpenAi(client, {
+      type: 'response.function_call_arguments.done',
+      call_id: 'c1',
+      name: 'wait_for_user',
+      arguments: '{}',
+    });
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: { id: 'r1', output: [{ type: 'function_call', name: 'wait_for_user' }] },
+    });
+
+    expect(followUps()).toEqual([]);
+    expect(phasesSent()).toContain('idle');
+  });
+
+  it('sends no follow_up on a barge-in interrupt', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ followUpMs: 8000 }));
+    await bridge.start();
+    const client = currentClient();
+    deviceWs.send.mockClear();
+
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_started' }); // → listening
+    deviceControl({ type: 'interrupt' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(followUps()).toEqual([]);
+  });
+});
+
 // Barge-in: the user says a wake/stop word while the assistant is talking.
 // OpenAI keeps flushing queued audio for the cancelled response after we ask
 // it to stop; the bridge must drop that tail so the device doesn't replay it.
@@ -555,7 +642,10 @@ describe('RealtimeBridge tool dispatch', () => {
 
   beforeEach(async () => {
     runTool = vi.fn<(name: string, args: unknown) => Promise<string>>().mockResolvedValue('done');
-    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ runTool }));
+    bridge = new RealtimeBridge(
+      deviceWs as never,
+      makeDeps({ runTool, followUpMs: 8000, requestFollowUpMs: 10000, followUpChime: true }),
+    );
     await bridge.start();
     client = currentClient();
     deviceWs.send.mockClear();
@@ -627,11 +717,11 @@ describe('RealtimeBridge tool dispatch', () => {
     expect(runTool).not.toHaveBeenCalled();
   });
 
-  it('request_follow_up opens the device mic window without a model follow-up', async () => {
+  it('request_follow_up opens a chimed follow_up window (its own duration) after the model speaks', async () => {
     await callTool('c1', 'request_follow_up', '{}');
     // Not yet — only response.done knows whether the model actually spoke
     // the question the window is supposed to follow.
-    expect(serverMessages().some((m) => m.type === 'request_follow_up')).toBe(false);
+    expect(serverMessages().some((m) => m.type === 'follow_up')).toBe(false);
     await feedOpenAi(client, {
       type: 'response.done',
       response: {
@@ -639,8 +729,50 @@ describe('RealtimeBridge tool dispatch', () => {
         output: [{ type: 'message' }, { type: 'function_call', name: 'request_follow_up' }],
       },
     });
-    expect(serverMessages().some((m) => m.type === 'request_follow_up')).toBe(true);
+    // Uses requestFollowUpMs (10000), not the ambient followUpMs (8000).
+    expect(serverMessages()).toContainEqual({ type: 'follow_up', ms: 10000, chime: true });
     expect(client.requestResponse).not.toHaveBeenCalled();
+  });
+
+  it('request_follow_up opens even when the ambient window is disabled (followUpMs = 0)', async () => {
+    bridge = new RealtimeBridge(
+      deviceWs as never,
+      makeDeps({ runTool, followUpMs: 0, requestFollowUpMs: 10000, followUpChime: true }),
+    );
+    await bridge.start();
+    client = currentClient();
+    deviceWs.send.mockClear();
+
+    await callTool('c1', 'request_follow_up', '{}');
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: {
+        id: 'r1',
+        output: [{ type: 'message' }, { type: 'function_call', name: 'request_follow_up' }],
+      },
+    });
+    expect(serverMessages()).toContainEqual({ type: 'follow_up', ms: 10000, chime: true });
+  });
+
+  it('opens a silent window (chime:false) when the admin disabled the chime', async () => {
+    bridge = new RealtimeBridge(
+      deviceWs as never,
+      makeDeps({ runTool, followUpMs: 8000, requestFollowUpMs: 10000, followUpChime: false }),
+    );
+    await bridge.start();
+    client = currentClient();
+    deviceWs.send.mockClear();
+
+    await callTool('c1', 'request_follow_up', '{}');
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: {
+        id: 'r1',
+        output: [{ type: 'message' }, { type: 'function_call', name: 'request_follow_up' }],
+      },
+    });
+    // Still opens a window — just silent.
+    expect(serverMessages()).toContainEqual({ type: 'follow_up', ms: 10000, chime: false });
   });
 
   it('treats a wake word during a follow-up window as the user responding', async () => {
@@ -701,12 +833,15 @@ describe('RealtimeBridge silent request_follow_up guard', () => {
     });
   }
   function windowOpened(): boolean {
-    return serverMessages().some((m) => m.type === 'request_follow_up');
+    return serverMessages().some((m) => m.type === 'follow_up');
   }
 
   beforeEach(async () => {
     runTool = vi.fn<(name: string, args: unknown) => Promise<string>>().mockResolvedValue('done');
-    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ runTool }));
+    bridge = new RealtimeBridge(
+      deviceWs as never,
+      makeDeps({ runTool, followUpMs: 8000, requestFollowUpMs: 10000, followUpChime: true }),
+    );
     await bridge.start();
     client = currentClient();
     deviceWs.send.mockClear();

@@ -46,6 +46,18 @@ export interface BridgeDeps {
   // rather than forwarding each OpenAI delta verbatim (which bursts ~8× real
   // time and makes the device hiss). 0 disables pacing (legacy behaviour).
   outputPacingMs?: number;
+  // Ambient window: how long the device keeps the mic open after ANY spoken
+  // reply so the user can continue without a wake word. Sent in the `follow_up`
+  // event before the end-of-reply idle. 0 disables the ambient window.
+  followUpMs?: number;
+  // Explicit-question window: how long request_follow_up holds the mic open.
+  // Independent of followUpMs (a question must be answerable even with the
+  // ambient window off). 0 disables even explicit follow-ups.
+  requestFollowUpMs?: number;
+  // Play a chime when the assistant explicitly asks the user a question
+  // (request_follow_up tool). Only affects that path; the ambient
+  // after-every-reply window is always silent.
+  followUpChime?: boolean;
 }
 
 export class RealtimeBridge {
@@ -100,6 +112,15 @@ export class RealtimeBridge {
   private idleResetTimer: NodeJS.Timeout | null = null;
   private readonly idleResetMs: number;
 
+  // Ambient follow-up window (sent in `follow_up` before idle after any spoken
+  // reply). 0 disables it.
+  private readonly followUpMs: number;
+  // Explicit-question window: request_follow_up always opens the mic for this
+  // long, independent of followUpMs. 0 disables even explicit follow-ups.
+  private readonly requestFollowUpMs: number;
+  // Whether an explicit request_follow_up question opens with a chime.
+  private readonly followUpChime: boolean;
+
   // Set on device-initiated interrupt. OpenAI's response.cancel is not
   // instantaneous — the server can still flush queued response.output_audio
   // deltas for the cancelled response after we asked it to stop. Without
@@ -123,9 +144,9 @@ export class RealtimeBridge {
   private paceBuf: Buffer = Buffer.alloc(0);
   private paceTimer: NodeJS.Timeout | null = null;
   // Control actions that must reach the device AFTER the buffered audio (the
-  // end-of-reply phase=idle / request_follow_up). Run when paceBuf drains —
-  // otherwise the device would see "reply over" while seconds of audio are
-  // still queued here and close the turn / open the follow-up mic too early.
+  // end-of-reply phase=idle / follow_up). Run when paceBuf drains — otherwise
+  // the device would see "reply over" while seconds of audio are still queued
+  // here and close the turn / open the follow-up mic too early.
   private afterDrainActions: Array<() => void> = [];
 
   // Tool calls for the in-progress response. Each `function_call_arguments.done`
@@ -187,14 +208,17 @@ export class RealtimeBridge {
     this.deps = deps;
     this.idleResetMs = deps.idleResetMs ?? 0;
     this.paceMs = deps.outputPacingMs ?? 0;
+    this.followUpMs = deps.followUpMs ?? 0;
+    this.requestFollowUpMs = deps.requestFollowUpMs ?? 0;
+    this.followUpChime = deps.followUpChime ?? false;
     // Inject two built-in flow-control tools ahead of MCP tools:
     //   - wait_for_user: incoming audio is silence/noise/echo; stay silent.
     //   - request_follow_up: model asked the user a clarifying question and
-    //     wants them to answer without saying a wake word again. The bridge
-    //     opens a follow-up mic window on the device.
-    // By default the device closes the mic after every reply (XMOS AEC is
-    // too leaky to hold the window open speculatively), so request_follow_up
-    // is the *only* way to chain a turn without a wake word.
+    //     wants them to answer without saying a wake word again.
+    // The bridge already opens a silent ambient follow-up window after every
+    // spoken reply (followUpMs > 0), so the mic reopens either way;
+    // request_follow_up upgrades that turn's window to the chimed UX (gated by
+    // followUpChime) — a clear "your turn" cue for an explicit question.
     const toolsWithWait: RealtimeTool[] = [
       {
         type: 'function',
@@ -626,19 +650,23 @@ export class RealtimeBridge {
         this.followUpWindowRequested = false;
         if (!hasRealToolCall) {
           const status = ev.response.status;
+          // "Spoke" = the response carried a message item. This is the
+          // load-bearing gate for opening ANY follow-up window: never reopen the
+          // mic on a silent turn (a bailed-out request_follow_up, a tool-only
+          // response). Named once here and used by both follow-up branches.
+          const spoke = output.some((item) => item.type === 'message');
           if (windowRequested && status !== 'cancelled') {
-            if (output.some((item) => item.type === 'message')) {
-              // Model spoke its question — now the follow-up mic window after
-              // the reply makes sense. Open it and close out the phase.
-              log.info('request_follow_up — opening device follow-up mic window');
-              this.followUpPending = false;
-              // Defer past any paced audio: the follow-up mic must open AFTER
+            if (spoke) {
+              // Model spoke its question — open the explicit-question window
+              // (requestFollowUpMs, chimed per the admin toggle), independent of
+              // the ambient followUpMs so a question is answerable even with
+              // ambient off. Deferred past paced audio so the mic opens AFTER
               // the reply finishes playing, not while it's still draining here.
-              this.afterAudioDrain_(() => {
-                this.sendDevice({ type: 'request_follow_up' });
-                this.setPhase('idle');
-                this.armFollowUpWatchdog();
-              });
+              log.info('request_follow_up — opening chimed follow-up mic window');
+              this.followUpPending = false;
+              this.afterAudioDrain_(() =>
+                this.sendFollowUp_(this.requestFollowUpMs, this.followUpChime, true),
+              );
               break;
             }
             // Silent request_follow_up: a mic window with nothing spoken is
@@ -686,9 +714,13 @@ export class RealtimeBridge {
           // back to idle. Builtin flow-control tools have already set their own
           // phase. This covers pure-text responses.
           if (this.currentPhase === 'thinking' || this.currentPhase === 'replying') {
-            // Defer past any paced audio so the device doesn't see the reply
-            // end (and go idle / drain) while frames are still queued here.
-            this.afterAudioDrain_(() => this.setPhase('idle'));
+            // Open the ambient (silent) follow-up window only if the assistant
+            // spoke; a silent turn goes straight to idle. wait_for_user /
+            // barge-in never reach here. Deferred past paced audio so the device
+            // doesn't see the reply end while frames are still queued here.
+            this.afterAudioDrain_(() =>
+              this.sendFollowUp_(spoke ? this.followUpMs : 0, false, false),
+            );
           }
           break;
         }
@@ -838,8 +870,8 @@ export class RealtimeBridge {
 
   /** Run `fn` once the paced audio queue has fully drained to the device — or
    * immediately when pacing is off / the queue is already empty. Used for the
-   * end-of-reply control messages (idle phase, request_follow_up) that must
-   * reach the device AFTER its audio, not while frames are still queued here. */
+   * end-of-reply control messages (idle phase, follow_up) that must reach the
+   * device AFTER its audio, not while frames are still queued here. */
   private afterAudioDrain_(fn: () => void): void {
     if (this.paceMs <= 0 || this.paceBuf.length === 0) {
       fn();
@@ -956,6 +988,20 @@ export class RealtimeBridge {
    * messages are suppressed so the device doesn't flicker. Pass
    * `force: true` for the initial hello to make sure the device sees the
    * starting state even if we haven't transitioned yet. */
+  /** Open a follow-up mic window on the device (if `ms > 0`), then drop to idle.
+   *  The one place the `follow_up` wire message is built, shared by the ambient
+   *  and explicit-question paths. `armWatchdog` logs whether the user answered
+   *  an explicit question. Call inside afterAudioDrain_ so it lands after audio. */
+  private sendFollowUp_(ms: number, chime: boolean, armWatchdog: boolean): void {
+    if (ms > 0) {
+      this.sendDevice({ type: 'follow_up', ms, chime });
+      if (armWatchdog) {
+        this.armFollowUpWatchdog();
+      }
+    }
+    this.setPhase('idle');
+  }
+
   private setPhase(next: Phase, opts: { force?: boolean } = {}): void {
     if (!opts.force && this.currentPhase === next) {
       return;
