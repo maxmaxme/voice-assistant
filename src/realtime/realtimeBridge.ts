@@ -124,7 +124,8 @@ export class RealtimeBridge {
   // Whether an explicit request_follow_up question opens with a chime.
   private readonly followUpChime: boolean;
   // Whether the device plays its local wake-word beep (sent in `hello`).
-  private readonly wakeChime: boolean;
+  // Mutable: the settings watcher pushes live changes via setWakeChime().
+  private wakeChime: boolean;
 
   // Set on device-initiated interrupt. OpenAI's response.cancel is not
   // instantaneous — the server can still flush queued response.output_audio
@@ -378,6 +379,19 @@ export class RealtimeBridge {
       }
     })();
     return this.pendingConnect;
+  }
+
+  /** Push a live change to the wake-beep preference to this device by re-sending
+   *  `hello` (whose firmware handler just re-applies the flag — idempotent).
+   *  Called by the settings watcher when `realtime.wakeChime` changes, so the
+   *  admin toggle applies without a restart or a device reconnect. No-op if the
+   *  value is unchanged. */
+  setWakeChime(wakeChime: boolean): void {
+    if (wakeChime === this.wakeChime) {
+      return;
+    }
+    this.wakeChime = wakeChime;
+    this.sendDevice({ type: 'hello', audioOut: 'pcm', wakeChime });
   }
 
   private handleDevice(data: WebSocket.RawData, isBinary: boolean): void {

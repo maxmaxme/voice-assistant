@@ -436,6 +436,22 @@ describe('RealtimeBridge hello', () => {
     await bridge.start();
     expect(hello()).toEqual({ type: 'hello', audioOut: 'pcm', wakeChime: false });
   });
+
+  it('setWakeChime re-sends hello with the new value (live push, no restart)', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ wakeChime: true }));
+    await bridge.start();
+    deviceWs.send.mockClear();
+    bridge.setWakeChime(false);
+    expect(serverMessages()).toEqual([{ type: 'hello', audioOut: 'pcm', wakeChime: false }]);
+  });
+
+  it('setWakeChime is a no-op when the value is unchanged', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ wakeChime: true }));
+    await bridge.start();
+    deviceWs.send.mockClear();
+    bridge.setWakeChime(true);
+    expect(serverMessages()).toEqual([]);
+  });
 });
 
 // The follow-up mic window is server-driven and rides on its own `follow_up`

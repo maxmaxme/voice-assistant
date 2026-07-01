@@ -17,6 +17,7 @@ import { OpenAiStt } from '../audio/openaiStt.ts';
 import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
 import { BotPhotoLoader } from '../telegram/photoLoader.ts';
 import { Scheduler } from '../scheduling/scheduler.ts';
+import { resolveRealtimeConfig } from '../settings/realtimeConfig.ts';
 import { getServerTimezone } from '../utils/time.ts';
 import { createLogger } from '../utils/logger.ts';
 
@@ -184,6 +185,13 @@ export async function main(): Promise<void> {
     realtimeServer = await startRealtimeServer({
       port: deps.config.realtime.port,
       authorize: (token) => authorizeSpeaker(deps.memory.identities, token),
+      // wakeChime is delivered live (see setWakeChime): poll the DB and push
+      // changes to connected devices, so the admin toggle applies without a
+      // restart. Other realtime.* config still applies on restart.
+      watchDeviceConfig: {
+        intervalMs: 15_000,
+        read: () => ({ wakeChime: resolveRealtimeConfig(deps.memory.settings).wakeChime }),
+      },
       buildBridgeDeps: async (auth) => {
         // The handshake already resolved the device to its owning principal, so
         // the speaker reads household ∪ its own personal memory, and
@@ -213,7 +221,10 @@ export async function main(): Promise<void> {
           followUpMs: deps.realtime.followUpMs,
           requestFollowUpMs: deps.realtime.requestFollowUpMs,
           followUpChime: deps.realtime.followUpChime,
-          wakeChime: deps.realtime.wakeChime,
+          // Read fresh (not the bootstrap value) so a device connecting after an
+          // admin change gets the current wake-beep setting in its hello; the
+          // watcher above then keeps already-connected devices in sync.
+          wakeChime: resolveRealtimeConfig(deps.memory.settings).wakeChime,
           instructions: appendUserContext(
             buildSystemPromptFor('realtime', deps.haEnabled),
             profile.recall(),

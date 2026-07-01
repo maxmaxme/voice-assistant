@@ -17,6 +17,13 @@ export interface StartOptions {
    *  against the `voice` identities), or null to reject the handshake (4401). */
   authorize: (token: string) => SpeakerAuth | null;
   buildBridgeDeps: (auth: SpeakerAuth) => Promise<BridgeDeps>;
+  /** Poll the DB-backed device-facing realtime config and push changes to
+   *  already-connected devices (currently just wakeChime, re-sent as `hello`)
+   *  so the admin toggle applies without a restart. Omit to disable polling. */
+  watchDeviceConfig?: {
+    intervalMs: number;
+    read: () => { wakeChime: boolean };
+  };
 }
 
 export interface RealtimeServer {
@@ -29,6 +36,10 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
     res.writeHead(404).end();
   });
   const wss = new WebSocketServer({ noServer: true });
+
+  // Live bridges, so the config watcher below can push device-facing settings
+  // changes to connected speakers. Membership is tied to the ws lifetime.
+  const bridges = new Set<RealtimeBridge>();
 
   http.on('upgrade', (req, socket, head) => {
     if (req.url !== '/voice') {
@@ -46,6 +57,8 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
         try {
           const deps = await opts.buildBridgeDeps(auth);
           const bridge = new RealtimeBridge(ws, deps);
+          bridges.add(bridge);
+          ws.on('close', () => bridges.delete(bridge));
           await bridge.start();
         } catch (err) {
           log.error({ err }, 'failed to start bridge');
@@ -54,6 +67,34 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
       })();
     });
   });
+
+  // Poll the DB-backed wake-beep setting and push changes to connected devices
+  // (a re-sent `hello`) — the admin panel only writes the setting, this process
+  // owns the WS. Baseline from the current value so only later edits push.
+  let configWatch: NodeJS.Timeout | null = null;
+  if (opts.watchDeviceConfig) {
+    const { intervalMs, read } = opts.watchDeviceConfig;
+    let lastWakeChime = read().wakeChime;
+    configWatch = setInterval(() => {
+      const { wakeChime } = read();
+      if (wakeChime === lastWakeChime) {
+        return;
+      }
+      lastWakeChime = wakeChime;
+      log.info(
+        { wakeChime, devices: bridges.size },
+        'wake-beep setting changed — pushing to devices',
+      );
+      for (const bridge of bridges) {
+        try {
+          bridge.setWakeChime(wakeChime);
+        } catch (err) {
+          log.debug({ err }, 'failed to push wake-beep to a device (likely closing)');
+        }
+      }
+    }, intervalMs);
+    configWatch.unref?.();
+  }
 
   await new Promise<void>((resolve) => http.listen(opts.port, resolve));
   const addr = http.address();
@@ -64,6 +105,9 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
     port,
     close: () =>
       new Promise<void>((resolve) => {
+        if (configWatch) {
+          clearInterval(configWatch);
+        }
         wss.close();
         http.close(() => resolve());
       }),
