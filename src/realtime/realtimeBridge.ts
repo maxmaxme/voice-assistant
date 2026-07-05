@@ -11,6 +11,9 @@ import {
   type ServerMessage,
 } from './protocol.ts';
 import { LatencyTracker } from './metrics.ts';
+import { OutputPacer } from './outputPacer.ts';
+import { AudioDiagnostics } from './audioDiagnostics.ts';
+import { FollowUpController } from './followUpController.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
 import type { RealtimeDeviceConfig } from '../settings/realtimeConfig.ts';
 
@@ -71,17 +74,9 @@ export class RealtimeBridge {
   private deviceWs: WebSocket;
   private deps: BridgeDeps;
   private currentPhase: Phase = 'idle';
-  // Tracks an in-flight request_follow_up window so we can tell the
-  // difference (in logs) between "user answered the model's question
-  // within the window" and "window expired in silence". The device's
-  // follow-up state is hidden from us — we approximate by running a
-  // timer that matches the device-side window: the yaml on_followup_opened
-  // pre-mic delay (wake chime + drain wait + ~800ms, roughly 1.5s) plus the
-  // device's kRequestFollowUpMs (10000ms) mic-open window, plus a small slack,
-  // so the log fires *just after* the device-side timeout if no speech_started
-  // came in. The 12s value is kept in sync with the yaml followup_window_watchdog.
-  private pendingFollowUp: { sentAt: number; timer: NodeJS.Timeout } | null = null;
-  private static readonly FOLLOW_UP_WINDOW_MS = 12_000;
+  // Follow-up state machine (empty-follow-up retry, deferred request_follow_up
+  // window, watchdog) — see FollowUpController for the full rationale.
+  private followUps: FollowUpController;
 
   // OpenAI Realtime caps every session at 30 minutes, so the upstream WS
   // *will* close on us on a long-lived device connection. We don't try to
@@ -133,24 +128,10 @@ export class RealtimeBridge {
   // which marks the start of a genuinely new response.
   private dropResponseAudio = false;
 
-  // --- Output audio pacing ---------------------------------------------------
-  // OpenAI streams a reply far faster than real time (measured ~8×: a 2.9 s
-  // reply arrives in ~360 ms across a few large deltas). Forwarding each delta
-  // to the device the instant it lands dumps the whole reply as one burst,
-  // which the device playback chain can't absorb → hiss. When paceMs > 0 we
-  // instead buffer the PCM and meter it out in fixed paceMs frames on a timer,
-  // re-clocking the burst to ~real time (what pipecat does on the reference
-  // stack). The device's 150 ms prebuffer absorbs the residual timer jitter.
-  private readonly paceMs: number;
-  // Pending PCM16 @ 24 kHz not yet sent to the device. Grows as deltas arrive,
-  // drains one frame per timer tick. Only used when paceMs > 0.
-  private paceBuf: Buffer = Buffer.alloc(0);
-  private paceTimer: NodeJS.Timeout | null = null;
-  // Control actions that must reach the device AFTER the buffered audio (the
-  // end-of-reply phase=idle / follow_up). Run when paceBuf drains — otherwise
-  // the device would see "reply over" while seconds of audio are still queued
-  // here and close the turn / open the follow-up mic too early.
-  private afterDrainActions: Array<() => void> = [];
+  // Re-clocks the reply audio to the device — see OutputPacer for the full
+  // rationale. Also owns the deferred end-of-reply actions (idle / follow_up
+  // must land after the buffered audio, not while frames are still queued).
+  private pacer: OutputPacer;
 
   // Tool calls for the in-progress response. Each `function_call_arguments.done`
   // pushes the promise that runs the tool + submits its `function_call_output`.
@@ -159,58 +140,19 @@ export class RealtimeBridge {
   // `conversation_already_has_active_response`.
   private pendingToolCalls: Promise<void>[] = [];
 
-  // Empty-follow-up retry. The Realtime API sporadically completes the
-  // response.create we issue after a tool batch with ZERO output items
-  // (observed when it races the user's next utterance). Without a retry the
-  // tool has executed but the user hears nothing and the device silently
-  // drops to idle. `followUpPending` is armed when we request the follow-up;
-  // an empty *completed* response.done while armed gets ONE retry
-  // (`followUpRetried` guards against looping on a model that insists on
-  // staying silent). A cancelled response is a barge-in, not a loss — never
-  // retried, the new turn produces its own response.
-  private followUpPending = false;
-  private followUpRetried = false;
-
-  // request_follow_up's tool contract is "call this AFTER speaking a
-  // question", but the model sometimes calls it without speaking at all —
-  // opening the device mic window then means a silent 12s window and a user
-  // who never hears what went wrong (seen live after a schedule_action
-  // error). Only response.done knows whether the response carried a message,
-  // so the tool handler just arms this flag and response.done either opens
-  // the window (model spoke) or reuses the empty-follow-up retry (it didn't).
-  private followUpWindowRequested = false;
-
-  // --- Audio delivery diagnostics --------------------------------------------
-  // Mirror of the firmware's ws-gap / underrun detectors, but on the
-  // OpenAI→bridge edge. The device stutters when audio arrives slower than it
-  // plays; this tells us whether that slowness originates upstream (OpenAI
-  // streaming sub-realtime) or on our side. Tracked per response: delta count,
-  // total PCM bytes, first/last arrival, and inter-delta gaps. At response.done
-  // we log the effective delivery rate vs real time — PCM16 mono @24kHz is
-  // 48000 bytes/sec, so rate < 1.0 means upstream can't keep up and no amount
-  // of client-side buffering can hide the stutter.
-  private audioDiagDeltas = 0;
-  private audioDiagBytes = 0;
-  private audioDiagFirstMs = 0;
-  private audioDiagLastMs = 0;
-  private audioDiagGapCount = 0;
-  private audioDiagMaxGapMs = 0;
-  // Loud-garbage detector: counts deltas where most samples sit near full
-  // scale. Real speech peaks but doesn't sustain near ±32767; white-noise
-  // garbage does. If the bridge logs noisy chunks, the corruption is upstream
-  // (OpenAI / this process); if it stays 0 while the speaker still hisses, the
-  // garbage is introduced device-side (firmware ring / resampler / DAC).
-  private audioDiagNoisyChunks = 0;
-  private static readonly AUDIO_DIAG_GAP_WARN_MS = 150;
-  private static readonly REALTIME_BYTES_PER_SEC = 48_000; // PCM16 mono @ 24kHz
-  private static readonly AUDIO_DIAG_NOISE_LEVEL = 19_660; // ~0.6 × 32767
-  private static readonly AUDIO_DIAG_NOISE_RATIO = 0.5; // share of samples above level
+  // Per-response audio delivery telemetry (OpenAI→bridge edge) — see
+  // AudioDiagnostics for the full rationale.
+  private audioDiag: AudioDiagnostics;
 
   constructor(deviceWs: WebSocket, deps: BridgeDeps) {
     this.deviceWs = deviceWs;
     this.deps = deps;
     this.idleResetMs = deps.idleResetMs ?? 0;
-    this.paceMs = deps.outputPacingMs ?? 0;
+    this.pacer = new OutputPacer(deps.outputPacingMs ?? 0, (frame) =>
+      this.deviceWs.send(frame, { binary: true }),
+    );
+    this.audioDiag = new AudioDiagnostics(this.sessionId);
+    this.followUps = new FollowUpController(this.sessionId);
     this.followUpMs = deps.followUpMs ?? 0;
     this.requestFollowUpMs = deps.requestFollowUpMs ?? 0;
     this.followUpChime = deps.followUpChime ?? false;
@@ -274,20 +216,15 @@ export class RealtimeBridge {
       this.openaiState = 'disconnected';
       // The session (and the response its audio belonged to) is gone — drop
       // any paced tail + deferred idle so they don't fire against a dead turn.
-      this.flushPaceQueue_();
-      // Drop any in-flight follow-up watchdog: if we were mid-window when
-      // the upstream went away, there's nothing to wait for.
-      this.clearFollowUpWatchdog();
+      this.pacer.flush();
+      // Drop the follow-up state wholesale: the watchdog has nothing to wait
+      // for, and the retry's tool batch died with the session — a stray empty
+      // response on the next session must not trigger a bogus retry.
+      this.followUps.reset();
       // Drop pending tool-call promises — the response they belong to is
       // gone, and submitting their outputs to a fresh session would point
       // at unknown call ids.
       this.pendingToolCalls = [];
-      // Same for the empty-follow-up retry: its tool batch died with the
-      // session, so a stray empty response on the next session must not
-      // trigger a bogus retry.
-      this.followUpPending = false;
-      this.followUpRetried = false;
-      this.followUpWindowRequested = false;
     });
 
     // Don't connect upstream here. Per the lazy-reconnect design above, the
@@ -304,9 +241,9 @@ export class RealtimeBridge {
     });
     this.deviceWs.on('close', () => {
       log.info({ sessionId: this.sessionId }, 'device closed');
-      this.clearFollowUpWatchdog();
+      this.followUps.clearWatchdog();
       this.clearIdleResetTimer();
-      this.flushPaceQueue_();
+      this.pacer.flush();
       this.metrics.log(this.sessionId);
       this.openai.close();
     });
@@ -466,13 +403,13 @@ export class RealtimeBridge {
         // (just via wake word rather than the open follow-up mic), so retire
         // the watchdog — otherwise it would later log a bogus "user did not
         // respond". No-op when no follow-up is pending.
-        this.notePossibleFollowUpResponse();
-        this.followUpWindowRequested = false;
+        this.followUps.noteUserSpeech();
+        this.followUps.cancelWindowRequest();
         this.openai.cancelResponse();
         this.dropResponseAudio = true;
         // Drop any paced tail of the reply we're barging through (and its
         // deferred idle), so it can't keep dribbling out under the new turn.
-        this.flushPaceQueue_();
+        this.pacer.flush();
         this.setPhase('listening');
       } else if (msg.type === 'interrupt') {
         // Device is aborting the current turn and returning to idle — a Stop
@@ -483,11 +420,11 @@ export class RealtimeBridge {
         // OpenAI session leaking open forever. We go to idle, not listening:
         // setPhase('listening') used to live here and popped the mic open
         // after a Stop, which let OpenAI emit a phantom follow-up response.
-        this.followUpWindowRequested = false;
+        this.followUps.cancelWindowRequest();
         this.openai.cancelResponse();
         this.dropResponseAudio = true;
         // Stop word / no-speech abort: drop the paced tail + deferred idle.
-        this.flushPaceQueue_();
+        this.pacer.flush();
         this.setPhase('idle');
       } else if (msg.type === 'ping') {
         this.sendDevice({ type: 'pong' });
@@ -518,7 +455,7 @@ export class RealtimeBridge {
   private async handleOpenAiInner(ev: RealtimeServerEvent): Promise<void> {
     switch (ev.type) {
       case 'input_audio_buffer.speech_started':
-        this.notePossibleFollowUpResponse();
+        this.followUps.noteUserSpeech();
         this.setPhase('listening');
         break;
       case 'input_audio_buffer.speech_stopped':
@@ -566,9 +503,9 @@ export class RealtimeBridge {
           const pcm24k = base64ToPcm16(ev.delta);
           // Diagnostics measure the OpenAI→bridge edge, so record the delta as
           // RECEIVED (the burst), regardless of how we then meter it out.
-          this.recordAudioDelta_(pcm24k);
+          this.audioDiag.record(pcm24k);
           this.setPhase('replying');
-          this.sendAudio_(pcm24k);
+          this.pacer.enqueue(pcm24k);
         }
         break;
       }
@@ -577,7 +514,7 @@ export class RealtimeBridge {
         // deltas reach the device. Anything still queued from the previous
         // (cancelled) response has been ignored up to this point.
         this.dropResponseAudio = false;
-        this.resetAudioDiag_();
+        this.audioDiag.reset();
         log.info({ responseId: ev.response.id, sessionId: this.sessionId }, 'response.created');
         break;
       case 'response.function_call_arguments.done': {
@@ -630,47 +567,11 @@ export class RealtimeBridge {
           },
           'response.done',
         );
-        if (this.audioDiagDeltas > 0) {
-          const wallMs = this.audioDiagLastMs - this.audioDiagFirstMs;
-          const audioMs = (this.audioDiagBytes / RealtimeBridge.REALTIME_BYTES_PER_SEC) * 1000;
-          const rate = wallMs > 0 ? audioMs / wallMs : 0;
-          // rate < 1.0 ⇒ OpenAI streamed this response slower than real time
-          // (the device cannot help but stutter). rate ≥ 1.0 ⇒ upstream was
-          // fast enough and any stutter is downstream of here.
-          log.debug(
-            {
-              responseId,
-              deltas: this.audioDiagDeltas,
-              audioMs: Math.round(audioMs),
-              wallMs,
-              rate: Number(rate.toFixed(2)),
-              gaps: this.audioDiagGapCount,
-              maxGapMs: this.audioDiagMaxGapMs,
-              noisyChunks: this.audioDiagNoisyChunks,
-              sessionId: this.sessionId,
-            },
-            'openai audio delivery',
-          );
-          if (this.audioDiagNoisyChunks > 0) {
-            // Visible at default (info) level: OpenAI actually streamed
-            // near-full-scale (noise-like) audio. If this fires while the
-            // speaker hisses, the garbage is upstream, not device-side.
-            log.warn(
-              {
-                responseId,
-                noisyChunks: this.audioDiagNoisyChunks,
-                deltas: this.audioDiagDeltas,
-                sessionId: this.sessionId,
-              },
-              'openai sent noise-like audio this response',
-            );
-          }
-        }
+        this.audioDiag.logDelivery(responseId);
         // Consume the deferred request_follow_up window (armed by the tool
         // handler). When real tool calls ride along, the post-batch follow-up
         // response decides afresh whether to ask — drop the stale request.
-        const windowRequested = this.followUpWindowRequested;
-        this.followUpWindowRequested = false;
+        const windowRequested = this.followUps.takeWindowRequest();
         if (!hasRealToolCall) {
           const status = ev.response.status;
           // "Spoke" = the response carried a message item. This is the
@@ -686,8 +587,8 @@ export class RealtimeBridge {
               // ambient off. Deferred past paced audio so the mic opens AFTER
               // the reply finishes playing, not while it's still draining here.
               log.info('request_follow_up — opening chimed follow-up mic window');
-              this.followUpPending = false;
-              this.afterAudioDrain_(() =>
+              this.followUps.clearPending();
+              this.pacer.afterDrain(() =>
                 this.sendFollowUp_(this.requestFollowUpMs, this.followUpChime, true),
               );
               break;
@@ -695,9 +596,7 @@ export class RealtimeBridge {
             // Silent request_follow_up: a mic window with nothing spoken is
             // useless (and after a failed tool it hides the failure). Same
             // shape as an empty follow-up — retry response.create once.
-            if (!this.followUpRetried) {
-              this.followUpRetried = true;
-              this.followUpPending = true;
+            if (this.followUps.tryRetry()) {
               log.warn(
                 { responseId, sessionId: this.sessionId },
                 'request_follow_up without a spoken message — retrying response.create once',
@@ -710,12 +609,11 @@ export class RealtimeBridge {
               'request_follow_up still silent after retry — giving up',
             );
           }
-          if (this.followUpPending && output.length === 0 && status !== 'cancelled') {
-            if (!this.followUpRetried) {
+          if (this.followUps.isPending() && output.length === 0 && status !== 'cancelled') {
+            if (this.followUps.tryRetry()) {
               // The post-tool follow-up came back with no output — the user
               // would get silence after a successful action. Ask once more;
               // stay in `thinking` so the device isn't released early.
-              this.followUpRetried = true;
               log.warn(
                 { responseId, sessionId: this.sessionId },
                 'follow-up response was empty after a tool batch — retrying response.create once',
@@ -728,7 +626,7 @@ export class RealtimeBridge {
               'follow-up response empty again after retry — giving up',
             );
           }
-          this.followUpPending = false;
+          this.followUps.clearPending();
           // No follow-up response will be requested — drop back to idle, but
           // only if we're still in the turn this response.done belongs to
           // (thinking/replying). A barge-in `start` may have already cancelled
@@ -741,7 +639,7 @@ export class RealtimeBridge {
             // spoke; a silent turn goes straight to idle. wait_for_user /
             // barge-in never reach here. Deferred past paced audio so the device
             // doesn't see the reply end while frames are still queued here.
-            this.afterAudioDrain_(() =>
+            this.pacer.afterDrain(() =>
               this.sendFollowUp_(spoke ? this.followUpMs : 0, false, false),
             );
           }
@@ -790,8 +688,7 @@ export class RealtimeBridge {
           { responseId, sessionId: this.sessionId },
           'tool batch complete — requesting follow-up response',
         );
-        this.followUpPending = true;
-        this.followUpRetried = false;
+        this.followUps.armPending();
         this.openai.requestResponse();
         break;
       }
@@ -841,7 +738,7 @@ export class RealtimeBridge {
     // the question (see followUpWindowRequested).
     if (name === 'request_follow_up') {
       this.openai.submitToolResult(callId, '{}');
-      this.followUpWindowRequested = true;
+      this.followUps.requestWindow();
       return;
     }
     const t0 = Date.now();
@@ -881,156 +778,24 @@ export class RealtimeBridge {
     this.sendDevice({ type: 'hello', audioOut: 'pcm', ...this.deviceConfig });
   }
 
-  /** Send one PCM16 @ 24 kHz chunk to the device. With pacing off, forward it
-   * verbatim (legacy burst). With pacing on, buffer it and let the timer meter
-   * it out in paceMs frames. */
-  private sendAudio_(pcm: Buffer): void {
-    if (this.paceMs <= 0) {
-      this.deviceWs.send(pcm, { binary: true });
-      return;
-    }
-    this.paceBuf = this.paceBuf.length === 0 ? pcm : Buffer.concat([this.paceBuf, pcm]);
-    if (this.paceTimer === null) {
-      const t = setInterval(() => this.drainPace_(), this.paceMs);
-      t.unref?.();
-      this.paceTimer = t;
-    }
-  }
-
-  /** Run `fn` once the paced audio queue has fully drained to the device — or
-   * immediately when pacing is off / the queue is already empty. Used for the
-   * end-of-reply control messages (idle phase, follow_up) that must reach the
-   * device AFTER its audio, not while frames are still queued here. */
-  private afterAudioDrain_(fn: () => void): void {
-    if (this.paceMs <= 0 || this.paceBuf.length === 0) {
-      fn();
-      return;
-    }
-    this.afterDrainActions.push(fn);
-  }
-
-  /** Pacer tick: emit one paced frame; when the queue empties, stop the timer
-   * and run any deferred end-of-reply actions. */
-  private drainPace_(): void {
-    if (this.paceBuf.length === 0) {
-      this.stopPaceTimer_();
-      const actions = this.afterDrainActions;
-      this.afterDrainActions = [];
-      for (const fn of actions) {
-        fn();
-      }
-      return;
-    }
-    // Even byte count so a PCM16 sample is never split across frames.
-    const frameBytes = Math.max(
-      2,
-      Math.floor((RealtimeBridge.REALTIME_BYTES_PER_SEC * this.paceMs) / 1000 / 2) * 2,
-    );
-    const n = Math.min(frameBytes, this.paceBuf.length);
-    this.deviceWs.send(this.paceBuf.subarray(0, n), { binary: true });
-    this.paceBuf = this.paceBuf.subarray(n);
-  }
-
-  /** Drop all buffered audio + deferred end-of-reply actions and stop the
-   * pacer. Called when the reply is cancelled (barge-in / interrupt) or the
-   * session / device goes away — the queued tail is no longer wanted. */
-  private flushPaceQueue_(): void {
-    this.paceBuf = Buffer.alloc(0);
-    this.afterDrainActions = [];
-    this.stopPaceTimer_();
-  }
-
-  private stopPaceTimer_(): void {
-    if (this.paceTimer !== null) {
-      clearInterval(this.paceTimer);
-      this.paceTimer = null;
-    }
-  }
-
-  /** Diagnostics only. Track one OpenAI→bridge audio delta (already past the
-   * drop filter): inter-arrival gap for the delivery-rate metric, plus a
-   * loud-garbage check so we can tell whether noise originates upstream. */
-  private recordAudioDelta_(pcm: Buffer): void {
-    const byteLength = pcm.length;
-    const now = Date.now();
-    if (this.audioDiagFirstMs === 0) {
-      this.audioDiagFirstMs = now;
-    } else {
-      const gap = now - this.audioDiagLastMs;
-      if (gap > RealtimeBridge.AUDIO_DIAG_GAP_WARN_MS) {
-        this.audioDiagGapCount++;
-        if (gap > this.audioDiagMaxGapMs) {
-          this.audioDiagMaxGapMs = gap;
-        }
-        log.debug(
-          { gapMs: gap, deltaBytes: byteLength, sessionId: this.sessionId },
-          'openai audio delta gap',
-        );
+  /** Open a follow-up mic window on the device (if `ms > 0`), then drop to idle.
+   *  The one place the `follow_up` wire message is built, shared by the ambient
+   *  and explicit-question paths. `armWatchdog` logs whether the user answered
+   *  an explicit question. Call inside pacer.afterDrain so it lands after audio. */
+  private sendFollowUp_(ms: number, chime: boolean, armWatchdog: boolean): void {
+    if (ms > 0) {
+      this.sendDevice({ type: 'follow_up', ms, chime });
+      if (armWatchdog) {
+        this.followUps.armWatchdog();
       }
     }
-    this.audioDiagLastMs = now;
-    this.audioDiagDeltas++;
-    this.audioDiagBytes += byteLength;
-
-    // Loud-garbage check. Sample every 4th PCM16 frame (stride 8 bytes) and
-    // count how many sit near full scale; a chunk that's mostly near-max is
-    // noise, not speech.
-    const samples = Math.floor(byteLength / 2);
-    if (samples > 0) {
-      let scanned = 0;
-      let loud = 0;
-      for (let i = 0; i + 1 < byteLength; i += 8) {
-        const s = pcm.readInt16LE(i);
-        scanned++;
-        if (
-          s > RealtimeBridge.AUDIO_DIAG_NOISE_LEVEL ||
-          s < -RealtimeBridge.AUDIO_DIAG_NOISE_LEVEL
-        ) {
-          loud++;
-        }
-      }
-      const ratio = scanned > 0 ? loud / scanned : 0;
-      if (ratio >= RealtimeBridge.AUDIO_DIAG_NOISE_RATIO) {
-        this.audioDiagNoisyChunks++;
-        log.debug(
-          { ratio: Number(ratio.toFixed(2)), bytes: byteLength, sessionId: this.sessionId },
-          'openai sent a near-full-scale (noise-like) audio chunk',
-        );
-      }
-    }
-  }
-
-  /** Reset the per-response audio diagnostics. Called on response.created so
-   * each response (preamble vs post-tool-call follow-up) is measured on its
-   * own. */
-  private resetAudioDiag_(): void {
-    this.audioDiagDeltas = 0;
-    this.audioDiagBytes = 0;
-    this.audioDiagFirstMs = 0;
-    this.audioDiagLastMs = 0;
-    this.audioDiagGapCount = 0;
-    this.audioDiagMaxGapMs = 0;
-    this.audioDiagNoisyChunks = 0;
+    this.setPhase('idle');
   }
 
   /** Update the phase LED on the device. Dedupes — repeated same-phase
    * messages are suppressed so the device doesn't flicker. Pass
    * `force: true` for the initial hello to make sure the device sees the
    * starting state even if we haven't transitioned yet. */
-  /** Open a follow-up mic window on the device (if `ms > 0`), then drop to idle.
-   *  The one place the `follow_up` wire message is built, shared by the ambient
-   *  and explicit-question paths. `armWatchdog` logs whether the user answered
-   *  an explicit question. Call inside afterAudioDrain_ so it lands after audio. */
-  private sendFollowUp_(ms: number, chime: boolean, armWatchdog: boolean): void {
-    if (ms > 0) {
-      this.sendDevice({ type: 'follow_up', ms, chime });
-      if (armWatchdog) {
-        this.armFollowUpWatchdog();
-      }
-    }
-    this.setPhase('idle');
-  }
-
   private setPhase(next: Phase, opts: { force?: boolean } = {}): void {
     if (!opts.force && this.currentPhase === next) {
       return;
@@ -1072,54 +837,5 @@ export class RealtimeBridge {
     }
     clearTimeout(this.idleResetTimer);
     this.idleResetTimer = null;
-  }
-
-  /**
-   * Start a soft timeout matched to the device's follow-up window so we can
-   * log when nothing came back. The bridge doesn't get an explicit signal
-   * for "device closed the mic" — speech_started would arrive *only* if the
-   * user actually answered, and silence == no event at all. Without this
-   * timer there would be no log line that says "the user ignored the
-   * model's question," which makes "why didn't the assistant act on the
-   * follow-up?" much harder to debug.
-   */
-  private armFollowUpWatchdog(): void {
-    this.clearFollowUpWatchdog();
-    const sentAt = Date.now();
-    const timer = setTimeout(() => {
-      log.info(
-        { sessionId: this.sessionId, windowMs: RealtimeBridge.FOLLOW_UP_WINDOW_MS },
-        'request_follow_up window expired — user did not respond',
-      );
-      this.pendingFollowUp = null;
-    }, RealtimeBridge.FOLLOW_UP_WINDOW_MS);
-    // Don't keep the event loop alive solely for this timer.
-    if (typeof timer.unref === 'function') {
-      timer.unref();
-    }
-    this.pendingFollowUp = { sentAt, timer };
-  }
-
-  /** Called on input_audio_buffer.speech_started — if we were waiting on a
-   * request_follow_up reply, this is it. Cancel the watchdog so the
-   * "expired" line doesn't also fire. */
-  private notePossibleFollowUpResponse(): void {
-    if (this.pendingFollowUp === null) {
-      return;
-    }
-    const latencyMs = Date.now() - this.pendingFollowUp.sentAt;
-    log.info(
-      { sessionId: this.sessionId, latencyMs },
-      `request_follow_up — user responded after ${latencyMs}ms`,
-    );
-    this.clearFollowUpWatchdog();
-  }
-
-  private clearFollowUpWatchdog(): void {
-    if (this.pendingFollowUp === null) {
-      return;
-    }
-    clearTimeout(this.pendingFollowUp.timer);
-    this.pendingFollowUp = null;
   }
 }

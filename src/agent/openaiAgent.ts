@@ -11,14 +11,14 @@ import type { Agent, AgentImage, AgentResponse, AgentRespondOptions } from './ty
 import type { McpClient } from '../mcp/types.ts';
 import type { MemoryStore } from '../memory/types.ts';
 import { householdFromAdapter, type ScopedProfile } from '../memory/scope.ts';
-import { PENDING_ASK_TTL_MS, Session } from './session.ts';
+import { Session } from './session.ts';
 import { mcpToolsToOpenAi } from './toolBridge.ts';
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { buildLocalToolset } from './localTools.ts';
+import { executeRoutedTool } from './toolExecutor.ts';
 import type { ToolsConfig } from '../settings/toolsConfig.ts';
 import type { TelegramSender } from '../telegram/types.ts';
 import { createLogger } from '../utils/logger.ts';
-import { isValidContent } from '../utils/mcpContent.ts';
 import { isPreviousResponseGoneError } from '../utils/openaiErrors.ts';
 
 const log = createLogger('agent');
@@ -165,55 +165,37 @@ export class OpenAiAgent implements Agent {
     // session — replay them here too, or OpenAI 400s with "No tool output
     // found for function call <id>".
     let nextInput: ResponseInputItem[];
-    const pendingAskCallId = session.pendingAskCallId;
-    const pendingAskExpiresAt = session.pendingAskExpiresAt;
-    const pendingToolOutputs = session.pendingToolOutputs ?? [];
-    // The pending ask is "live" only briefly: if the user takes too long
-    // to reply, their next utterance is much more likely a new request
-    // than a delayed answer. After the TTL we still must close the ask's
-    // call_id (the API requires an output for every emitted function_call)
-    // but we do it with a placeholder and send the user's message as a
-    // normal user-turn instead of stuffing it into the ask's output.
-    const pendingAskExpired =
-      pendingAskCallId !== undefined &&
-      pendingAskExpiresAt !== undefined &&
-      Date.now() > pendingAskExpiresAt;
-    // The branches below clear the pending-ask fields on the session before
-    // the OpenAI call. If that call then fails, the ask is still open on
-    // OpenAI's side — keep a snapshot so the catch below can restore it,
-    // otherwise the next turn sends a plain user message into a chain with
-    // an unanswered function_call and 400s ("No tool output found").
-    const askSnapshot =
-      pendingAskCallId !== undefined
-        ? {
-            callId: pendingAskCallId,
-            expiresAt: pendingAskExpiresAt,
-            outputs: session.pendingToolOutputs,
-          }
-        : undefined;
+    // consumePendingAsk owns the whole lifecycle (TTL check on the session
+    // clock, clearing the fields, snapshotting for the failure-restore path).
+    // If the OpenAI call below fails, the ask is still open on OpenAI's side —
+    // the catch restores the snapshot, otherwise the next turn sends a plain
+    // user message into a chain with an unanswered function_call and 400s.
+    const consumedAsk = session.consumePendingAsk();
+    const askSnapshot = consumedAsk.state === 'none' ? undefined : consumedAsk.snapshot;
     // Replayed in both ask branches: outputs of tools that ran in parallel
     // with the ask last turn.
-    const stashed: ResponseInputItem[] = pendingToolOutputs.map((po) => ({
+    const stashed: ResponseInputItem[] = (
+      consumedAsk.state === 'none' ? [] : consumedAsk.stashed
+    ).map((po) => ({
       type: 'function_call_output',
       call_id: po.callId,
       output: po.output,
     }));
-    if (pendingAskCallId && !pendingAskExpired) {
-      clearPendingAsk(session);
+    if (consumedAsk.state === 'live') {
       const askOutput: ResponseInputItem = {
         type: 'function_call_output',
-        call_id: pendingAskCallId,
+        call_id: consumedAsk.callId,
         output: images.length > 0 ? userContentParts(userText, images) : userText,
       };
       nextInput = [...stashed, askOutput];
-    } else if (pendingAskCallId && pendingAskExpired) {
-      // Close the stale ask + replay any stashed sibling outputs, then send
-      // the user's message as a fresh user-turn rather than as the ask's
-      // answer.
-      clearPendingAsk(session);
+    } else if (consumedAsk.state === 'expired') {
+      // Past the TTL the user's next utterance is much more likely a new
+      // request than a delayed answer — but the API still requires an output
+      // for every emitted function_call, so close the stale ask with a
+      // placeholder and send the user's message as a fresh user-turn.
       const askPlaceholder: ResponseInputItem = {
         type: 'function_call_output',
-        call_id: pendingAskCallId,
+        call_id: consumedAsk.callId,
         output:
           '(no response — too much time passed; the user is starting a new request, not answering this question)',
       };
@@ -283,9 +265,7 @@ export class OpenAiAgent implements Agent {
         // the chain was dropped (404 recovery above): a restored ask without
         // its chain would itself 400.
         if (i === 0 && askSnapshot && previousResponseId !== undefined) {
-          session.pendingAskCallId = askSnapshot.callId;
-          session.pendingAskExpiresAt = askSnapshot.expiresAt;
-          session.pendingToolOutputs = askSnapshot.outputs;
+          session.restorePendingAsk(askSnapshot);
         }
         throw err;
       }
@@ -343,29 +323,12 @@ export class OpenAiAgent implements Agent {
         nonAskCalls.map(async (tc) => {
           const args = this.parseArgs(tc.arguments);
           const startedAt = Date.now();
-          let resultText: string;
-          let isError = false;
-          if (localToolset.names.has(tc.name)) {
-            try {
-              const r = await localToolset.execute(tc.name, args);
-              resultText = JSON.stringify(r);
-            } catch (e) {
-              resultText = e instanceof Error ? e.message : String(e);
-              isError = true;
-            }
-          } else {
-            try {
-              const result = await mcp.callTool(tc.name, args);
-              if (!isValidContent(result.content)) {
-                throw new Error('Invalid content');
-              }
-              resultText = result.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n');
-              isError = result.isError ?? false;
-            } catch (e) {
-              resultText = e instanceof Error ? e.message : String(e);
-              isError = true;
-            }
-          }
+          const { text: resultText, isError } = await executeRoutedTool(
+            localToolset,
+            mcp,
+            tc.name,
+            args,
+          );
           const durationMs = Date.now() - startedAt;
           const argsStr = JSON.stringify(args);
           const fields = { tool: tc.name, args, isError, durationMs };
@@ -409,16 +372,17 @@ export class OpenAiAgent implements Agent {
           { tool: 'ask', args: askArgs },
           `ask(${JSON.stringify(askArgs)}) → reopen capture`,
         );
-        session.pendingAskCallId = askCall.call_id;
-        session.pendingAskExpiresAt = Date.now() + PENDING_ASK_TTL_MS;
-        session.pendingToolOutputs = nonAskCalls.map((tc, idx) => {
-          const res = settled[idx]!;
-          const output =
-            res.status === 'fulfilled'
-              ? res.value.output
-              : `ERROR: ${res.reason instanceof Error ? res.reason.message : String(res.reason)}`;
-          return { callId: tc.call_id, output };
-        });
+        session.setPendingAsk(
+          askCall.call_id,
+          nonAskCalls.map((tc, idx) => {
+            const res = settled[idx]!;
+            const output =
+              res.status === 'fulfilled'
+                ? res.value.output
+                : `ERROR: ${res.reason instanceof Error ? res.reason.message : String(res.reason)}`;
+            return { callId: tc.call_id, output };
+          }),
+        );
         session.commit(response.id);
         return { text: askText, expectsFollowUp: true, toolsUsed };
       }
@@ -471,12 +435,6 @@ export class OpenAiAgent implements Agent {
 function toInputImage(img: AgentImage): ResponseInputImage {
   const dataUrl = `data:${img.mimeType};base64,${img.data.toString('base64')}`;
   return { type: 'input_image', image_url: dataUrl, detail: 'auto' };
-}
-
-function clearPendingAsk(session: Session): void {
-  session.pendingAskCallId = undefined;
-  session.pendingAskExpiresAt = undefined;
-  session.pendingToolOutputs = undefined;
 }
 
 /** Multimodal content parts for a user message with images attached. */

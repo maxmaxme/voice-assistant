@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Session } from '../../src/agent/session.ts';
+import { PENDING_ASK_TTL_MS, Session } from '../../src/agent/session.ts';
 
 describe('Session', () => {
   beforeEach(() => vi.useFakeTimers());
@@ -44,6 +44,70 @@ describe('Session', () => {
     s.commit('resp_1');
     s.reset();
     expect(s.begin()).toBeUndefined();
+  });
+
+  describe('pending ask lifecycle', () => {
+    it('setPendingAsk stamps the TTL from the session clock', () => {
+      const t = 1_000_000;
+      const s = new Session({ idleTimeoutMs: 60_000, now: () => t });
+      s.setPendingAsk('ask_1', [{ callId: 'mem_1', output: 'ok' }]);
+      expect(s.pendingAskCallId).toBe('ask_1');
+      expect(s.pendingAskExpiresAt).toBe(1_000_000 + PENDING_ASK_TTL_MS);
+      expect(s.pendingToolOutputs).toEqual([{ callId: 'mem_1', output: 'ok' }]);
+    });
+
+    it('consumePendingAsk returns live before the TTL and clears the state', () => {
+      const t = 1_000_000;
+      const s = new Session({ idleTimeoutMs: 60_000, now: () => t });
+      s.setPendingAsk('ask_1', [{ callId: 'mem_1', output: 'ok' }]);
+
+      const consumed = s.consumePendingAsk();
+      expect(consumed.state).toBe('live');
+      if (consumed.state === 'none') {
+        throw new Error('unreachable');
+      }
+      expect(consumed.callId).toBe('ask_1');
+      expect(consumed.stashed).toEqual([{ callId: 'mem_1', output: 'ok' }]);
+      // Consumed: the session no longer carries the ask.
+      expect(s.pendingAskCallId).toBeUndefined();
+      expect(s.pendingToolOutputs).toBeUndefined();
+      expect(s.consumePendingAsk().state).toBe('none');
+    });
+
+    it('consumePendingAsk reports expired after the TTL', () => {
+      let t = 1_000_000;
+      const s = new Session({ idleTimeoutMs: 600_000, now: () => t });
+      s.setPendingAsk('ask_1', []);
+      t += PENDING_ASK_TTL_MS + 1;
+
+      const consumed = s.consumePendingAsk();
+      expect(consumed.state).toBe('expired');
+      if (consumed.state === 'none') {
+        throw new Error('unreachable');
+      }
+      expect(consumed.callId).toBe('ask_1');
+      expect(s.pendingAskCallId).toBeUndefined();
+    });
+
+    it('restorePendingAsk brings the ask back after a failed OpenAI call', () => {
+      const t = 1_000_000;
+      const s = new Session({ idleTimeoutMs: 60_000, now: () => t });
+      s.setPendingAsk('ask_1', [{ callId: 'mem_1', output: 'ok' }]);
+      const consumed = s.consumePendingAsk();
+      if (consumed.state === 'none') {
+        throw new Error('unreachable');
+      }
+
+      s.restorePendingAsk(consumed.snapshot);
+      expect(s.pendingAskCallId).toBe('ask_1');
+      expect(s.pendingAskExpiresAt).toBe(1_000_000 + PENDING_ASK_TTL_MS);
+      expect(s.pendingToolOutputs).toEqual([{ callId: 'mem_1', output: 'ok' }]);
+    });
+
+    it('consumePendingAsk returns none on a fresh session', () => {
+      const s = new Session({ idleTimeoutMs: 60_000 });
+      expect(s.consumePendingAsk()).toEqual({ state: 'none' });
+    });
   });
 
   describe('persistence', () => {

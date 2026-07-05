@@ -11,7 +11,8 @@ import { makeScopedProfile } from '../memory/scope.ts';
 import { hashToken } from '../memory/identities.ts';
 import type { IdentitiesAdapter } from '../memory/types.ts';
 import { appendUserContext } from '../agent/systemPrompt.ts';
-import { ToolResultCache, CACHEABLE_TOOLS } from '../realtime/toolCache.ts';
+import { ToolResultCache } from '../realtime/toolCache.ts';
+import { buildRealtimeToolRunner } from '../realtime/toolRunner.ts';
 import { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
@@ -233,37 +234,12 @@ export async function main(): Promise<void> {
             ...mcpToolsToRealtime(applyHaToolSuffixes(await deps.mcp.listTools())),
             ...localToolsToRealtime(localToolset.tools),
           ],
-          runTool: async (name, args) => {
-            const safeArgs: Record<string, unknown> = {};
-            if (args && typeof args === 'object') {
-              Object.assign(safeArgs, args);
-            }
-            if (localToolset.names.has(name)) {
-              try {
-                return JSON.stringify(await localToolset.execute(name, safeArgs));
-              } catch (e) {
-                return JSON.stringify({ error: e instanceof Error ? e.message : String(e) });
-              }
-            }
-            if (CACHEABLE_TOOLS.has(name)) {
-              const key = `${name}:${JSON.stringify(safeArgs)}`;
-              const cached = toolCache.get(key);
-              if (cached !== undefined) {
-                log.info({ name }, `${name} cache hit`);
-                return cached;
-              }
-              const result = await deps.mcp.callTool(name, safeArgs);
-              const serialized = JSON.stringify(result);
-              toolCache.set(key, serialized, TOOL_CACHE_TTL_MS);
-              return serialized;
-            }
-            // Any non-cacheable tool may have mutated state (HassTurnOn /
-            // HassTurnOff / SetClimate / ...). Drop the snapshot so the
-            // next GetLiveContext goes to HA for real.
-            toolCache.clear(name);
-            const result = await deps.mcp.callTool(name, safeArgs);
-            return JSON.stringify(result);
-          },
+          runTool: buildRealtimeToolRunner({
+            localToolset,
+            mcp: deps.mcp,
+            cache: toolCache,
+            cacheTtlMs: TOOL_CACHE_TTL_MS,
+          }),
         };
       },
     });

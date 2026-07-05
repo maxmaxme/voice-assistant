@@ -30,6 +30,29 @@ export interface SessionPersistence {
   chatId: number;
 }
 
+/** Opaque state captured by {@link Session.consumePendingAsk} so a failed
+ *  OpenAI call can put the ask back ({@link Session.restorePendingAsk}) —
+ *  the ask is still open on OpenAI's side until a call succeeds. */
+export interface PendingAskSnapshot {
+  callId: string;
+  expiresAt: number | undefined;
+  outputs: PendingToolOutput[] | undefined;
+}
+
+export type ConsumedPendingAsk =
+  | { state: 'none' }
+  | {
+      /** 'live': the user's next utterance answers the question.
+       *  'expired': past the TTL — close the ask with a placeholder and treat
+       *  the utterance as a new request. */
+      state: 'live' | 'expired';
+      callId: string;
+      /** Outputs of tools that ran in parallel with the ask last turn; must be
+       *  replayed with the ask's output to keep the chain valid. */
+      stashed: PendingToolOutput[];
+      snapshot: PendingAskSnapshot;
+    };
+
 export interface SessionOptions {
   idleTimeoutMs?: number;
   persistence?: SessionPersistence;
@@ -90,6 +113,48 @@ export class Session {
     this.lastResponseId = responseId;
     this.lastTouch = this.now();
     this.save();
+  }
+
+  /** Record an `ask` tool call whose answer is expected on the next turn.
+   *  Stamps the TTL from the session clock. Persisted by the commit() that
+   *  follows (like every other pending-ask transition — consume/restore stay
+   *  in-memory until a turn actually succeeds). */
+  setPendingAsk(callId: string, stashed: PendingToolOutput[]): void {
+    this.pendingAskCallId = callId;
+    this.pendingAskExpiresAt = this.now() + PENDING_ASK_TTL_MS;
+    this.pendingToolOutputs = stashed;
+  }
+
+  /** Take the pending ask off the session (if any), classifying it against
+   *  the TTL. The returned snapshot lets a failed turn restore it. */
+  consumePendingAsk(): ConsumedPendingAsk {
+    const callId = this.pendingAskCallId;
+    if (callId === undefined) {
+      return { state: 'none' };
+    }
+    const snapshot: PendingAskSnapshot = {
+      callId,
+      expiresAt: this.pendingAskExpiresAt,
+      outputs: this.pendingToolOutputs,
+    };
+    const expired = this.pendingAskExpiresAt !== undefined && this.now() > this.pendingAskExpiresAt;
+    this.pendingAskCallId = undefined;
+    this.pendingAskExpiresAt = undefined;
+    this.pendingToolOutputs = undefined;
+    return {
+      state: expired ? 'expired' : 'live',
+      callId,
+      stashed: snapshot.outputs ?? [],
+      snapshot,
+    };
+  }
+
+  /** Undo a consume after the OpenAI call failed — the ask never reached the
+   *  API, so it must be answered on the next turn after all. */
+  restorePendingAsk(snapshot: PendingAskSnapshot): void {
+    this.pendingAskCallId = snapshot.callId;
+    this.pendingAskExpiresAt = snapshot.expiresAt;
+    this.pendingToolOutputs = snapshot.outputs;
   }
 
   /** Force a fresh chain on the next call (used by `/reset`). */
