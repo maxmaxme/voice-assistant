@@ -101,6 +101,47 @@ describe('startRealtimeServer', () => {
   });
 });
 
+describe('startRealtimeServer config watcher', () => {
+  it('re-sends hello to connected devices when the polled config changes, and only then', async () => {
+    // The admin panel only writes the settings row; this process owns the WS.
+    // The watcher polls read(), JSON-diffs, and pushes a fresh `hello` so the
+    // device picks up e.g. a wakeChime flip without a restart.
+    let config = { wakeChime: true };
+    realtimeServer = await startRealtimeServer({
+      port: 0,
+      authorize: () => ({ userId: 1 }),
+      buildBridgeDeps: async () => ({ ...makeDeps(), wakeChime: config.wakeChime }),
+      watchDeviceConfig: { intervalMs: 30, read: () => ({ ...config }) },
+    });
+    const ws = connect(realtimeServer.port);
+    const hellos: Array<Record<string, unknown>> = [];
+    ws.on('message', (data) => {
+      const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+      if (msg.type === 'hello') {
+        hellos.push(msg);
+      }
+    });
+    await new Promise<void>((r) => ws.on('open', () => r()));
+
+    // Bridge start sends the initial hello with the current config.
+    await vi.waitFor(() => expect(hellos).toHaveLength(1));
+    expect(hellos[0]).toMatchObject({ wakeChime: true });
+
+    // Several poll rounds with an unchanged config: no re-send.
+    await new Promise((r) => setTimeout(r, 120));
+    expect(hellos).toHaveLength(1);
+
+    config = { wakeChime: false };
+    await vi.waitFor(() => expect(hellos).toHaveLength(2));
+    expect(hellos[1]).toMatchObject({ wakeChime: false });
+
+    // The push is a one-off per change, not a re-send every round.
+    await new Promise((r) => setTimeout(r, 120));
+    expect(hellos).toHaveLength(2);
+    ws.close();
+  });
+});
+
 describe('startRealtimeServer close', () => {
   it('sends a going-away close (1001) to connected devices and resolves', async () => {
     realtimeServer = await startRealtimeServer({

@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // constructed OpenAIRealtimeWS exposes a controllable socket whose 'open' /
 // 'error' events the test fires by hand. (vi.hoisted runs before module
 // imports, so the socket uses a hand-rolled emitter instead of node:events.)
-const { fakeSockets, FakeRealtimeWS } = vi.hoisted(() => {
+const { fakeSockets, fakeSdks, FakeRealtimeWS } = vi.hoisted(() => {
   class FakeSocket {
     readyState = 0; // CONNECTING
     close = vi.fn();
@@ -47,27 +47,44 @@ const { fakeSockets, FakeRealtimeWS } = vi.hoisted(() => {
     on = vi.fn();
     constructor() {
       sockets.push(this.socket);
+      instances.push(this);
     }
   }
-  return { fakeSockets: sockets, FakeRealtimeWS };
+  const instances: InstanceType<typeof FakeRealtimeWS>[] = [];
+  return { fakeSockets: sockets, fakeSdks: instances, FakeRealtimeWS };
 });
 
 vi.mock('openai/realtime/ws', () => ({ OpenAIRealtimeWS: FakeRealtimeWS }));
 
-import { OpenAiRealtimeClient } from '../../src/realtime/openaiRealtimeClient.ts';
+import {
+  OpenAiRealtimeClient,
+  type RealtimeClientOptions,
+} from '../../src/realtime/openaiRealtimeClient.ts';
+import { captureLogs } from '../helpers/captureLogs.ts';
 
 beforeEach(() => {
   fakeSockets.length = 0;
+  fakeSdks.length = 0;
 });
 
-function makeClient(): OpenAiRealtimeClient {
+function makeClient(overrides: Partial<RealtimeClientOptions> = {}): OpenAiRealtimeClient {
   return new OpenAiRealtimeClient({
     apiKey: 'test-key',
     model: 'gpt-realtime-2',
     instructions: 'be brief',
     voice: 'marin',
     tools: [],
+    ...overrides,
   });
+}
+
+/** Drive a connect() to completion: fire 'open' on the freshly dialed socket. */
+async function connectClient(client: OpenAiRealtimeClient): Promise<void> {
+  const pending = client.connect();
+  const socket = fakeSockets.at(-1)!;
+  socket.readyState = 1; // OPEN
+  socket.emit('open');
+  await pending;
 }
 
 describe('OpenAiRealtimeClient.connect abort', () => {
@@ -168,5 +185,119 @@ describe('OpenAiRealtimeClient tool-result paths on a closed ws', () => {
   it('requestResponse is a no-op when the ws is not open', () => {
     const client = makeClient();
     expect(() => client.requestResponse()).not.toThrow();
+  });
+});
+
+describe('OpenAiRealtimeClient.connect session configuration', () => {
+  function sentSession(socket: (typeof fakeSockets)[number]): Record<string, unknown> {
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    const event = JSON.parse(socket.send.mock.calls[0][0] as string) as Record<string, unknown>;
+    expect(event.type).toBe('session.update');
+    return event.session as Record<string, unknown>;
+  }
+
+  it('sends a session.update carrying the full session payload after open', async () => {
+    const tool = {
+      type: 'function' as const,
+      name: 'do_thing',
+      description: 'does the thing',
+      parameters: { type: 'object', properties: {}, required: [] },
+    };
+    const client = makeClient({ tools: [tool] });
+    await connectClient(client);
+
+    const session = sentSession(fakeSockets.at(-1)!);
+    expect(session).toMatchObject({
+      type: 'realtime',
+      model: 'gpt-realtime-2',
+      output_modalities: ['audio'],
+      instructions: 'be brief',
+      tools: [tool],
+      audio: {
+        input: {
+          format: { type: 'audio/pcm', rate: 24000 },
+          // 900ms (not the 500ms default): a natural mid-sentence pause must
+          // not split the turn — see the comment in openaiRealtimeClient.ts.
+          turn_detection: { type: 'server_vad', silence_duration_ms: 900 },
+          transcription: { model: 'whisper-1' },
+        },
+        output: {
+          format: { type: 'audio/pcm', rate: 24000 },
+          voice: 'marin',
+        },
+      },
+    });
+    // No reasoningEffort configured → the field must be absent entirely, not
+    // sent as undefined/null (the API rejects unexpected shapes).
+    expect(session).not.toHaveProperty('reasoning');
+  });
+
+  it('includes reasoning only when reasoningEffort is configured', async () => {
+    const client = makeClient({ reasoningEffort: 'low' });
+    await connectClient(client);
+
+    const session = sentSession(fakeSockets.at(-1)!);
+    expect(session.reasoning).toEqual({ effort: 'low' });
+  });
+});
+
+describe('OpenAiRealtimeClient event and close wiring', () => {
+  it("fans the sdk's 'event' out to every on() listener", async () => {
+    const client = makeClient();
+    const first = vi.fn();
+    const second = vi.fn();
+    client.on(first);
+    client.on(second);
+    await connectClient(client);
+
+    const sdk = fakeSdks.at(-1)!;
+    const eventHandler = sdk.on.mock.calls.find(([name]) => name === 'event')?.[1] as (
+      ev: unknown,
+    ) => void;
+    expect(eventHandler).toBeDefined();
+
+    const ev = { type: 'response.created' };
+    eventHandler(ev);
+    expect(first).toHaveBeenCalledWith(ev);
+    expect(second).toHaveBeenCalledWith(ev);
+  });
+
+  it("the live socket's close fires onClose listeners with code and reason", async () => {
+    const client = makeClient();
+    const onClose = vi.fn();
+    client.onClose(onClose);
+    await connectClient(client);
+
+    fakeSockets.at(-1)!.emit('close', 1006, Buffer.from('abnormal'));
+    expect(onClose).toHaveBeenCalledWith({ code: 1006, reason: 'abnormal' });
+  });
+});
+
+describe('OpenAiRealtimeClient send and audio fastpath', () => {
+  it('send() throws when never connected', () => {
+    const client = makeClient();
+    expect(() => client.send({ type: 'response.create' })).toThrow(/not open/);
+  });
+
+  it('appendAudioPcm16Base64 drops silently on a closed ws and the close log carries the count', async () => {
+    const client = makeClient();
+    await connectClient(client);
+    const socket = fakeSockets.at(-1)!;
+
+    // OpenAI's 30-min cap closes the socket under us mid-stream; the device
+    // keeps sending ~50 frames/sec until the bridge tears the session down.
+    socket.readyState = 3; // CLOSED
+    expect(() => client.appendAudioPcm16Base64('AAAA')).not.toThrow();
+    client.appendAudioPcm16Base64('AAAA');
+    client.appendAudioPcm16Base64('AAAA');
+
+    const logs = captureLogs();
+    try {
+      socket.emit('close', 1000, Buffer.from(''));
+      expect(logs.text()).toMatch(/audio frames dropped/);
+      expect(logs.text()).toMatch(/"count":3/);
+    } finally {
+      logs.restore();
+    }
   });
 });
