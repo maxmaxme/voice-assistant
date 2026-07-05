@@ -345,7 +345,7 @@ Persistence: SQLite table `scheduled_actions`. Cron rows reschedule themselves; 
 
 Server timezone: `process.env.TZ` (IANA name, e.g. `Europe/Madrid`). The `[unified] channels: telegram=… http=… realtime=… TZ=… [WEB_SEARCH=on]` startup line confirms what's active.
 
-`Scheduler.tick()` runs every 15 s, processes due rows in series, and is re-entrancy-guarded so a slow goal can't cause overlapping fires.
+`Scheduler.tick()` runs every 15 s, processes due rows in series, and is re-entrancy-guarded so a slow goal can't cause overlapping fires. Each fire is bounded by `fireTimeoutMs` (default 3 min) — a wedged goal logs a timeout and the tick moves on to the next due row.
 
 ### Telegram (`src/telegram/`)
 
@@ -562,8 +562,10 @@ HA Voice Realtime page).
 etc. have code defaults applied when blank; the api key is required.
 
 The `/update` command writes the string `trigger\n` to `/tmp/va-update`
-(expected to be a host-mounted FIFO; falls back to a no-op if the path
-isn't writable). Whoever deploys this container is responsible for
+(expected to be a host-mounted FIFO). The write opens the FIFO
+non-blocking, so a missing reader can't hang the process; when the path
+can't be written (no listener / no FIFO) the user gets an error reply
+instead of a false "Starting update...". Whoever deploys this container is responsible for
 creating the FIFO and running something that reads it and performs the
 actual update — this codebase only signals intent. Changing the path
 or write semantics is a breaking change for every deployment.

@@ -9,6 +9,7 @@ import { captureLogs } from '../helpers/captureLogs.ts';
 const { fakeClients, FakeOpenAiClient } = vi.hoisted(() => {
   const clients: FakeOpenAiClient[] = [];
   class FakeOpenAiClient {
+    opts: unknown;
     connect = vi.fn().mockResolvedValue(undefined);
     on = vi.fn();
     onClose = vi.fn();
@@ -19,7 +20,8 @@ const { fakeClients, FakeOpenAiClient } = vi.hoisted(() => {
     requestResponse = vi.fn();
     close = vi.fn();
 
-    constructor() {
+    constructor(opts: unknown) {
+      this.opts = opts;
       clients.push(this);
     }
   }
@@ -34,6 +36,7 @@ vi.mock('../../src/realtime/openaiRealtimeClient.ts', () => ({
 
 // Imported after the mock is registered (vi.mock is hoisted regardless).
 import { RealtimeBridge, type BridgeDeps } from '../../src/realtime/realtimeBridge.ts';
+import { resolvePrompt } from '../../src/agent/prompts/registry.ts';
 
 class FakeDeviceWs extends EventEmitter {
   send = vi.fn();
@@ -1159,5 +1162,17 @@ describe('RealtimeBridge output pacing', () => {
     deviceControl({ type: 'start' });
     await vi.advanceTimersByTimeAsync(200);
     expect(audioFramesSent()).toBe(framesBeforeBarge);
+  });
+});
+
+describe('RealtimeBridge built-in tool descriptions', () => {
+  it('sources wait_for_user / request_follow_up descriptions from the prompt registry', () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    const { tools } = currentClient().opts as {
+      tools: Array<{ name: string; description: string }>;
+    };
+    const byName = new Map(tools.map((t) => [t.name, t.description]));
+    expect(byName.get('wait_for_user')).toBe(resolvePrompt('tools/wait-for-user'));
+    expect(byName.get('request_follow_up')).toBe(resolvePrompt('tools/request-follow-up'));
   });
 });

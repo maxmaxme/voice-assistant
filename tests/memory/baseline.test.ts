@@ -77,6 +77,20 @@ describe('baseline shim on a legacy prod DB', () => {
     expect(() => applyMigrations(sqlite)).toThrow(/schema_version is 11.*requires >= 12/);
   });
 
+  it('post-migrate sanity check fails loudly when the journal is missing rows', () => {
+    sqlite = new Database(':memory:');
+    seedLegacyProd(sqlite, 12);
+    applyMigrations(sqlite);
+
+    // Simulate a migrator that stopped recording rows (e.g. a drizzle-orm
+    // upgrade changing its tracking scheme): drop a non-latest journal row so
+    // migrate() itself stays a no-op but the journal is incomplete.
+    sqlite.exec(
+      `DELETE FROM __drizzle_migrations WHERE created_at = (SELECT MIN(created_at) FROM __drizzle_migrations)`,
+    );
+    expect(() => applyMigrations(sqlite)).toThrow(/journal/i);
+  });
+
   it('is a no-op on a fresh DB (0000_init runs normally)', () => {
     sqlite = new Database(':memory:');
     expect(() => applyMigrations(sqlite)).not.toThrow();

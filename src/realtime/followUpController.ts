@@ -29,22 +29,25 @@ const log = createLogger('realtime-bridge');
  *   the difference (in logs) between "user answered the model's question
  *   within the window" and "window expired in silence". The device's
  *   follow-up state is hidden from us — we approximate by running a
- *   timer that matches the device-side window: the yaml on_followup_opened
- *   pre-mic delay (wake chime + drain wait + ~800ms, roughly 1.5s) plus the
- *   device's kRequestFollowUpMs (10000ms) mic-open window, plus a small slack,
- *   so the log fires *just after* the device-side timeout if no speech_started
- *   came in. The 12s value is kept in sync with the yaml followup_window_watchdog.
+ *   timer that matches the device-side window: the configured
+ *   requestFollowUpMs mic-open window (the same value sent to the device in
+ *   `follow_up`, admin-editable) plus WATCHDOG_SLACK_MS covering the yaml
+ *   on_followup_opened pre-mic delay (wake chime + drain wait + ~800ms,
+ *   roughly 1.5s), so the log fires *just after* the device-side timeout if
+ *   no speech_started came in.
  */
 export class FollowUpController {
   private readonly sessionId: string;
+  private readonly watchdogMs: number;
   private pending = false;
   private retried = false;
   private windowRequested = false;
   private watchdog: { sentAt: number; timer: NodeJS.Timeout } | null = null;
-  private static readonly FOLLOW_UP_WINDOW_MS = 12_000;
+  private static readonly WATCHDOG_SLACK_MS = 2_000;
 
-  constructor(sessionId: string) {
+  constructor(sessionId: string, requestFollowUpMs: number) {
     this.sessionId = sessionId;
+    this.watchdogMs = requestFollowUpMs + FollowUpController.WATCHDOG_SLACK_MS;
   }
 
   /** request_follow_up tool handler: defer the mic window to response.done,
@@ -119,11 +122,11 @@ export class FollowUpController {
     const sentAt = Date.now();
     const timer = setTimeout(() => {
       log.info(
-        { sessionId: this.sessionId, windowMs: FollowUpController.FOLLOW_UP_WINDOW_MS },
+        { sessionId: this.sessionId, windowMs: this.watchdogMs },
         'request_follow_up window expired — user did not respond',
       );
       this.watchdog = null;
-    }, FollowUpController.FOLLOW_UP_WINDOW_MS);
+    }, this.watchdogMs);
     // Don't keep the event loop alive solely for this timer.
     if (typeof timer.unref === 'function') {
       timer.unref();

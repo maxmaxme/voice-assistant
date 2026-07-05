@@ -14,6 +14,7 @@ import { LatencyTracker } from './metrics.ts';
 import { OutputPacer } from './outputPacer.ts';
 import { AudioDiagnostics } from './audioDiagnostics.ts';
 import { FollowUpController } from './followUpController.ts';
+import { resolvePrompt } from '../agent/prompts/registry.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
 import type { RealtimeDeviceConfig } from '../settings/realtimeConfig.ts';
 
@@ -148,14 +149,21 @@ export class RealtimeBridge {
     this.deviceWs = deviceWs;
     this.deps = deps;
     this.idleResetMs = deps.idleResetMs ?? 0;
-    this.pacer = new OutputPacer(deps.outputPacingMs ?? 0, (frame) =>
-      this.deviceWs.send(frame, { binary: true }),
+    this.pacer = new OutputPacer(
+      deps.outputPacingMs ?? 0,
+      (frame) => this.deviceWs.send(frame, { binary: true }),
+      // Backpressure signal: the device socket's outbound queue. A stalled
+      // speaker link makes the pacer drop the reply tail instead of growing
+      // an unbounded buffer on the Pi.
+      () => this.deviceWs.bufferedAmount,
     );
     this.audioDiag = new AudioDiagnostics(this.sessionId);
-    this.followUps = new FollowUpController(this.sessionId);
     this.followUpMs = deps.followUpMs ?? 0;
     this.requestFollowUpMs = deps.requestFollowUpMs ?? 0;
     this.followUpChime = deps.followUpChime ?? false;
+    // The watchdog deadline tracks the same admin-configured window the
+    // device is told to hold the mic open for.
+    this.followUps = new FollowUpController(this.sessionId, this.requestFollowUpMs);
     this.deviceConfig = { wakeChime: deps.wakeChime ?? true };
     // Inject two built-in flow-control tools ahead of MCP tools:
     //   - wait_for_user: incoming audio is silence/noise/echo; stay silent.
@@ -169,23 +177,13 @@ export class RealtimeBridge {
       {
         type: 'function',
         name: 'wait_for_user',
-        description:
-          'Call this when the latest audio does not need a spoken response: ' +
-          'silence, background noise, the device hearing its own previous reply, ' +
-          'side conversation, or speech not addressed to the assistant. Use it ' +
-          'instead of saying "I did not catch that".',
+        description: resolvePrompt('tools/wait-for-user'),
         parameters: { type: 'object', properties: {}, required: [] },
       },
       {
         type: 'function',
         name: 'request_follow_up',
-        description:
-          'Call this immediately after speaking a question or clarification ' +
-          'request to the user, so they can answer without saying a wake word ' +
-          'again. The device will keep its microphone open for a few seconds ' +
-          'after your reply. Only call this when you actually expect the user ' +
-          'to respond; never call it after a statement that does not invite a ' +
-          'reply.',
+        description: resolvePrompt('tools/request-follow-up'),
         parameters: { type: 'object', properties: {}, required: [] },
       },
       ...deps.tools,

@@ -1,3 +1,4 @@
+import { flagDefaultOff } from '../settings/flags.ts';
 import type { SqliteIntegrations } from './sqliteIntegrations.ts';
 
 /** Matches the integration `type` key in the web catalog. */
@@ -13,7 +14,8 @@ export interface OpenAiConfig {
   reasoningEffort: ChatReasoningEffort;
   webSearch: boolean;
   /** Realtime model/voice/effort are provider-specific. The realtime *enable*
-   *  switch is universal and lives in Settings (`REALTIME_ENABLED`), not here. */
+   *  switch is universal and lives in the DB-only realtime settings
+   *  (`realtime.enabled`, `resolveRealtimeConfig`), not here. */
   realtime: {
     model: string;
     voice: string;
@@ -71,7 +73,7 @@ export function resolveOpenAiConfig(store: SqliteIntegrations): OpenAiConfig | n
     baseUrl: val('baseUrl') || undefined,
     model: val('model') || DEFAULT_MODEL,
     reasoningEffort: chatEffort(c.reasoningEffort),
-    webSearch: c.webSearch === '1',
+    webSearch: flagDefaultOff(c.webSearch),
     realtime: {
       model: val('realtimeModel') || DEFAULT_REALTIME_MODEL,
       voice: val('realtimeVoice') || DEFAULT_REALTIME_VOICE,

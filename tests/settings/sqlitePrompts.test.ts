@@ -43,6 +43,18 @@ describe('SqlitePrompts', () => {
     expect(names).toEqual(expect.arrayContaining(['base-system', 'voice-addendum']));
   });
 
+  it('set on a not-yet-seeded prompt does not record the edit as its default', () => {
+    store.set('base-system', 'user edit before seeding');
+    const row = store.list().find((p) => p.name === 'base-system');
+    expect(row?.content).toBe('user edit before seeding');
+    expect(row?.defaultContent).toBe('');
+    // The later bundled seed still lands as the real default.
+    store.seedWithDefault('base-system', 'bundled text');
+    const seeded = store.list().find((p) => p.name === 'base-system');
+    expect(seeded?.content).toBe('user edit before seeding');
+    expect(seeded?.defaultContent).toBe('bundled text');
+  });
+
   it('seedWithDefault leaves content empty and stores the bundled default', () => {
     store.seedWithDefault('base-system', 'bundled text');
     const row = store.list().find((p) => p.name === 'base-system');

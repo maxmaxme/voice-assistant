@@ -3,14 +3,21 @@ import type { GoalRunner } from './goalRunner.ts';
 import { nextFireAt as computeNextFireAt } from './cron.ts';
 import { createLogger } from '../utils/logger.ts';
 import { assertError } from '../utils/assertError.ts';
+import { raceWithTimeout } from '../utils/withTimeout.ts';
 
 const log = createLogger('scheduler');
+
+const DEFAULT_FIRE_TIMEOUT_MS = 180_000;
 
 export interface SchedulerOptions {
   scheduledActions: ScheduledActionsAdapter;
   goalRunner: GoalRunner;
   /** Tick interval in ms. Default 15000. */
   tickMs?: number;
+  /** Per-goal fire budget in ms. Default 180000 (3 min). A fire that exceeds
+   *  it stops blocking the tick (the other due rows proceed) but keeps running
+   *  — its own markError handling still applies if it eventually fails. */
+  fireTimeoutMs?: number;
   /** Override Date.now (for tests). */
   now?: () => number;
 }
@@ -22,12 +29,14 @@ export class Scheduler {
   private readonly scheduledActions: ScheduledActionsAdapter;
   private readonly goalRunner: GoalRunner;
   private readonly tickMs: number;
+  private readonly fireTimeoutMs: number;
   private readonly now: () => number;
 
   constructor(opts: SchedulerOptions) {
     this.scheduledActions = opts.scheduledActions;
     this.goalRunner = opts.goalRunner;
     this.tickMs = opts.tickMs ?? 15_000;
+    this.fireTimeoutMs = opts.fireTimeoutMs ?? DEFAULT_FIRE_TIMEOUT_MS;
     this.now = opts.now ?? Date.now;
   }
 
@@ -121,24 +130,41 @@ export class Scheduler {
         continue;
       }
 
-      try {
-        await this.goalRunner.fire(row.goal, row.ownerUserId);
-      } catch (err) {
-        assertError(err);
-        log.error({ actionId: row.id, err }, `action ${row.id} fire failed: ${err.message}`);
-        if (row.schedule.kind === 'once') {
-          // Override the `done` we set in step 1: the action visibly failed.
-          try {
-            this.scheduledActions.markError(row.id);
-          } catch (markErr) {
-            assertError(markErr);
-            log.error(
-              { actionId: row.id, err: markErr },
-              `action ${row.id} markError failed: ${markErr.message}`,
-            );
+      // The fire's success/failure handling lives INSIDE this closure so it
+      // still runs even when the race below gives up waiting — a timed-out
+      // fire that eventually fails is still marked `error`, exactly as if it
+      // had failed within the budget.
+      const fireSettled = (async (): Promise<void> => {
+        try {
+          await this.goalRunner.fire(row.goal, row.ownerUserId);
+        } catch (err) {
+          assertError(err);
+          log.error({ actionId: row.id, err }, `action ${row.id} fire failed: ${err.message}`);
+          if (row.schedule.kind === 'once') {
+            // Override the `done` we set in step 1: the action visibly failed.
+            try {
+              this.scheduledActions.markError(row.id);
+            } catch (markErr) {
+              assertError(markErr);
+              log.error(
+                { actionId: row.id, err: markErr },
+                `action ${row.id} markError failed: ${markErr.message}`,
+              );
+            }
           }
+          // For cron: status stays `active`, nextFireAt already advanced — retry next firing.
         }
-        // For cron: status stays `active`, nextFireAt already advanced — retry next firing.
+      })();
+
+      // Bound how long ONE goal can block the tick: a wedged fire must not
+      // delay every other due action. The abandoned promise keeps running in
+      // the background (there's no cancellation for an in-flight agent turn).
+      const outcome = await raceWithTimeout(fireSettled, this.fireTimeoutMs);
+      if (outcome === 'timeout') {
+        log.warn(
+          { actionId: row.id, timeoutMs: this.fireTimeoutMs, goal: row.goal },
+          `action ${row.id} fire timed out after ${this.fireTimeoutMs}ms — continuing with the next due action`,
+        );
       }
     }
   }

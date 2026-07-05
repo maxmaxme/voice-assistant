@@ -23,8 +23,26 @@ import { BotTelegramSender } from '../telegram/telegramSender.ts';
 import type { TelegramSender, TelegramReceiver } from '../telegram/types.ts';
 import { buildGoalRunner, type GoalRunner } from '../scheduling/goalRunner.ts';
 import { createLogger } from '../utils/logger.ts';
+import { memoWithTtl } from '../utils/ttlMemo.ts';
 
 const log = createLogger('shared');
+
+const TOOL_LIST_TTL_MS = 60_000;
+
+/** Decorate an MCP client so `listTools` is memoized for `ttlMs` — the HA tool
+ *  list barely changes, and the agent loop otherwise pays a live HA round-trip
+ *  on every respond(). Everything else (notably `callTool`) passes through
+ *  fresh. The `mcp:call` CLI deliberately bypasses this — it builds its own
+ *  client so a sanity check always shows the live list. */
+export function withCachedToolList(mcp: McpClient, ttlMs = TOOL_LIST_TTL_MS): McpClient {
+  const listTools = memoWithTtl(() => mcp.listTools(), ttlMs);
+  return {
+    connect: () => mcp.connect(),
+    listTools,
+    callTool: (name, args) => mcp.callTool(name, args),
+    disconnect: () => mcp.disconnect(),
+  };
+}
 
 async function connectMcpWithRetry(mcp: HaMcpClient): Promise<void> {
   const maxAttempts = 20;
@@ -197,11 +215,15 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   // this against those tables' latest edit to show whether a restart is pending.
   memory.runtimeState.set(CONFIG_LOADED_AT, String(Date.now()));
 
+  // Every Responses-API agent shares one tool-list cache; `deps.mcp` stays the
+  // raw client (dispose/realtime manage their own concerns).
+  const agentMcp = withCachedToolList(mcp);
+
   // Goal-mode agent: dedicated session, base system prompt (no channel suffix);
   // goal mode produces a written summary, never speaks.
   const goalAgent = new OpenAiAgent({
     mode: 'goal',
-    mcp,
+    mcp: agentMcp,
     memory,
     session: new Session(),
     systemPrompt: basePromptParts(haEnabled).join('\n\n'),
@@ -220,7 +242,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
 
   const buildAgent = (channel: PromptChannel): OpenAiAgent =>
     new OpenAiAgent({
-      mcp,
+      mcp: agentMcp,
       memory,
       session: new Session(),
       systemPrompt: buildSystemPromptFor(channel, haEnabled),

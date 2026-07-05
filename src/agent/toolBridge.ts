@@ -61,15 +61,11 @@ export function applyHaToolSuffixes<T extends { name: string; description?: stri
 }
 
 export function mcpToolsToOpenAi(tools: McpTool[]): OpenAiFunctionTool[] {
-  return tools.map((t) => {
-    const base = t.description ?? '';
-    const suffix = haSuffixFor(t.name);
-    return {
-      type: 'function',
-      name: t.name,
-      description: suffix ? `${base}\n\n${suffix}` : base,
-      parameters: t.inputSchema,
-      strict: false,
-    };
-  });
+  return applyHaToolSuffixes(tools).map((t) => ({
+    type: 'function',
+    name: t.name,
+    description: t.description ?? '',
+    parameters: t.inputSchema,
+    strict: false,
+  }));
 }

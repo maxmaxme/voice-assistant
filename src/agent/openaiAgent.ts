@@ -12,6 +12,7 @@ import type { McpClient } from '../mcp/types.ts';
 import type { MemoryStore } from '../memory/types.ts';
 import { householdFromAdapter, type ScopedProfile } from '../memory/scope.ts';
 import { Session } from './session.ts';
+import { appendUserContext } from './systemPrompt.ts';
 import { mcpToolsToOpenAi } from './toolBridge.ts';
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { buildLocalToolset } from './localTools.ts';
@@ -411,7 +412,6 @@ export class OpenAiAgent implements Agent {
 
   private buildSystemMessage(profile: ScopedProfile): string {
     const base = this.opts.systemPrompt;
-    const facts = profile.recall();
     // No static clock: a long-lived chain keeps its original instructions, so a
     // baked-in timestamp would go stale (yesterday's date after midnight). The
     // agent reads the current time on demand via the get_current_time tool.
@@ -422,10 +422,9 @@ export class OpenAiAgent implements Agent {
     const webSearchBlock = this.opts.webSearch
       ? `\n\nThe web_search tool is available — use it for weather, news, and general-knowledge queries that no Home Assistant entity covers.`
       : '';
-    if (Object.keys(facts).length === 0) {
-      return base + timeBlock + webSearchBlock;
-    }
-    return `${base}${timeBlock}${webSearchBlock}\n\nKnown user profile: ${JSON.stringify(facts)}`;
+    // Profile injection is shared with the realtime path (appendUserContext)
+    // so the two channels' formats can't drift.
+    return appendUserContext(base + timeBlock + webSearchBlock, profile.recall());
   }
 
   private buildGoalSystemMessage(goal: string): string {

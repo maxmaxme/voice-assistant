@@ -3,25 +3,8 @@ import { nextFireAt as computeNextFireAt, validateSchedule } from '../scheduling
 import type { Schedule } from '../scheduling/types.ts';
 import { parseLocalWallClock, toLocalIso } from '../utils/time.ts';
 import { resolvePrompt } from './prompts/registry.ts';
+import { resolveTelegramRecipient } from './recipients.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
-
-export const SCHEDULED_ACTION_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'schedule_action',
-  'list_scheduled',
-  'cancel_scheduled',
-]);
-
-function recipientsHint(identities: IdentitiesAdapter): string {
-  const users = identities.listTelegramUsers();
-  if (users.length === 0) {
-    return 'No users have a Telegram chat linked.';
-  }
-  return (
-    'Valid recipients (user id = name): ' +
-    users.map((u) => `${u.userId}=${u.name}`).join(', ') +
-    '.'
-  );
-}
 
 export function buildScheduledActionTools(): OpenAiFunctionTool[] {
   return [
@@ -169,30 +152,6 @@ export interface ScheduledActionToolContext {
 
 export function executeScheduledActionTool(
   adapter: ScheduledActionsAdapter,
-  name: 'schedule_action',
-  args: Record<string, unknown>,
-  ctx: ScheduledActionToolContext,
-): ScheduleActionResult;
-export function executeScheduledActionTool(
-  adapter: ScheduledActionsAdapter,
-  name: 'list_scheduled',
-  args: Record<string, unknown>,
-  ctx: ScheduledActionToolContext,
-): ListScheduledItem[];
-export function executeScheduledActionTool(
-  adapter: ScheduledActionsAdapter,
-  name: 'cancel_scheduled',
-  args: Record<string, unknown>,
-  ctx: ScheduledActionToolContext,
-): CancelScheduledResult;
-export function executeScheduledActionTool(
-  adapter: ScheduledActionsAdapter,
-  name: string,
-  args: Record<string, unknown>,
-  ctx: ScheduledActionToolContext,
-): ScheduledActionToolResult;
-export function executeScheduledActionTool(
-  adapter: ScheduledActionsAdapter,
   name: string,
   args: Record<string, unknown>,
   ctx: ScheduledActionToolContext,
@@ -207,27 +166,19 @@ export function executeScheduledActionTool(
       // `recipient` user id, or the current user by default — and must have a
       // Telegram chat to deliver to. The speaker (voice principal, no Telegram)
       // hits this unless it names a Telegram-linked recipient.
-      const recipientArg = args.recipient;
-      let ownerUserId: number | null;
-      if (recipientArg === undefined || recipientArg === null) {
-        ownerUserId = ctx.ownerUserId;
-      } else if (typeof recipientArg === 'number' && Number.isInteger(recipientArg)) {
-        ownerUserId = recipientArg;
-      } else {
-        throw new Error(
-          'schedule_action: `recipient` must be a user id (integer), or omit it to remind yourself',
-        );
-      }
-      if (ownerUserId === null) {
-        throw new Error(
-          `schedule_action: no recipient — there is no current user, specify who to remind. ${recipientsHint(ctx.identities)}`,
-        );
-      }
-      if (ctx.identities.identityFor('telegram', ownerUserId) === null) {
-        throw new Error(
-          `schedule_action: user ${ownerUserId} has no Telegram linked, so the reminder cannot be delivered. ${recipientsHint(ctx.identities)}`,
-        );
-      }
+      const ownerUserId = resolveTelegramRecipient(
+        args.recipient,
+        ctx.ownerUserId,
+        ctx.identities,
+        {
+          invalidRecipient:
+            'schedule_action: `recipient` must be a user id (integer), or omit it to remind yourself',
+          noCurrentUser:
+            'schedule_action: no recipient — there is no current user, specify who to remind.',
+          noTelegramLinked: (userId) =>
+            `schedule_action: user ${userId} has no Telegram linked, so the reminder cannot be delivered.`,
+        },
+      );
       const { schedule, nextFireAt } = buildSchedule(args.schedule_kind, args.schedule_expr);
       const created = adapter.add({ goal, schedule, nextFireAt, ownerUserId });
       return {
@@ -240,8 +191,12 @@ export function executeScheduledActionTool(
       };
     }
     case 'list_scheduled': {
+      // Returning [] here would make the model confidently tell the user they
+      // have no reminders — throw so it can explain the caller is unidentified.
       if (ctx.ownerUserId === null) {
-        return [];
+        throw new Error(
+          'list_scheduled: there is no current user — reminders are owned per-user and cannot be listed for an unidentified caller.',
+        );
       }
       return adapter.listActiveForOwner(ctx.ownerUserId).map((row) => ({
         id: row.id,
@@ -259,8 +214,12 @@ export function executeScheduledActionTool(
       if (!Number.isFinite(id)) {
         throw new Error('cancel_scheduled: id must be a number');
       }
+      // Same reasoning as list_scheduled: a silent ok:false reads as "already
+      // cancelled" to the model — surface the real cause instead.
       if (ctx.ownerUserId === null) {
-        return { ok: false };
+        throw new Error(
+          'cancel_scheduled: there is no current user — reminders are owned per-user and cannot be cancelled by an unidentified caller.',
+        );
       }
       return { ok: adapter.cancel(id, ctx.ownerUserId) };
     }

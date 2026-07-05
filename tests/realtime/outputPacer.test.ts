@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { OutputPacer } from '../../src/realtime/outputPacer.ts';
+import { captureLogs } from '../helpers/captureLogs.ts';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -84,6 +85,83 @@ describe('OutputPacer with pacing on', () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(send).toHaveBeenCalledTimes(1);
     expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('drops queued audio instead of sending when the device socket is backed up', async () => {
+    vi.useFakeTimers();
+    const send = vi.fn();
+    let buffered = 0;
+    const pacer = new OutputPacer(20, send, () => buffered);
+    const logs = captureLogs();
+    try {
+      pacer.enqueue(pcmMs(100));
+      buffered = 60_000; // > 1s of audio queued on the socket
+      await vi.advanceTimersByTimeAsync(200);
+      expect(send).not.toHaveBeenCalled();
+      expect(logs.text()).toMatch(/dropping paced audio/);
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it('warns once per stall episode, not per tick', async () => {
+    vi.useFakeTimers();
+    const buffered = 60_000;
+    const pacer = new OutputPacer(20, vi.fn(), () => buffered);
+    const logs = captureLogs();
+    try {
+      pacer.enqueue(pcmMs(100));
+      await vi.advanceTimersByTimeAsync(20);
+      pacer.enqueue(pcmMs(100));
+      await vi.advanceTimersByTimeAsync(200);
+      const warns = logs.text().match(/dropping paced audio/g) ?? [];
+      expect(warns.length).toBe(1);
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it('resumes sending (and re-arms the warn) after the socket drains', async () => {
+    vi.useFakeTimers();
+    const send = vi.fn();
+    let buffered = 60_000;
+    const pacer = new OutputPacer(20, send, () => buffered);
+    const logs = captureLogs();
+    try {
+      pacer.enqueue(pcmMs(40));
+      await vi.advanceTimersByTimeAsync(60); // stalled episode drops everything
+      expect(send).not.toHaveBeenCalled();
+
+      buffered = 0;
+      pacer.enqueue(pcmMs(20));
+      await vi.advanceTimersByTimeAsync(20);
+      expect(send).toHaveBeenCalledTimes(1);
+
+      buffered = 60_000;
+      pacer.enqueue(pcmMs(20));
+      await vi.advanceTimersByTimeAsync(20);
+      const warns = logs.text().match(/dropping paced audio/g) ?? [];
+      expect(warns.length).toBe(2);
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it('still runs afterDrain actions after a backpressure drop', async () => {
+    vi.useFakeTimers();
+    const pacer = new OutputPacer(20, vi.fn(), () => 60_000);
+    const fn = vi.fn();
+    pacer.enqueue(pcmMs(100));
+    pacer.afterDrain(fn);
+    await vi.advanceTimersByTimeAsync(60);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('with pacing off, forwards verbatim regardless of bufferedAmount (legacy burst)', () => {
+    const send = vi.fn();
+    const pacer = new OutputPacer(0, send, () => 1_000_000);
+    pacer.enqueue(pcmMs(50));
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('never splits a PCM16 sample across frames (even byte counts)', async () => {

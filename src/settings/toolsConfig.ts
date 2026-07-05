@@ -1,3 +1,4 @@
+import { flagDefaultOn } from './flags.ts';
 import type { SettingsStore } from './types.ts';
 
 /** Built-in agent tools, configured on the web panel's Tools page. Unlike
@@ -26,17 +27,12 @@ export const TOOLS_KEYS = {
   weatherLocation: 'tools.weather.location',
 } as const;
 
-/** Default on: only an explicit '0' turns a tool off. */
-function enabled(value: string | undefined): boolean {
-  return value !== '0';
-}
-
 export function resolveToolsConfig(store: SettingsStore): ToolsConfig {
   return {
-    memory: enabled(store.get(TOOLS_KEYS.memory)),
-    reminders: enabled(store.get(TOOLS_KEYS.reminders)),
+    memory: flagDefaultOn(store.get(TOOLS_KEYS.memory)),
+    reminders: flagDefaultOn(store.get(TOOLS_KEYS.reminders)),
     weather: {
-      enabled: enabled(store.get(TOOLS_KEYS.weather)),
+      enabled: flagDefaultOn(store.get(TOOLS_KEYS.weather)),
       units: store.get(TOOLS_KEYS.weatherUnits) === 'imperial' ? 'imperial' : 'metric',
       defaultLocation: (store.get(TOOLS_KEYS.weatherLocation) ?? '').trim(),
     },

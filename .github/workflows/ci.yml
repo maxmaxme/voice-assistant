@@ -67,6 +67,39 @@ jobs:
 
       - run: npm run format -- --check
 
+  # Non-blocking dependency audit: surfaces high/critical advisories in
+  # runtime deps without gating the pipeline (advisories can appear with no
+  # code change, so a hard gate would break unrelated pushes).
+  audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm audit --omit=dev --audit-level=high
+
+  audit-web:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm audit --omit=dev --audit-level=high
+
   # Lint the web/ Nuxt project with its own ESLint (@nuxt/eslint). `npm ci`
   # runs `nuxt prepare` (postinstall), which generates the .nuxt/eslint config
   # that web/eslint.config.mjs extends.

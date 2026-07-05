@@ -330,6 +330,67 @@ describe('Scheduler', () => {
     expect(goalRunner.calls).toEqual(['a', 'b']);
   });
 
+  it('a wedged goal times out (warning logged) and the next due row still fires', async () => {
+    const logs = captureLogs();
+    const adapter = makeAdapter([
+      onceRow({ id: 1, goal: 'wedged', nextFireAt: 100 }),
+      onceRow({ id: 2, goal: 'next', nextFireAt: 200 }),
+    ]);
+    const goalRunner = makeGoalRunner(async (goal) => {
+      if (goal === 'wedged') {
+        await new Promise<never>(() => {});
+      }
+    });
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => 1000,
+      fireTimeoutMs: 5_000,
+    });
+    s.start();
+    const p = s.tick();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await p;
+    s.stop();
+    expect(goalRunner.calls).toEqual(['wedged', 'next']);
+    expect(logs.text()).toMatch(/action 1 fire timed out/);
+    // Advanced before firing, and the fire never settled — stays done.
+    expect(adapter.rows[0].status).toBe('done');
+    expect(adapter.rows[1].status).toBe('done');
+    logs.restore();
+  });
+
+  it('a timed-out once-fire that later fails is still marked error', async () => {
+    const logs = captureLogs();
+    let rejectFire!: (e: Error) => void;
+    const adapter = makeAdapter([onceRow({ id: 1, nextFireAt: 100 })]);
+    const goalRunner = makeGoalRunner(
+      () =>
+        new Promise<void>((_, reject) => {
+          rejectFire = reject;
+        }),
+    );
+    const s = new Scheduler({
+      scheduledActions: adapter,
+      goalRunner,
+      tickMs: 100,
+      now: () => 1000,
+      fireTimeoutMs: 1_000,
+    });
+    s.start();
+    const p = s.tick();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await p;
+    s.stop();
+    expect(adapter.rows[0].status).toBe('done');
+    rejectFire(new Error('late boom'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(adapter.rows[0].status).toBe('error');
+    expect(logs.text()).toMatch(/action 1 fire failed: late boom/);
+    logs.restore();
+  });
+
   it('stop() clears the interval cleanly — no further ticks fire', async () => {
     vi.setSystemTime(0);
     const adapter = makeAdapter([onceRow({ nextFireAt: 0 })]);

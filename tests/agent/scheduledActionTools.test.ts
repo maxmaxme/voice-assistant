@@ -1,8 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import {
-  SCHEDULED_ACTION_TOOL_NAMES,
   buildScheduledActionTools,
   executeScheduledActionTool,
+  type ListScheduledItem,
+  type ScheduleActionResult,
   type ScheduledActionToolContext,
 } from '../../src/agent/scheduledActionTools.ts';
 import type {
@@ -96,12 +97,6 @@ const ctx = (): ScheduledActionToolContext => ({
 });
 
 describe('scheduledActionTools — surface', () => {
-  it('exposes the three tool names', () => {
-    expect(SCHEDULED_ACTION_TOOL_NAMES).toEqual(
-      new Set(['schedule_action', 'list_scheduled', 'cancel_scheduled']),
-    );
-  });
-
   it('schedule_action schema requires goal/schedule_kind/schedule_expr and is strict', () => {
     const tools = buildScheduledActionTools();
     const schedule = tools.find((t) => t.name === 'schedule_action')!;
@@ -155,7 +150,7 @@ describe('scheduledActionTools — ownership / delivery preconditions', () => {
       'schedule_action',
       { goal: 'x', schedule_kind: 'once', schedule_expr: '2099-06-15 09:00' },
       ctx(),
-    );
+    ) as ScheduleActionResult;
     expect(a.get(out.id)?.ownerUserId).toBe(1);
   });
 
@@ -166,7 +161,7 @@ describe('scheduledActionTools — ownership / delivery preconditions', () => {
       'schedule_action',
       { goal: 'x', schedule_kind: 'once', schedule_expr: '2099-06-15 09:00', recipient: 2 },
       { ownerUserId: 1, identities: fakeIdentities({ 1: '555', 2: '999' }) },
-    );
+    ) as ScheduleActionResult;
     expect(a.get(out.id)?.ownerUserId).toBe(2);
   });
 
@@ -197,11 +192,11 @@ describe('scheduledActionTools — ownership / delivery preconditions', () => {
       nextFireAt: future,
       ownerUserId: 2,
     });
-    const out = executeScheduledActionTool(a, 'list_scheduled', {}, ctx());
+    const out = executeScheduledActionTool(a, 'list_scheduled', {}, ctx()) as ListScheduledItem[];
     expect(out.map((x) => x.goal)).toEqual(['mine']);
   });
 
-  it('list_scheduled returns empty for an unidentified caller', () => {
+  it('list_scheduled throws for an unidentified caller instead of returning []', () => {
     const a = memScheduled();
     const future = Date.now() + 60_000;
     a.add({
@@ -210,7 +205,7 @@ describe('scheduledActionTools — ownership / delivery preconditions', () => {
       nextFireAt: future,
       ownerUserId: 1,
     });
-    expect(
+    expect(() =>
       executeScheduledActionTool(
         a,
         'list_scheduled',
@@ -220,7 +215,27 @@ describe('scheduledActionTools — ownership / delivery preconditions', () => {
           identities: fakeIdentities({}),
         },
       ),
-    ).toEqual([]);
+    ).toThrow(/no current user/i);
+  });
+
+  it('cancel_scheduled throws for an unidentified caller instead of ok:false', () => {
+    const a = memScheduled();
+    const future = Date.now() + 60_000;
+    const r = a.add({
+      goal: 'g',
+      schedule: { kind: 'once', at: future },
+      nextFireAt: future,
+      ownerUserId: 1,
+    });
+    expect(() =>
+      executeScheduledActionTool(
+        a,
+        'cancel_scheduled',
+        { id: r.id },
+        { ownerUserId: null, identities: fakeIdentities({}) },
+      ),
+    ).toThrow(/no current user/i);
+    expect(a.get(r.id)?.status).toBe('active');
   });
 
   it('cancel_scheduled cannot cancel another user’s action', () => {
@@ -261,7 +276,7 @@ describe('scheduledActionTools — schedule_action once', () => {
         schedule_expr: '2099-06-15 09:00',
       },
       ctx(),
-    );
+    ) as ScheduleActionResult;
     // 2099-06-15 09:00 Europe/Madrid (CEST = UTC+2 in summer) = 07:00:00Z
     expect(out.next_fire_at).toBe(Date.UTC(2099, 5, 15, 7, 0, 0));
     expect(out.schedule_kind).toBe('once');
@@ -340,7 +355,7 @@ describe('scheduledActionTools — schedule_action cron', () => {
       'schedule_action',
       { goal: 'morning light', schedule_kind: 'cron', schedule_expr: '0 8 * * *' },
       ctx(),
-    );
+    ) as ScheduleActionResult;
     expect(out.schedule_kind).toBe('cron');
     expect(out.schedule_expr).toBe('0 8 * * *');
     expect(out.next_fire_at).toBeGreaterThan(Date.now());
@@ -409,7 +424,7 @@ describe('scheduledActionTools — list_scheduled', () => {
       nextFireAt: future,
       ownerUserId: 1,
     });
-    const out = executeScheduledActionTool(a, 'list_scheduled', {}, ctx());
+    const out = executeScheduledActionTool(a, 'list_scheduled', {}, ctx()) as ListScheduledItem[];
     expect(out).toHaveLength(1);
     expect(out[0].goal).toBe('g1');
     expect(out[0].next_fire_at_local).toBe(toLocalIso(future));
@@ -424,7 +439,7 @@ describe('scheduledActionTools — list_scheduled', () => {
     // Insert later first, earlier second.
     a.add({ goal: 'g2', schedule: { kind: 'once', at: t2 }, nextFireAt: t2, ownerUserId: 1 });
     a.add({ goal: 'g1', schedule: { kind: 'once', at: t1 }, nextFireAt: t1, ownerUserId: 1 });
-    const out = executeScheduledActionTool(a, 'list_scheduled', {}, ctx());
+    const out = executeScheduledActionTool(a, 'list_scheduled', {}, ctx()) as ListScheduledItem[];
     expect(out).toHaveLength(2);
     expect(out[0].goal).toBe('g1');
     expect(out[1].goal).toBe('g2');
@@ -442,7 +457,7 @@ describe('scheduledActionTools — list_scheduled', () => {
     });
     a.add({ goal: 'g2', schedule: { kind: 'once', at: t2 }, nextFireAt: t2, ownerUserId: 1 });
     a.cancel(r1.id, 1);
-    const out = executeScheduledActionTool(a, 'list_scheduled', {}, ctx());
+    const out = executeScheduledActionTool(a, 'list_scheduled', {}, ctx()) as ListScheduledItem[];
     expect(out).toHaveLength(1);
     expect(out[0].goal).toBe('g2');
   });

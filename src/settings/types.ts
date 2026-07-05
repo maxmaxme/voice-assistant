@@ -1,7 +1,8 @@
-/** A key/value store for non-secret runtime configuration overrides.
- *  Keys are environment-variable names (e.g. `OPENAI_MODEL`); values are
- *  the raw string the env var would carry. Overrides are read by
- *  `loadConfig` at process start and layered over `process.env`. */
+/** A key/value store for non-secret feature config (the `settings` table,
+ *  edited via the web panel). Keys are dotted feature names (e.g.
+ *  `realtime.enabled`, `tools.weather.units`) read by the dedicated resolvers
+ *  in this directory — DB-only, never env-var names, never layered over
+ *  `process.env`. Values apply on the next process start. */
 export interface SettingsStore {
   get(key: string): string | undefined;
   getAll(): Record<string, string>;

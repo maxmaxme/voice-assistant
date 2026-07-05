@@ -114,8 +114,8 @@ export interface MemoryStore {
   identities: IdentitiesAdapter;
   scheduledActions: ScheduledActionsAdapter;
   telegramSessions: TelegramSessionsAdapter;
-  /** Non-secret config overrides edited via the web UI, layered over env at
-   *  startup. */
+  /** Non-secret feature config edited via the web UI, read at startup by the
+   *  resolvers in `src/settings/` (DB-only keys like `realtime.*`; no env). */
   settings: SettingsStore;
   /** Facts the running process writes about itself (e.g. when it last loaded
    *  config), read by the web panel to detect unapplied edits. */

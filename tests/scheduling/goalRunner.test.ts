@@ -132,6 +132,41 @@ describe('buildGoalRunner', () => {
     await expect(runner.fire('do thing', 7)).resolves.toBeUndefined();
   });
 
+  it('warns when the goal produced empty text and used no tools (likely lost)', async () => {
+    const logs = captureLogs();
+    try {
+      const agent = passingAgent({ text: '', toolsUsed: [] });
+      const { senderFor, sentByChat } = makeSenderFactory();
+      const runner = buildGoalRunner({
+        agent,
+        identities: fakeIdentities({ 7: '555' }),
+        senderFor,
+      });
+      await runner.fire('do thing', 7);
+      expect(sentByChat).toEqual({});
+      expect(logs.text()).toMatch(/produced empty text and used no tools/);
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it('does NOT warn when the goal used tools but replied with empty text', async () => {
+    const logs = captureLogs();
+    try {
+      const agent = passingAgent({ text: '', toolsUsed: ['HassTurnOn'] });
+      const { senderFor } = makeSenderFactory();
+      const runner = buildGoalRunner({
+        agent,
+        identities: fakeIdentities({ 7: '555' }),
+        senderFor,
+      });
+      await runner.fire('turn on the light', 7);
+      expect(logs.text()).not.toMatch(/produced empty text and used no tools/);
+    } finally {
+      logs.restore();
+    }
+  });
+
   it('writes a one-line success summary to stderr', async () => {
     const logs = captureLogs();
     try {

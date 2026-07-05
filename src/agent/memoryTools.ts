@@ -2,8 +2,6 @@ import type { ScopedProfile, WriteScope } from '../memory/scope.ts';
 import { resolvePrompt } from './prompts/registry.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
 
-export const MEMORY_TOOL_NAMES = new Set(['remember', 'recall', 'forget']);
-
 export function buildMemoryTools(): OpenAiFunctionTool[] {
   return [
     {

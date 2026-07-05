@@ -1,6 +1,7 @@
 import type { Scope } from '../memory/scope.ts';
 import type { IdentitiesAdapter } from '../memory/types.ts';
 import type { TelegramSender } from '../telegram/types.ts';
+import { resolveTelegramRecipient } from './recipients.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
 
 export const TELEGRAM_TOOL_NAME = 'send_to_telegram';
@@ -46,18 +47,6 @@ export function buildTelegramTool(): OpenAiFunctionTool {
   };
 }
 
-function recipientsHint(identities: IdentitiesAdapter): string {
-  const users = identities.listTelegramUsers();
-  if (users.length === 0) {
-    return 'No users have a Telegram chat linked.';
-  }
-  return (
-    'Valid recipients (user id = name): ' +
-    users.map((u) => `${u.userId}=${u.name}`).join(', ') +
-    '.'
-  );
-}
-
 export async function executeTelegramTool(
   ctx: TelegramToolContext,
   args: Record<string, unknown>,
@@ -67,31 +56,22 @@ export async function executeTelegramTool(
     throw new Error('send_to_telegram: `text` is required');
   }
 
-  const recipientArg = args.recipient;
-  let targetUserId: number | null;
-  if (recipientArg === undefined || recipientArg === null) {
-    targetUserId = ctx.scope?.userId ?? null;
-  } else if (typeof recipientArg === 'number' && Number.isInteger(recipientArg)) {
-    targetUserId = recipientArg;
-  } else {
-    throw new Error(
-      'send_to_telegram: `recipient` must be a user id (integer), or omit it to send to yourself',
-    );
-  }
+  const targetUserId = resolveTelegramRecipient(
+    args.recipient,
+    ctx.scope?.userId ?? null,
+    ctx.identities,
+    {
+      invalidRecipient:
+        'send_to_telegram: `recipient` must be a user id (integer), or omit it to send to yourself',
+      noCurrentUser:
+        'send_to_telegram: no recipient — there is no current user to send to, specify one.',
+      noTelegramLinked: (userId) =>
+        `send_to_telegram: user ${userId} has no Telegram linked — cannot deliver.`,
+    },
+  );
 
-  if (targetUserId === null) {
-    throw new Error(
-      `send_to_telegram: no recipient — there is no current user to send to, specify one. ${recipientsHint(ctx.identities)}`,
-    );
-  }
-
-  const chatId = ctx.identities.identityFor('telegram', targetUserId);
-  if (chatId === null) {
-    throw new Error(
-      `send_to_telegram: user ${targetUserId} has no Telegram linked — cannot deliver. ${recipientsHint(ctx.identities)}`,
-    );
-  }
-
+  // resolveTelegramRecipient already verified the identity exists.
+  const chatId = ctx.identities.identityFor('telegram', targetUserId)!;
   await ctx.senderFor(chatId).send(text);
   return { ok: true, recipientUserId: targetUserId };
 }

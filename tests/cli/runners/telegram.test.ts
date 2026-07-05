@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-vi.mock('child_process', () => ({ exec: vi.fn() }));
-import { exec } from 'child_process';
+import { execFile } from 'node:child_process';
+import { constants as fsConstants, promises as fsp } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { runTelegramMode, type TelegramRunnerDeps } from '../../../src/cli/runners/telegram.ts';
 import type {
   TelegramMessage,
@@ -329,48 +331,98 @@ describe('runTelegramMode', () => {
     expect(cap.sent[0]).toMatch(/error|Agent/i);
   });
 
-  it('handles /update by writing to the FIFO and sending a start notification', async () => {
-    const respond = vi.fn();
-    const cap = captureSender();
-    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
-    try {
-      await runTelegramMode({
-        receiver: recvFromMessages([
-          { updateId: 1, chatId: 42, fromUserId: 7, kind: 'text', text: '/update', receivedAt: 0 },
-        ]),
-        sender: cap.sender,
-        agent: { respond } as unknown as OpenAiAgent,
-        sessionFor: sessionFactory().sessionFor,
-        ...memDeps([42], [42]),
-      });
-      expect(respond).not.toHaveBeenCalled();
-      expect(cap.sent[0]).toMatch(/starting.*update|🔄/i);
-      expect(exec).toHaveBeenCalledWith('echo trigger > /tmp/va-update');
-    } finally {
-      platformSpy.mockRestore();
-    }
-  });
+  describe('/update', () => {
+    const mkfifo = (path: string) => promisify(execFile)('mkfifo', [path]);
 
-  it('rejects /update from a non-admin without touching the FIFO', async () => {
-    const respond = vi.fn();
-    const cap = captureSender();
-    const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
-    try {
-      await runTelegramMode({
-        receiver: recvFromMessages([
-          { updateId: 1, chatId: 42, fromUserId: 7, kind: 'text', text: '/update', receivedAt: 0 },
-        ]),
-        sender: cap.sender,
-        agent: { respond } as unknown as OpenAiAgent,
-        sessionFor: sessionFactory().sessionFor,
-        ...memDeps([42]),
-      });
-      expect(respond).not.toHaveBeenCalled();
-      expect(exec).not.toHaveBeenCalled();
-      expect(cap.sent[0]).toMatch(/admin/i);
-    } finally {
-      platformSpy.mockRestore();
+    async function fifoDir(): Promise<string> {
+      return fsp.mkdtemp(join(tmpdir(), 'va-update-test-'));
     }
+
+    async function runUpdate(updateFifoPath: string, adminChats: number[] = [42]) {
+      const respond = vi.fn();
+      const cap = captureSender();
+      const platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+      try {
+        await runTelegramMode({
+          receiver: recvFromMessages([
+            {
+              updateId: 1,
+              chatId: 42,
+              fromUserId: 7,
+              kind: 'text',
+              text: '/update',
+              receivedAt: 0,
+            },
+          ]),
+          sender: cap.sender,
+          agent: { respond } as unknown as OpenAiAgent,
+          sessionFor: sessionFactory().sessionFor,
+          ...memDeps([42], adminChats),
+          updateFifoPath,
+        });
+      } finally {
+        platformSpy.mockRestore();
+      }
+      expect(respond).not.toHaveBeenCalled();
+      return cap.sent;
+    }
+
+    it('writes trigger to the FIFO and confirms when a listener is reading', async () => {
+      const dir = await fifoDir();
+      const fifo = join(dir, 'va-update');
+      await mkfifo(fifo);
+      // Non-blocking read open stands in for the host-side listener.
+      const reader = await fsp.open(fifo, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+      try {
+        const sent = await runUpdate(fifo);
+        expect(sent[0]).toMatch(/starting.*update|🔄/i);
+
+        const buf = Buffer.alloc(64);
+        const { bytesRead } = await reader.read(buf, 0, buf.length, null);
+        expect(buf.subarray(0, bytesRead).toString()).toBe('trigger\n');
+      } finally {
+        await reader.close();
+        await fsp.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('reports a missing listener when the FIFO has no reader', async () => {
+      const dir = await fifoDir();
+      const fifo = join(dir, 'va-update');
+      await mkfifo(fifo);
+      try {
+        const sent = await runUpdate(fifo);
+        expect(sent[0]).toMatch(/listener.*not running/i);
+        expect(sent[0]).not.toMatch(/starting/i);
+      } finally {
+        await fsp.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('reports a generic failure when the FIFO path does not exist', async () => {
+      const dir = await fifoDir();
+      try {
+        const sent = await runUpdate(join(dir, 'missing'));
+        expect(sent[0]).toMatch(/could not|failed/i);
+        expect(sent[0]).not.toMatch(/starting/i);
+      } finally {
+        await fsp.rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects /update from a non-admin without touching the FIFO', async () => {
+      const dir = await fifoDir();
+      const fifo = join(dir, 'va-update');
+      // No mkfifo: a write attempt would produce a failure reply, so an
+      // admin-only reply proves the handler bailed before touching the path.
+      try {
+        const sent = await runUpdate(fifo, []);
+        expect(sent[0]).toMatch(/admin/i);
+        expect(sent).toHaveLength(1);
+      } finally {
+        await fsp.rm(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   it('forwards photo + caption to the agent with image bytes', async () => {
@@ -502,8 +554,8 @@ describe('runTelegramMode', () => {
         ...memDeps([42], [42]),
       });
       expect(respond).not.toHaveBeenCalled();
+      expect(cap.sent).toHaveLength(1);
       expect(cap.sent[0]).toMatch(/update only works on the pi/i);
-      expect(exec).not.toHaveBeenCalled();
     } finally {
       platformSpy.mockRestore();
     }

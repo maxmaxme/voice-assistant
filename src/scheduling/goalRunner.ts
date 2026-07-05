@@ -64,6 +64,16 @@ export function buildGoalRunner(opts: GoalRunnerOptions): GoalRunner {
           `goal "${truncate(goal)}" → ${truncate(text)} [${durationMs}ms, ${toolsUsed.length} tool(s): ${toolsUsed.join(',') || 'none'}]`,
         );
 
+        // Empty text is fine when tools did the work (the goal WAS the
+        // action), but empty text with zero tool calls means the fire produced
+        // nothing observable — the goal was likely silently lost.
+        if (text.length === 0 && toolsUsed.length === 0) {
+          log.warn(
+            { goal, ownerUserId, durationMs },
+            `goal "${truncate(goal)}" produced empty text and used no tools — nothing reached the user`,
+          );
+        }
+
         // Goal-mode agents have no send_to_telegram — the runner owns
         // delivery, sending the agent's reply to the action's author.
         if (text.length > 0) {

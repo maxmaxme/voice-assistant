@@ -48,9 +48,12 @@ export class SqlitePrompts {
 
   set(name: string, content: string): void {
     const now = Date.now();
+    // On a first insert the default stays empty: only seedWithDefault knows the
+    // bundled text, and recording the user's edit as its own "default" would
+    // make it read as unmodified and turn reset into a no-op.
     this.db
       .insert(prompts)
-      .values({ name, content, defaultContent: content, updatedAt: now })
+      .values({ name, content, defaultContent: '', updatedAt: now })
       .onConflictDoUpdate({ target: prompts.name, set: { content, updatedAt: now } })
       .run();
   }

@@ -169,6 +169,15 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
         if (heartbeat) {
           clearInterval(heartbeat);
         }
+        // noServer mode: wss.close() does not touch connected clients, so a
+        // graceful shutdown must close each device socket itself. 1001 =
+        // going away; the per-socket 'close' handlers run the normal bridge
+        // cleanup (and http.close() below only resolves once the sockets are
+        // actually gone).
+        for (const ws of wss.clients) {
+          ws.close(1001, 'server shutting down');
+        }
+        bridges.clear();
         wss.close();
         http.close(() => resolve());
       }),

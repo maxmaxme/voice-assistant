@@ -53,6 +53,18 @@ describe('resolveRealtimeConfig', () => {
     expect(cfg.followUpMs).toBe(8_000);
   });
 
+  it('falls back to defaults for negative values', () => {
+    store.set(REALTIME_KEYS.outputPacingMs, '-5');
+    store.set(REALTIME_KEYS.idleResetMs, '-1');
+    store.set(REALTIME_KEYS.followUpMs, '-100');
+    store.set(REALTIME_KEYS.requestFollowUpMs, '-15000');
+    const cfg = resolveRealtimeConfig(store);
+    expect(cfg.outputPacingMs).toBe(20);
+    expect(cfg.idleResetMs).toBe(90_000);
+    expect(cfg.followUpMs).toBe(8_000);
+    expect(cfg.requestFollowUpMs).toBe(10_000);
+  });
+
   it('accepts follow-up disabled (0)', () => {
     store.set(REALTIME_KEYS.followUpMs, '0');
     expect(resolveRealtimeConfig(store).followUpMs).toBe(0);

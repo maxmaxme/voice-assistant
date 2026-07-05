@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { constants as fsConstants, promises as fsp } from 'node:fs';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
 import { Session } from '../../agent/session.ts';
 import type { MemoryStore } from '../../memory/types.ts';
@@ -39,6 +39,36 @@ export interface TelegramRunnerDeps {
   /** Downloads photos by Telegram file_id. When omitted, photo messages get a
    *  "not supported" reply. */
   photoLoader?: TelegramPhotoLoader;
+  /** Overridable for tests only — the production path is a cross-repo
+   *  contract with home-infra's va-update-listener.service. */
+  updateFifoPath?: string;
+}
+
+const UPDATE_FIFO_PATH = '/tmp/va-update';
+
+type UpdateTriggerResult = 'ok' | 'no-listener' | 'failed';
+
+/** Signals the host-side update listener by writing to its FIFO. Opened
+ * non-blocking on purpose: a plain open/redirect of a FIFO with no reader
+ * blocks forever (the old shell-based write leaked a hung child per /update
+ * when the listener was down). With O_NONBLOCK a missing reader fails fast
+ * with ENXIO instead, which we surface to the user. */
+async function triggerHostUpdate(fifoPath: string): Promise<UpdateTriggerResult> {
+  let handle;
+  try {
+    handle = await fsp.open(fifoPath, fsConstants.O_WRONLY | fsConstants.O_NONBLOCK);
+  } catch (err) {
+    const noReader = err instanceof Error && 'code' in err && err.code === 'ENXIO';
+    return noReader ? 'no-listener' : 'failed';
+  }
+  try {
+    await handle.write('trigger\n');
+    return 'ok';
+  } catch {
+    return 'failed';
+  } finally {
+    await handle.close().catch(() => {});
+  }
 }
 
 const HELP_TEXT = `Personal-agent bot ready. Just type — I forward to the agent.
@@ -95,6 +125,7 @@ export async function runTelegramMode(deps: TelegramRunnerDeps): Promise<void> {
         sender: replyer,
         voiceTranscriber,
         photoLoader,
+        updateFifoPath: deps.updateFifoPath ?? UPDATE_FIFO_PATH,
         log: reqLog,
       });
     } catch (err) {
@@ -122,6 +153,7 @@ async function handleMessage(
     sender: TelegramSender;
     voiceTranscriber?: TelegramVoiceTranscriber;
     photoLoader?: TelegramPhotoLoader;
+    updateFifoPath: string;
     log: Logger;
   },
 ): Promise<void> {
@@ -219,10 +251,19 @@ async function handleMessage(
       await ctx.sender.send('Update only works on the Pi. Locally, restart manually.');
       return;
     }
-    await ctx.sender.send('🔄 Starting update...');
-    // Writes to a host-side FIFO; the host's va-update-listener.service
-    // picks it up and runs update.sh. The script itself posts the result to Telegram.
-    exec('echo trigger > /tmp/va-update');
+    // The host's va-update-listener.service reads the FIFO and runs update.sh;
+    // the script itself posts the result to Telegram. Confirm only after the
+    // write succeeded so "Starting update..." can't be a lie.
+    const trigger = await triggerHostUpdate(ctx.updateFifoPath);
+    if (trigger === 'ok') {
+      await ctx.sender.send('🔄 Starting update...');
+    } else if (trigger === 'no-listener') {
+      await ctx.sender.send(
+        'Update listener is not running on the host — cannot trigger the update.',
+      );
+    } else {
+      await ctx.sender.send('Could not signal the update listener — update not started.');
+    }
     return;
   }
 

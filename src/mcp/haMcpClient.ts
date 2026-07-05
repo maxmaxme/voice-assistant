@@ -37,6 +37,7 @@ function defaultSdkClientFactory({ url, token }: { url: string; token: string })
 
 export class HaMcpClient implements McpClient {
   private sdk: SdkLike | null = null;
+  private reconnecting: Promise<void> | null = null;
   private readonly factory: (opts: { url: string; token: string }) => SdkLike;
   private readonly clientOpts: { url: string; token: string };
 
@@ -66,13 +67,48 @@ export class HaMcpClient implements McpClient {
     return this.sdk;
   }
 
+  /** One shared reconnect for all concurrent failures — a burst of tool calls
+   * against a dead session must not spawn a reconnect per call. */
+  private reconnect(): Promise<void> {
+    if (this.reconnecting === null) {
+      const dying = this.sdk;
+      this.reconnecting = (async () => {
+        // Best-effort close of the dead session; the transport is likely
+        // already gone, so a close failure is expected and ignorable.
+        await dying?.close().catch(() => {});
+        await this.connect();
+      })().finally(() => {
+        this.reconnecting = null;
+      });
+    }
+    return this.reconnecting;
+  }
+
+  /** The startup retry in shared.ts only covers boot; if HA restarts mid-run
+   * the streamable-HTTP session dies and every request throws until the
+   * process restarts. MCP tool-level errors come back as `isError` results,
+   * not throws — a throw here means the session/transport is dead, so one
+   * reconnect + retry is the right recovery. */
+  private async withReconnect<T>(op: (sdk: SdkLike) => Promise<T>): Promise<T> {
+    try {
+      return await op(this.requireSdk());
+    } catch (err) {
+      try {
+        await this.reconnect();
+      } catch {
+        throw err;
+      }
+      return op(this.requireSdk());
+    }
+  }
+
   async listTools(): Promise<McpTool[]> {
-    const res = await this.requireSdk().listTools();
+    const res = await this.withReconnect((sdk) => sdk.listTools());
     return res.tools;
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<McpToolResult> {
-    return this.requireSdk().callTool({ name, arguments: args });
+    return this.withReconnect((sdk) => sdk.callTool({ name, arguments: args }));
   }
 
   async disconnect(): Promise<void> {

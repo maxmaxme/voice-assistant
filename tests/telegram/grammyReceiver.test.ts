@@ -247,6 +247,35 @@ describe('GrammyReceiver', () => {
     await r.stop();
   });
 
+  it('evicts the oldest tracked album groups past the cap', async () => {
+    const r = new GrammyReceiver({ botToken: 'X' });
+    const bot = latestBot!;
+    const iter = r.messages()[Symbol.asyncIterator]();
+
+    // 101 distinct albums: each first update yields a rejection, and tracking
+    // the 101st must evict G0 (cap is 100).
+    for (let i = 0; i <= 100; i++) {
+      bot._fire(photoCtx(1000 + i, 42, 7, { mediaGroupId: `G${i}` }));
+    }
+    for (let i = 0; i <= 100; i++) {
+      const res = await iter.next();
+      expect(res.value?.kind).toBe('photo-album-rejected');
+    }
+
+    // G0 was evicted → treated as a new album again.
+    bot._fire(photoCtx(2000, 42, 7, { mediaGroupId: 'G0' }));
+    const evicted = await iter.next();
+    expect(evicted.value?.kind).toBe('photo-album-rejected');
+
+    // G100 is still tracked → silently dropped; the text sentinel comes next.
+    bot._fire(photoCtx(2001, 42, 7, { mediaGroupId: 'G100' }));
+    bot._fire(textCtx(2002, 42, 7, 'sentinel'));
+    const next = await iter.next();
+    expect(next.value?.kind).toBe('text');
+
+    await r.stop();
+  });
+
   it('stop() makes the iterator terminate', async () => {
     const r = new GrammyReceiver({ botToken: 'X' });
     const iter = r.messages()[Symbol.asyncIterator]();

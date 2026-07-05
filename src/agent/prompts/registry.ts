@@ -8,11 +8,14 @@ import type { SqlitePrompts } from '../../settings/sqlitePrompts.ts';
  * `name` (also the DB primary key and the label shown in the web UI) and
  * bundled markdown content shipped in `src`.
  *
- * On startup `initPromptRegistry` seeds the DB from the bundled files
- * (`seedIfAbsent`, so user edits survive); thereafter `resolvePrompt` returns
- * the DB row, falling back to the bundled content when the registry hasn't been
- * initialised (e.g. in unit tests) or the row is missing. Changes apply on the
- * next process start — the registry is read once during bootstrap.
+ * On startup `initPromptRegistry` seeds the DB via `seedWithDefault`: the
+ * bundled text goes into `default_content` (refreshed every start so un-edited
+ * prompts track the live code default) while `content` stays empty — the empty
+ * `content` is the "not customized" sentinel. `resolvePrompt` returns a
+ * non-empty DB `content` (a real web edit) and otherwise falls back to the
+ * bundled text, including when the registry hasn't been initialised (e.g. in
+ * unit tests) or the row is missing. Changes apply on the next process start —
+ * the registry is read once during bootstrap.
  *
  * Bundled prompts are discovered by walking the prompt directories, so dropping
  * a new `.md` in `tools/`, `ha-suffix/`, etc. registers it automatically.

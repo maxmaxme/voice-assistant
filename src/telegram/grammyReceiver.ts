@@ -4,6 +4,8 @@ import { createLogger } from '../utils/logger.ts';
 
 const log = createLogger('telegram-receiver');
 
+const MAX_TRACKED_ALBUM_GROUPS = 100;
+
 export interface GrammyReceiverOptions {
   botToken: string;
   /** Called after stop() finishes. Use for closing resources tied to the store. */
@@ -17,7 +19,9 @@ export class GrammyReceiver implements TelegramReceiver {
   private readonly resolvers: Array<(value: TelegramMessage | null) => void> = [];
   private stopped = false;
   /** Track media_group_ids we've already replied to with a "rejected" message,
-   * so subsequent updates from the same album are silently dropped. */
+   * so subsequent updates from the same album are silently dropped. Capped:
+   * the process runs for weeks, so unbounded tracking is a slow leak — albums
+   * arrive in a burst, so only the most recent groups matter. */
   private readonly seenAlbumGroups = new Set<string>();
 
   constructor(opts: GrammyReceiverOptions) {
@@ -127,6 +131,10 @@ export class GrammyReceiver implements TelegramReceiver {
       if (groupId) {
         if (this.seenAlbumGroups.has(groupId)) {
           return null;
+        }
+        if (this.seenAlbumGroups.size >= MAX_TRACKED_ALBUM_GROUPS) {
+          // Sets iterate in insertion order — the first value is the oldest.
+          this.seenAlbumGroups.delete(this.seenAlbumGroups.values().next().value!);
         }
         this.seenAlbumGroups.add(groupId);
         return { ...base, kind: 'photo-album-rejected' };

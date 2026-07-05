@@ -1,3 +1,4 @@
+import { flagDefaultOff } from './flags.ts';
 import type { SettingsStore } from './types.ts';
 
 /** Per-endpoint HTTP toggles, read straight from the `settings` table — DB-only
@@ -19,8 +20,8 @@ export const HTTP_KEYS = {
 
 export function resolveHttpConfig(store: SettingsStore): HttpConfig {
   return {
-    text: store.get(HTTP_KEYS.text) === '1',
-    audio: store.get(HTTP_KEYS.audio) === '1',
-    assist: store.get(HTTP_KEYS.assist) === '1',
+    text: flagDefaultOff(store.get(HTTP_KEYS.text)),
+    audio: flagDefaultOff(store.get(HTTP_KEYS.audio)),
+    assist: flagDefaultOff(store.get(HTTP_KEYS.assist)),
   };
 }

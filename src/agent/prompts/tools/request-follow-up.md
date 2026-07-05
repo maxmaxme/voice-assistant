@@ -1,0 +1,1 @@
+Call this immediately after speaking a question or clarification request to the user, so they can answer without saying a wake word again. The device will keep its microphone open for a few seconds after your reply. Only call this when you actually expect the user to respond; never call it after a statement that does not invite a reply.

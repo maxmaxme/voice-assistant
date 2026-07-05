@@ -1,3 +1,4 @@
+import { flagDefaultOff, flagDefaultOn } from './flags.ts';
 import type { SettingsStore } from './types.ts';
 
 /** Realtime (Voice PE) runtime config, read straight from the `settings` table
@@ -51,7 +52,9 @@ function num(value: string | undefined, fallback: number): number {
     return fallback;
   }
   const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
+  // All realtime numerics are durations: negatives would feed nonsense into
+  // timers (0 stays valid — it means "disabled" for the follow-up windows).
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
 /** The device-facing realtime config — exactly what the `hello` message carries
@@ -70,14 +73,12 @@ export function realtimeDeviceConfig(c: RealtimeConfig): RealtimeDeviceConfig {
 
 export function resolveRealtimeConfig(store: SettingsStore): RealtimeConfig {
   return {
-    enabled: store.get(REALTIME_KEYS.enabled) === '1',
+    enabled: flagDefaultOff(store.get(REALTIME_KEYS.enabled)),
     outputPacingMs: num(store.get(REALTIME_KEYS.outputPacingMs), DEFAULTS.outputPacingMs),
     idleResetMs: num(store.get(REALTIME_KEYS.idleResetMs), DEFAULTS.idleResetMs),
     followUpMs: num(store.get(REALTIME_KEYS.followUpMs), DEFAULTS.followUpMs),
     requestFollowUpMs: num(store.get(REALTIME_KEYS.requestFollowUpMs), DEFAULTS.requestFollowUpMs),
-    // Default off: only a stored '1' turns the chime on.
-    followUpChime: store.get(REALTIME_KEYS.followUpChime) === '1',
-    // Default on: only a stored '0' turns the wake beep off.
-    wakeChime: store.get(REALTIME_KEYS.wakeChime) !== '0',
+    followUpChime: flagDefaultOff(store.get(REALTIME_KEYS.followUpChime)),
+    wakeChime: flagDefaultOn(store.get(REALTIME_KEYS.wakeChime)),
   };
 }

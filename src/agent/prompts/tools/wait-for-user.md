@@ -1,0 +1,1 @@
+Call this when the latest audio does not need a spoken response: silence, background noise, the device hearing its own previous reply, side conversation, or speech not addressed to the assistant. Use it instead of saying "I did not catch that".

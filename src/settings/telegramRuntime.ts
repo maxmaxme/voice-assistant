@@ -1,3 +1,4 @@
+import { flagDefaultOff } from './flags.ts';
 import type { SettingsStore } from './types.ts';
 
 /** Whether the Telegram bot runner should start. DB-only (never env), separate
@@ -9,5 +10,5 @@ export const TELEGRAM_KEYS = {
 } as const;
 
 export function resolveTelegramEnabled(store: SettingsStore): boolean {
-  return store.get(TELEGRAM_KEYS.enabled) === '1';
+  return flagDefaultOff(store.get(TELEGRAM_KEYS.enabled));
 }

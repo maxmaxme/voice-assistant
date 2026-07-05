@@ -1,4 +1,9 @@
 import { REALTIME_BYTES_PER_SEC } from './audio/format.ts';
+import { createLogger } from '../utils/logger.ts';
+
+// Logged under the bridge's scope on purpose: the drop lines belong to the
+// per-session transcript operators already grep for.
+const log = createLogger('realtime-bridge');
 
 /**
  * Re-clocks the OpenAI reply audio to the device.
@@ -16,19 +21,29 @@ import { REALTIME_BYTES_PER_SEC } from './audio/format.ts';
 export class OutputPacer {
   private readonly paceMs: number;
   private readonly send: (frame: Buffer) => void;
+  private readonly bufferedAmount?: () => number;
   // Pending PCM16 @ 24 kHz not yet sent to the device. Grows as deltas arrive,
   // drains one frame per timer tick. Only used when paceMs > 0.
   private paceBuf: Buffer = Buffer.alloc(0);
   private paceTimer: NodeJS.Timeout | null = null;
+  // One warn per stall episode — a stalled link would otherwise warn every
+  // paceMs tick for the whole reply. Re-armed once a frame goes out again.
+  private dropWarned = false;
   // Control actions that must reach the device AFTER the buffered audio (the
   // end-of-reply phase=idle / follow_up). Run when paceBuf drains — otherwise
   // the device would see "reply over" while seconds of audio are still queued
   // here and close the turn / open the follow-up mic too early.
   private afterDrainActions: Array<() => void> = [];
+  // Backpressure ceiling on the device socket's outbound queue (~1s of audio).
+  // Past it the speaker link has stalled — queueing more paced frames only
+  // grows an unbounded buffer on the Pi, so the reply tail is dropped instead
+  // (the device is not playing it anyway).
+  private static readonly MAX_SOCKET_BUFFERED_BYTES = REALTIME_BYTES_PER_SEC;
 
-  constructor(paceMs: number, send: (frame: Buffer) => void) {
+  constructor(paceMs: number, send: (frame: Buffer) => void, bufferedAmount?: () => number) {
     this.paceMs = paceMs;
     this.send = send;
+    this.bufferedAmount = bufferedAmount;
   }
 
   /** Send one PCM16 @ 24 kHz chunk to the device. With pacing off, forward it
@@ -80,6 +95,21 @@ export class OutputPacer {
       }
       return;
     }
+    const socketBuffered = this.bufferedAmount?.() ?? 0;
+    if (socketBuffered > OutputPacer.MAX_SOCKET_BUFFERED_BYTES) {
+      if (!this.dropWarned) {
+        this.dropWarned = true;
+        log.warn(
+          { socketBuffered, droppedBytes: this.paceBuf.length },
+          'device socket backed up — dropping paced audio',
+        );
+      }
+      // The next tick sees the empty queue and runs the deferred end-of-reply
+      // actions, so the device still gets its idle / follow_up.
+      this.paceBuf = Buffer.alloc(0);
+      return;
+    }
+    this.dropWarned = false;
     // Even byte count so a PCM16 sample is never split across frames.
     const frameBytes = Math.max(
       2,

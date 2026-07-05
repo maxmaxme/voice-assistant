@@ -32,7 +32,15 @@ interface Journal {
  *  recorded `created_at` is strictly less than that migration's `folderMillis`;
  *  seeding `created_at = when` makes 0000's own `when` not-less-than itself, so
  *  it's skipped while any later (newer-`when`) migration still applies. No-op on
- *  a fresh DB. */
+ *  a fresh DB.
+ *
+ *  The `created_at < folderMillis` skip rule is an UNDOCUMENTED internal of
+ *  drizzle-orm's better-sqlite3 migrator, verified against the pinned ^0.45
+ *  range. If an upgrade switches to hash-based (or other) tracking, this seed
+ *  row may stop suppressing 0000_init and migrate() would re-run bare CREATE
+ *  TABLEs against the prod DB — re-verify the shim on any drizzle-orm bump.
+ *  `assertJournalComplete` below catches the quieter failure mode (migrations
+ *  applied but no longer recorded). */
 function baselineLegacy(sqlite: Database.Database, migrationsFolder: string): void {
   const hasLegacy = sqlite
     .prepare<
@@ -90,6 +98,26 @@ function baselineLegacy(sqlite: Database.Database, migrationsFolder: string): vo
     .run(hash, first.when);
 }
 
+/** Post-migrate sanity check: a successful run records exactly one journal row
+ *  per migration on disk (the baseline shim seeds 0000's; migrate() appends the
+ *  rest). A mismatch means the migrator's tracking changed underneath us (see
+ *  the baseline-shim comment) — fail at boot rather than run against a DB whose
+ *  migration state is unknown. */
+function assertJournalComplete(sqlite: Database.Database, migrationsFolder: string): void {
+  const journal: Journal = JSON.parse(
+    fs.readFileSync(path.join(migrationsFolder, 'meta', '_journal.json'), 'utf8'),
+  );
+  const applied =
+    sqlite.prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM __drizzle_migrations`).get()?.n ??
+    0;
+  if (applied !== journal.entries.length) {
+    throw new Error(
+      `drizzle journal has ${applied} applied migration(s) but ${journal.entries.length} exist on disk; ` +
+        `migration tracking is out of sync — refusing to run against this DB`,
+    );
+  }
+}
+
 /** Wrap a raw better-sqlite3 handle as a Drizzle db, baseline a legacy prod DB
  *  if needed, then apply pending migrations. Returns the Drizzle wrapper. */
 export function applyMigrations(
@@ -99,5 +127,6 @@ export function applyMigrations(
   const db = drizzle(sqlite, { schema });
   baselineLegacy(sqlite, migrationsFolder);
   migrate(db, { migrationsFolder });
+  assertJournalComplete(sqlite, migrationsFolder);
   return db;
 }

@@ -1,19 +1,6 @@
 import type { Session } from './session.ts';
 import type { Scope, ScopedProfile } from '../memory/scope.ts';
 
-export type Role = 'system' | 'user' | 'assistant' | 'tool';
-
-export interface Message {
-  role: Role;
-  content: string;
-  toolCallId?: string;
-  toolCalls?: Array<{
-    id: string;
-    name: string;
-    arguments: Record<string, unknown>;
-  }>;
-}
-
 export interface AgentResponse {
   text: string;
   /** True when the agent is asking the user a clarifying question and

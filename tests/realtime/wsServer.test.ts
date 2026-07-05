@@ -101,6 +101,26 @@ describe('startRealtimeServer', () => {
   });
 });
 
+describe('startRealtimeServer close', () => {
+  it('sends a going-away close (1001) to connected devices and resolves', async () => {
+    realtimeServer = await startRealtimeServer({
+      port: 0,
+      authorize: () => ({ userId: 1 }),
+      buildBridgeDeps: async () => makeDeps(),
+    });
+    const ws = connect(realtimeServer.port);
+    await new Promise<void>((r) => ws.on('open', () => r()));
+    const closeCode = new Promise<number>((resolve) => {
+      ws.on('close', (code) => resolve(code));
+      ws.on('error', () => {});
+    });
+
+    await realtimeServer.close();
+    realtimeServer = null;
+    expect(await closeCode).toBe(1001);
+  });
+});
+
 describe('startRealtimeServer heartbeat', () => {
   it('terminates a silent peer that misses a heartbeat round', async () => {
     realtimeServer = await startRealtimeServer({
