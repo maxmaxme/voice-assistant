@@ -45,7 +45,6 @@ const HELP_TEXT = `Personal-agent bot ready. Just type — I forward to the agen
 Commands:
   /reset — clear conversation context
   /profile — dump remembered profile
-  /update — pull latest image and restart (admins only)
   /help — show this`;
 
 export function resolveTelegramScope(identities: IdentitiesAdapter, chatId: number): Scope | null {
