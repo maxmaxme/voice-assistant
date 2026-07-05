@@ -296,6 +296,12 @@ export class RealtimeBridge {
     // speaker reconnects at boot) burns a session that just idles for
     // idleResetMs and then closes untouched.
     this.deviceWs.on('message', (data, isBinary) => this.handleDevice(data, isBinary));
+    // Without a listener, a socket error (ECONNRESET when the speaker loses
+    // power/Wi-Fi) is an unhandled EventEmitter 'error' — it crashes the whole
+    // process. 'close' follows right after, so cleanup runs there as usual.
+    this.deviceWs.on('error', (err) => {
+      log.warn({ err, sessionId: this.sessionId }, 'device ws error');
+    });
     this.deviceWs.on('close', () => {
       log.info({ sessionId: this.sessionId }, 'device closed');
       this.clearFollowUpWatchdog();

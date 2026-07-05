@@ -1,5 +1,64 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Fake the SDK wrapper so connect() can be driven without a network: each
+// constructed OpenAIRealtimeWS exposes a controllable socket whose 'open' /
+// 'error' events the test fires by hand. (vi.hoisted runs before module
+// imports, so the socket uses a hand-rolled emitter instead of node:events.)
+const { fakeSockets, FakeRealtimeWS } = vi.hoisted(() => {
+  class FakeSocket {
+    readyState = 0; // CONNECTING
+    close = vi.fn();
+    send = vi.fn();
+    private handlers = new Map<string, Array<(...args: unknown[]) => void>>();
+
+    on(event: string, fn: (...args: unknown[]) => void): this {
+      const list = this.handlers.get(event) ?? [];
+      list.push(fn);
+      this.handlers.set(event, list);
+      return this;
+    }
+
+    once(event: string, fn: (...args: unknown[]) => void): this {
+      const wrapped = (...args: unknown[]): void => {
+        this.off(event, wrapped);
+        fn(...args);
+      };
+      return this.on(event, wrapped);
+    }
+
+    off(event: string, fn: (...args: unknown[]) => void): this {
+      const list = this.handlers.get(event) ?? [];
+      this.handlers.set(
+        event,
+        list.filter((f) => f !== fn),
+      );
+      return this;
+    }
+
+    emit(event: string, ...args: unknown[]): void {
+      for (const fn of [...(this.handlers.get(event) ?? [])]) {
+        fn(...args);
+      }
+    }
+  }
+  const sockets: InstanceType<typeof FakeSocket>[] = [];
+  class FakeRealtimeWS {
+    socket = new FakeSocket();
+    on = vi.fn();
+    constructor() {
+      sockets.push(this.socket);
+    }
+  }
+  return { fakeSockets: sockets, FakeRealtimeWS };
+});
+
+vi.mock('openai/realtime/ws', () => ({ OpenAIRealtimeWS: FakeRealtimeWS }));
+
 import { OpenAiRealtimeClient } from '../../src/realtime/openaiRealtimeClient.ts';
+
+beforeEach(() => {
+  fakeSockets.length = 0;
+});
 
 function makeClient(): OpenAiRealtimeClient {
   return new OpenAiRealtimeClient({
@@ -10,6 +69,28 @@ function makeClient(): OpenAiRealtimeClient {
     tools: [],
   });
 }
+
+describe('OpenAiRealtimeClient.connect abort', () => {
+  it('close() during the handshake aborts the in-flight socket', async () => {
+    const client = makeClient();
+    const pending = client.connect();
+    const socket = fakeSockets.at(-1)!;
+
+    // The bridge's connect-timeout path: give up on a handshake that never
+    // completes. This must tear down the dialing socket, not orphan it.
+    client.close();
+    expect(socket.close).toHaveBeenCalled();
+
+    // A late 'open' on the abandoned socket must not revive it: no session
+    // config goes out and the client stays closed — otherwise a stray live
+    // session feeds its events into whatever session comes next.
+    socket.readyState = 1; // OPEN
+    socket.emit('open');
+    await expect(pending).rejects.toThrow(/abort/i);
+    expect(client.isOpen()).toBe(false);
+    expect(socket.send).not.toHaveBeenCalled();
+  });
+});
 
 describe('OpenAiRealtimeClient.cancelResponse', () => {
   it('is a no-op when the ws is not open (lazy-disconnected session)', () => {

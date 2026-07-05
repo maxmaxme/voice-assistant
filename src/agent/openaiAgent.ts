@@ -270,6 +270,11 @@ export class OpenAiAgent implements Agent {
           session.reset();
           previousResponseId = undefined;
           instructions = buildInstructions();
+          // The chain is gone, and with it any open function_call a pending
+          // ask left behind — replaying its function_call_output items into
+          // a fresh chain 400s ("No tool call found for function call
+          // output"). Retry with the user's message as a plain user turn.
+          nextInput = [userTurn(userText, images)];
           i--; // retry this iteration with no chain
           continue;
         }

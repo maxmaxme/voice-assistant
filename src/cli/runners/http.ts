@@ -3,7 +3,7 @@ import { H3, serve, assertBodySize, getRequestIP } from 'h3';
 import type { H3Event } from 'h3';
 import { z } from 'zod';
 import type { OpenAiAgent } from '../../agent/openaiAgent.ts';
-import type { Session } from '../../agent/session.ts';
+import { Session } from '../../agent/session.ts';
 import type { AudioFileStt } from '../../audio/types.ts';
 import { normalizeAudioFile, parseContentType } from '../../audio/audioFile.ts';
 import { hashToken } from '../../memory/identities.ts';
@@ -96,9 +96,12 @@ function tokenKey(authHeader: string | null | undefined): string {
   return createHash('sha256').update(token).digest('hex').slice(0, 16);
 }
 
-export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
-  const { agent, assistAgent, assistSessionFor, stt, port, endpoints, identities, profileStore } =
-    deps;
+/** Everything the h3 app needs — `runHttpMode` adds the listener on top.
+ *  Split out so tests can drive the endpoints in-process via `app.fetch`. */
+export type HttpAppDeps = Omit<HttpRunnerDeps, 'port'>;
+
+export function buildHttpApp(deps: HttpAppDeps): H3 {
+  const { agent, assistAgent, assistSessionFor, stt, endpoints, identities, profileStore } = deps;
 
   const authFailLimiter = createRateLimiter({
     windowMs: AUTH_FAIL_WINDOW_MS,
@@ -116,18 +119,18 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
     const ip = clientIp(event);
     const authHeader = event.req.headers.get('authorization');
 
-    // Pre-check: too many bad attempts from this IP recently.
-    const ipState = authFailLimiter.check(`probe:${ip}`);
-    if (!ipState.allowed) {
-      event.res.status = 429;
-      event.res.headers.set('retry-after', String(ipState.retryAfterSec));
-      log.warn({ ip }, `auth-fail rate limit hit for ${ip}`);
-      return { error: 'Too many authentication failures' };
-    }
-
     if (!httpTokenAllowed(identities, authHeader)) {
-      // Count this failure (one extra check beyond the probe above).
-      authFailLimiter.check(`fail:${ip}`);
+      // Only failed auths count against the per-IP budget, and only failing
+      // requests are throttled by it — a valid token always passes, so a
+      // brute-forcing neighbour behind the same NAT can't lock out the
+      // legit user.
+      const failState = authFailLimiter.check(`fail:${ip}`);
+      if (!failState.allowed) {
+        event.res.status = 429;
+        event.res.headers.set('retry-after', String(failState.retryAfterSec));
+        log.warn({ ip }, `auth-fail rate limit hit for ${ip}`);
+        return { error: 'Too many authentication failures' };
+      }
       event.res.status = 401;
       return { error: 'Unauthorized' };
     }
@@ -206,6 +209,10 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
 
           const scope = resolveHttpScope(identities, event.req.headers.get('authorization'));
           const reply = await agent.respond(transcript, {
+            // One-shot endpoint: a fresh session per request. Falling back to
+            // the agent's own Session would chain unrelated callers' turns
+            // (and their memory-profile instructions) into one conversation.
+            session: new Session(),
             profile: makeScopedProfile(profileStore, scope),
             scope,
           });
@@ -263,6 +270,8 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
       try {
         const scope = resolveHttpScope(identities, event.req.headers.get('authorization'));
         const reply = await agent.respond(text, {
+          // One-shot endpoint — fresh session per request, see /audio.
+          session: new Session(),
           profile: makeScopedProfile(profileStore, scope),
           scope,
         });
@@ -350,6 +359,13 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
   app.get('/health', () => {
     return { status: 'ok' };
   });
+
+  return app;
+}
+
+export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
+  const { port, endpoints } = deps;
+  const app = buildHttpApp(deps);
 
   const mounted = [
     endpoints.text && 'POST /text',

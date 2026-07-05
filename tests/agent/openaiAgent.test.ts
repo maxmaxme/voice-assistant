@@ -208,6 +208,49 @@ describe('OpenAiAgent', () => {
     expect(session.isFresh()).toBe(false);
   });
 
+  it('404 recovery with a pending ask retries as a plain user turn (no orphaned tool outputs)', async () => {
+    const calls: CreateArgs[] = [];
+    let i = 0;
+    const create = vi.fn(async (args: CreateArgs) => {
+      calls.push(args);
+      if (i++ === 0) {
+        const err = new Error("Previous response with id 'resp_old' not found.") as Error & {
+          status?: number;
+        };
+        err.status = 404;
+        throw err;
+      }
+      return textResponse('Hi after reset', 'resp_fresh');
+    });
+    const llm = { calls, responses: { create } };
+    const session = new Session({ idleTimeoutMs: 60_000 });
+    // A stale chain that ended in an ask with a sibling tool output stashed.
+    session.commit('resp_old');
+    session.pendingAskCallId = 'ask_1';
+    session.pendingAskExpiresAt = Date.now() + PENDING_ASK_TTL_MS;
+    session.pendingToolOutputs = [{ callId: 'mem_1', output: 'ok' }];
+    const agent = new OpenAiAgent({
+      mcp: fakeMcp(),
+      memory: emptyMemory(),
+      session,
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+    });
+
+    const res = await agent.respond('my answer');
+    expect(res.text).toBe('Hi after reset');
+    const retry = calls[1]!;
+    expect(retry.previous_response_id).toBeUndefined();
+    // The dropped chain has no open function_call on OpenAI's side — sending
+    // the stale ask/tool outputs into a fresh chain 400s ("No tool call found
+    // for function call output"). The retry must be a plain user turn.
+    expect(retry.input).toEqual([{ role: 'user', content: 'my answer' }]);
+    expect(session.pendingAskCallId).toBeUndefined();
+    expect(session.pendingToolOutputs).toBeUndefined();
+  });
+
   it('runs tool-call loop and returns final text', async () => {
     const mcp = fakeMcp();
     const llm = fakeLlm([

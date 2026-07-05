@@ -173,6 +173,18 @@ describe('RealtimeBridge lazy upstream connect', () => {
   });
 });
 
+describe('RealtimeBridge device socket errors', () => {
+  it('survives a device ws error (ECONNRESET) without an unhandled throw', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+
+    // A speaker losing power/Wi-Fi mid-stream surfaces as an 'error' event on
+    // the device WS. With no listener attached, EventEmitter turns that into
+    // an unhandled throw — crashing the whole process.
+    expect(() => deviceWs.emit('error', new Error('read ECONNRESET'))).not.toThrow();
+  });
+});
+
 describe('RealtimeBridge connect timeout', () => {
   it('a hanging upstream connect times out and the next frame retries', async () => {
     vi.useFakeTimers();

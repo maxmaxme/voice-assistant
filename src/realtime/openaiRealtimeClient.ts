@@ -42,10 +42,22 @@ export class OpenAiRealtimeClient {
   async connect(): Promise<void> {
     const oa = new OpenAI({ apiKey: this.opts.apiKey });
     const sdk = new OpenAIRealtimeWS({ model: this.opts.model }, oa);
+    // Track the socket from the start of the dial, not from 'open': close()
+    // during the handshake (the bridge's connect timeout) must abort the
+    // in-flight socket. Otherwise the hung dial keeps going and, if it opens
+    // late, becomes a live untracked session feeding events into whatever
+    // session the bridge opens next.
+    this.ws = sdk.socket;
     await new Promise<void>((resolve, reject) => {
       sdk.socket.once('open', () => resolve());
       sdk.socket.once('error', reject);
     });
+    if (this.ws !== sdk.socket) {
+      // close() ran mid-handshake and disowned this socket; a late 'open'
+      // slipped past its close(). Tear it down instead of configuring it.
+      sdk.socket.close();
+      throw new Error('openai realtime connect aborted');
+    }
     sdk.on('event', (ev) => {
       for (const l of this.listeners) {
         l(ev);
@@ -61,7 +73,6 @@ export class OpenAiRealtimeClient {
     sdk.on('error', () => {
       // intentionally no-op — see comment above
     });
-    this.ws = sdk.socket;
 
     // OpenAI Realtime caps each session at 30 minutes — sockets WILL close
     // on us. We don't try to keep them alive; we just make sure the next
