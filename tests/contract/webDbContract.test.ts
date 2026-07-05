@@ -25,6 +25,8 @@ const webModule = (name: string): string =>
 interface WebUsers {
   createUser(name: string, isAdmin: boolean): number;
   addDevice(userId: number, channel: string, value: string): { token?: string };
+  deleteUser(id: number): boolean;
+  UserNotFoundError: new () => Error;
 }
 interface WebPrompts {
   getPrompt(name: string): { content: string; defaultContent: string } | null;
@@ -35,7 +37,9 @@ interface WebRuntimeState {
   getConfigLoadedAt(): number | null;
 }
 
-const { createUser, addDevice } = (await import(webModule('users'))) as WebUsers;
+const { createUser, addDevice, deleteUser, UserNotFoundError } = (await import(
+  webModule('users')
+)) as WebUsers;
 const { setPrompt, resetPrompt, getPrompt } = (await import(webModule('prompts'))) as WebPrompts;
 const { getConfigLoadedAt } = (await import(webModule('runtimeState'))) as WebRuntimeState;
 
@@ -60,6 +64,12 @@ afterAll(() => {
   sqlite.close();
   rmSync(dir, { recursive: true, force: true });
 });
+
+function identityCountFor(userId: number): number {
+  return sqlite
+    .prepare<[number], { n: number }>(`SELECT COUNT(*) AS n FROM identities WHERE user_id = ?`)
+    .get(userId)!.n;
+}
 
 describe('web ↔ core DB contract', () => {
   it('a device token attached in the web panel authenticates against the core hash lookup', () => {
@@ -114,6 +124,28 @@ describe('web ↔ core DB contract', () => {
     expect(row.defaultContent).toBe('v2 default');
     expect(row.content).toBe('user edit');
     expect(prompts.get('contract-evolving')).toBe('user edit');
+  });
+
+  // The FK rejects the phantom row, but its SQLITE_CONSTRAINT_FOREIGNKEY code
+  // must not be misread as a UNIQUE conflict ("already attached", 409) — the
+  // panel needs a user-not-found error it can surface as 404.
+  it('addDevice against a nonexistent user fails as user-not-found, not a bogus conflict', () => {
+    const ghostId = 999_999;
+    let err: unknown;
+    try {
+      addDevice(ghostId, 'voice', 'ghost-token');
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(UserNotFoundError);
+    expect(identityCountFor(ghostId)).toBe(0);
+  });
+
+  it('deleteUser still removes a user with attached devices under FK enforcement', () => {
+    const userId = createUser('doomed-user', false);
+    addDevice(userId, 'voice', 'doomed-token');
+    expect(deleteUser(userId)).toBe(true);
+    expect(identityCountFor(userId)).toBe(0);
   });
 
   it('the config-drift timestamp written by core is what the web status endpoint reads', () => {

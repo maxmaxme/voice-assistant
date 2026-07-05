@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import { WebSocketServer } from 'ws';
+import type WebSocket from 'ws';
 import { createLogger } from '../utils/logger.ts';
 import { bearerToken } from './auth.ts';
 import { RealtimeBridge, type BridgeDeps } from './realtimeBridge.ts';
@@ -26,6 +27,11 @@ export interface StartOptions {
     intervalMs: number;
     read: () => RealtimeDeviceConfig;
   };
+  /** Server ping interval for liveness detection. A peer that misses a full
+   *  round (no pong between two pings) is terminate()d, so a half-open TCP
+   *  connection (speaker power blip) can't leave a zombie bridge holding the
+   *  OpenAI session open. Defaults to 30s; 0 disables. */
+  heartbeatMs?: number;
 }
 
 export interface RealtimeServer {
@@ -43,6 +49,10 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
   // changes to connected speakers. Membership is tied to the ws lifetime.
   const bridges = new Set<RealtimeBridge>();
 
+  // Peers that answered the last heartbeat ping (or just connected). The
+  // heartbeat loop below consumes membership each round.
+  const alive = new WeakSet<WebSocket>();
+
   http.on('upgrade', (req, socket, head) => {
     if (req.url !== '/voice') {
       socket.destroy();
@@ -55,13 +65,38 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
         ws.close(4401, 'unauthorized');
         return;
       }
+      alive.add(ws);
+      ws.on('pong', () => alive.add(ws));
+      // buildBridgeDeps does a live MCP round-trip, so there's a real window
+      // between the socket opening and the bridge attaching its listeners.
+      // Frames arriving in that window (a device that talks immediately) must
+      // be buffered and replayed, not silently dropped.
+      const preReady: Array<{ data: WebSocket.RawData; isBinary: boolean }> = [];
+      let closedBeforeReady = false;
+      const bufferMessage = (data: WebSocket.RawData, isBinary: boolean): void => {
+        preReady.push({ data, isBinary });
+      };
+      const noteClose = (): void => {
+        closedBeforeReady = true;
+      };
+      ws.on('message', bufferMessage);
+      ws.once('close', noteClose);
       void (async () => {
         try {
           const deps = await opts.buildBridgeDeps(auth);
+          ws.off('message', bufferMessage);
+          ws.off('close', noteClose);
+          if (closedBeforeReady) {
+            log.info('device closed before the bridge was ready — skipping bridge start');
+            return;
+          }
           const bridge = new RealtimeBridge(ws, deps);
           bridges.add(bridge);
           ws.on('close', () => bridges.delete(bridge));
           await bridge.start();
+          for (const { data, isBinary } of preReady) {
+            ws.emit('message', data, isBinary);
+          }
         } catch (err) {
           log.error({ err }, 'failed to start bridge');
           ws.close(1011, 'bridge start failed');
@@ -69,6 +104,28 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
       })();
     });
   });
+
+  // Liveness: a half-open TCP connection (speaker power/Wi-Fi blip) never
+  // sends a FIN, so without pings the dead socket sits in `bridges` forever
+  // with its OpenAI session held open. Standard ws heartbeat: ping every
+  // round, terminate a peer whose pong from the previous round never came —
+  // terminate() fires 'close', which runs the normal bridge cleanup.
+  const heartbeatMs = opts.heartbeatMs ?? 30_000;
+  let heartbeat: NodeJS.Timeout | null = null;
+  if (heartbeatMs > 0) {
+    heartbeat = setInterval(() => {
+      for (const ws of wss.clients) {
+        if (!alive.has(ws)) {
+          log.warn('terminating unresponsive device ws (missed heartbeat round)');
+          ws.terminate();
+          continue;
+        }
+        alive.delete(ws);
+        ws.ping();
+      }
+    }, heartbeatMs);
+    heartbeat.unref?.();
+  }
 
   // Poll the DB-backed device config and push changes to connected devices (a
   // re-sent `hello`) — the admin panel only writes the settings, this process
@@ -108,6 +165,9 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
       new Promise<void>((resolve) => {
         if (configWatch) {
           clearInterval(configWatch);
+        }
+        if (heartbeat) {
+          clearInterval(heartbeat);
         }
         wss.close();
         http.close(() => resolve());

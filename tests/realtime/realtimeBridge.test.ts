@@ -823,6 +823,29 @@ describe('RealtimeBridge tool dispatch', () => {
     expect(serverMessages()).toContainEqual({ type: 'follow_up', ms: 10000, chime: false });
   });
 
+  it('does not request a follow-up response when a barge-in cancelled the tool-carrying response', async () => {
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' }); // → thinking
+    await callTool('c1', 'HassTurnOff', '{}');
+
+    // User barges in with a wake word while the tool batch is in flight —
+    // the bridge cancels the response upstream and opens a fresh turn.
+    deviceControl({ type: 'start' });
+
+    // The cancelled response's late response.done still carries the tool
+    // call. It must NOT trigger response.create: that would spawn a stale
+    // follow-up whose response.created clears dropResponseAudio, playing
+    // old-question audio over the user's new utterance.
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: {
+        id: 'r1',
+        status: 'cancelled',
+        output: [{ type: 'function_call', name: 'HassTurnOff' }],
+      },
+    });
+    expect(client.requestResponse).not.toHaveBeenCalled();
+  });
+
   it('treats a wake word during a follow-up window as the user responding', async () => {
     // Model asked a question and opened the follow-up window.
     await callTool('c1', 'request_follow_up', '{}');

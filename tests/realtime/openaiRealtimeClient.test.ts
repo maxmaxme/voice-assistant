@@ -92,6 +92,57 @@ describe('OpenAiRealtimeClient.connect abort', () => {
   });
 });
 
+describe('OpenAiRealtimeClient stale socket close', () => {
+  it("a previous socket's late close does not fire closeListeners for the live session", async () => {
+    const client = makeClient();
+    const onClose = vi.fn();
+    client.onClose(onClose);
+
+    // Session A: connect + open.
+    const pendingA = client.connect();
+    const socketA = fakeSockets.at(-1)!;
+    socketA.readyState = 1; // OPEN
+    socketA.emit('open');
+    await pendingA;
+
+    // Idle reset closes A, then the next wake word connects session B.
+    client.close();
+    const pendingB = client.connect();
+    const socketB = fakeSockets.at(-1)!;
+    socketB.readyState = 1; // OPEN
+    socketB.emit('open');
+    await pendingB;
+
+    // Socket A's TCP close lands late (close() is async at the OS level).
+    // It belongs to the dead session — the bridge must not be flipped to
+    // disconnected / have its tool + follow-up state wiped for socket B.
+    socketA.emit('close', 1000, Buffer.from(''));
+    expect(onClose).not.toHaveBeenCalled();
+
+    // The live socket's close still notifies as usual.
+    socketB.emit('close', 1006, Buffer.from(''));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('an explicit close() with no successor session still notifies closeListeners', async () => {
+    const client = makeClient();
+    const onClose = vi.fn();
+    client.onClose(onClose);
+
+    const pending = client.connect();
+    const socket = fakeSockets.at(-1)!;
+    socket.readyState = 1; // OPEN
+    socket.emit('open');
+    await pending;
+
+    // Idle reset: the bridge calls close() and relies on the resulting close
+    // notification to flip itself to disconnected.
+    client.close();
+    socket.emit('close', 1000, Buffer.from(''));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('OpenAiRealtimeClient.cancelResponse', () => {
   it('is a no-op when the ws is not open (lazy-disconnected session)', () => {
     const client = makeClient();

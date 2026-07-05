@@ -27,10 +27,34 @@ export class SqliteIntegrations {
     if (!row) {
       return null;
     }
-    try {
-      return { config: JSON.parse(row.config), enabled: row.enabled === 1 };
-    } catch {
+    const config = parseConfig(row.config);
+    if (!config) {
       return null;
     }
+    return { config, enabled: row.enabled === 1 };
   }
+}
+
+// The DB is also hand-edited via the sqlite-web CRUD UI. Consumers index the
+// result and call string methods on the values (e.g. resolveOpenAiConfig's
+// `(c.apiKey ?? '').trim()`), so anything that isn't a plain object is treated
+// as corrupt and non-string values are dropped — otherwise a mangled row
+// crash-loops the bootstrap.
+function parseConfig(raw: string): Record<string, string> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+  const config: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value === 'string') {
+      config[key] = value;
+    }
+  }
+  return config;
 }

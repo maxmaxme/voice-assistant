@@ -410,6 +410,11 @@ export class RealtimeBridge {
         // Drop any paced tail of the reply we're barging through (and its
         // deferred idle), so it can't keep dribbling out under the new turn.
         this.pacer.flush();
+        // Drop pending tool-call promises (mirrors onClose): they belong to
+        // the response we just cancelled, and letting the new turn's
+        // response.done inherit them would fire a follow-up response.create
+        // for a batch the user barged through.
+        this.pendingToolCalls = [];
         this.setPhase('listening');
       } else if (msg.type === 'interrupt') {
         // Device is aborting the current turn and returning to idle — a Stop
@@ -643,6 +648,19 @@ export class RealtimeBridge {
               this.sendFollowUp_(spoke ? this.followUpMs : 0, false, false),
             );
           }
+          break;
+        }
+        // A barge-in cancelled this response while its tool batch was in
+        // flight (the non-tool branches guard on this too). Requesting a
+        // follow-up would spawn a stale response whose response.created
+        // clears dropResponseAudio — old-question audio over the new turn.
+        // The tools themselves keep running and submit their outputs; only
+        // the response.create is skipped.
+        if (ev.response.status === 'cancelled') {
+          log.info(
+            { responseId, sessionId: this.sessionId },
+            'tool-carrying response was cancelled — skipping follow-up response',
+          );
           break;
         }
         // Wait for every tool's output to be submitted, then ask the model

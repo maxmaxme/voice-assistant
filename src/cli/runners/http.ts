@@ -38,6 +38,10 @@ export interface HttpRunnerDeps {
   endpoints: HttpConfig;
   identities: IdentitiesAdapter;
   profileStore: SqliteProfileMemory;
+  /** Receives a closer for the listener once it's up. The runner promise never
+   *  resolves by design, so this seam is the only way shutdown (unified.ts) can
+   *  stop accepting connections before the process exits. */
+  onListen?: (close: () => Promise<void>) => void;
 }
 
 /** Resolve the Bearer token to a memory scope. HTTP auth is DB-gated
@@ -225,7 +229,9 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
           const message = err instanceof Error ? err.message : String(err);
           log.error({ err }, `audio handling failed: ${message}`);
           event.res.status = 500;
-          return { error: message };
+          // Upstream error text carries internals (provider URLs, request ids,
+          // model names) — log it, never echo it to the caller.
+          return { error: 'Internal error' };
         }
       } finally {
         release();
@@ -280,7 +286,7 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
         const message = err instanceof Error ? err.message : String(err);
         log.error({ err }, `text handling failed: ${message}`);
         event.res.status = 500;
-        return { error: message };
+        return { error: 'Internal error' };
       }
     });
   }
@@ -351,7 +357,7 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
         const message = err instanceof Error ? err.message : String(err);
         log.error({ err }, `assist handling failed: ${message}`);
         event.res.status = 500;
-        return { error: message };
+        return { error: 'Internal error' };
       }
     });
   }
@@ -380,7 +386,8 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
   // chatter; we already log startup ourselves.
   // gracefulShutdown: false so srvx doesn't install its own SIGINT/SIGTERM
   // handler — unified.ts owns shutdown via deps.dispose().
-  serve(app, { port, silent: true, gracefulShutdown: false });
+  const server = serve(app, { port, silent: true, gracefulShutdown: false });
+  deps.onListen?.(() => server.close());
 
   // The listener runs until the process exits. Shutdown is driven by
   // unified.ts via SIGINT/SIGTERM → dispose() → process.exit(0); we don't

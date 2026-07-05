@@ -20,6 +20,38 @@ describe('weatherTool', () => {
     expect(t.parameters.required).toEqual(['location', 'date']);
   });
 
+  it('bounds every upstream fetch with an abort timeout (a hung Open-Meteo must not stall the agent turn)', async () => {
+    const inits: Array<RequestInit | undefined> = [];
+    const fakeFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      inits.push(init);
+      if (url.includes('geocoding-api')) {
+        return jsonResponse({
+          results: [{ latitude: 40.4, longitude: -3.7, name: 'Madrid', country: 'Spain' }],
+        });
+      }
+      return jsonResponse({
+        daily: {
+          time: ['2026-05-27'],
+          temperature_2m_min: [14.2],
+          temperature_2m_max: [27.8],
+          weather_code: [3],
+          precipitation_probability_max: [10],
+          wind_speed_10m_max: [12.5],
+        },
+      });
+    });
+
+    await executeWeatherTool(
+      { location: 'Madrid', date: '2026-05-27' },
+      { fetch: fakeFetch as unknown as typeof fetch },
+    );
+
+    expect(inits.length).toBeGreaterThanOrEqual(2);
+    for (const init of inits) {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
   it('geocodes the location and returns daily forecast fields', async () => {
     const calls: string[] = [];
     const fakeFetch = vi.fn(async (url: string) => {

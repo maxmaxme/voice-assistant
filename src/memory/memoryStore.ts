@@ -15,6 +15,11 @@ export function openMemoryStore(dbPath: string): MemoryStore {
   sqlite.pragma('journal_mode = WAL');
   // Tolerate a second process (sqlite-web admin) holding a brief write lock.
   sqlite.pragma('busy_timeout = 5000');
+  // better-sqlite3 happens to compile SQLite with FKs on, but that's a driver
+  // build flag, not a DB property — pin it so identities.user_id → users.id
+  // stays enforced regardless of driver build. Keep web/'s connection
+  // (web/server/utils/db/client.ts) in sync.
+  sqlite.pragma('foreign_keys = ON');
   const db = applyMigrations(sqlite);
   const profile = new SqliteProfileMemory(db);
   const scheduledActions = new SqliteScheduledActions(db);

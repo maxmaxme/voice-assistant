@@ -79,6 +79,16 @@ export class OpenAiRealtimeClient {
     // device wake word comes up cleanly by tearing the device session
     // down (see RealtimeBridge.onClose), so the firmware reconnects fresh.
     this.ws.on('close', (code: number, reason: Buffer) => {
+      // Same identity check as the late-open guard above: close() (idle
+      // reset / connect-timeout abort) followed by a fresh connect() can
+      // leave this stale socket's async 'close' landing after a new session
+      // is live — notifying the bridge would wrongly flip it to disconnected
+      // and wipe the live session's tool/follow-up state. `this.ws === null`
+      // (explicit close with no successor session yet) still notifies: the
+      // bridge depends on that to mark itself disconnected after close().
+      if (this.ws !== null && this.ws !== sdk.socket) {
+        return;
+      }
       const info = { code, reason: reason.toString('utf8') };
       log.info(info, 'openai realtime ws closed');
       if (this.droppedAudioFrames > 0) {
@@ -90,6 +100,11 @@ export class OpenAiRealtimeClient {
       }
     });
     this.ws.on('error', (err: Error) => {
+      // Log-only, but the same staleness applies: a disowned socket's error
+      // is noise once a new session is live.
+      if (this.ws !== null && this.ws !== sdk.socket) {
+        return;
+      }
       log.warn({ err }, 'openai realtime ws error');
     });
 

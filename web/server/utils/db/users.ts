@@ -32,6 +32,15 @@ export class IdentityConflictError extends Error {
   }
 }
 
+/** Raised when a device targets a user id that doesn't exist (e.g. deleted in
+ *  another tab, or the DB was hand-edited) so the API can answer 404. */
+export class UserNotFoundError extends Error {
+  constructor() {
+    super('That user does not exist.')
+    this.name = 'UserNotFoundError'
+  }
+}
+
 /** Map a known DB-layer error to an HTTP response; rethrow anything else. */
 export function dbErrorToHttp(e: unknown): never {
   if (e instanceof DbNotReadyError) {
@@ -39,6 +48,9 @@ export function dbErrorToHttp(e: unknown): never {
   }
   if (e instanceof IdentityConflictError) {
     throw createError({ statusCode: 409, statusMessage: e.message })
+  }
+  if (e instanceof UserNotFoundError) {
+    throw createError({ statusCode: 404, statusMessage: e.message })
   }
   throw e
 }
@@ -51,10 +63,12 @@ function genToken(): string {
   return randomBytes(24).toString('hex')
 }
 
+// Exact code, not a SQLITE_CONSTRAINT prefix match: a FOREIGN KEY violation
+// also carries that prefix and must not surface as "already attached".
 function isUniqueViolation(e: unknown): boolean {
   return Boolean(
     e && typeof e === 'object' && 'code' in e
-    && String((e as { code: unknown }).code).startsWith('SQLITE_CONSTRAINT'),
+    && (e as { code: unknown }).code === 'SQLITE_CONSTRAINT_UNIQUE',
   )
 }
 
@@ -111,9 +125,9 @@ export function updateUser(id: number, name: string, isAdmin: boolean): boolean 
     .run(name, isAdmin ? 1 : 0, id).changes > 0
 }
 
-/** Delete a user and all its devices in one transaction (FK enforcement is off
- *  on this connection, so we clear identities explicitly rather than rely on
- *  ON DELETE CASCADE). */
+/** Delete a user and all its devices in one transaction, child rows first —
+ *  the identities FK is declared ON DELETE no action, so with foreign_keys ON
+ *  deleting the user before its identities would be rejected. */
 export function deleteUser(id: number): boolean {
   if (!tableExists('users')) {
     throw new DbNotReadyError('users')
@@ -133,6 +147,12 @@ export function deleteUser(id: number): boolean {
 export function addDevice(userId: number, channel: Channel, value: string): { token?: string } {
   if (!tableExists('identities')) {
     throw new DbNotReadyError('identities')
+  }
+  // Friendly 404 instead of the raw SQLITE_CONSTRAINT_FOREIGNKEY the FK
+  // would throw (the user may have been deleted in another tab).
+  const userRow = getDb().prepare(`SELECT id FROM users WHERE id = ?`).get(userId)
+  if (!userRow) {
+    throw new UserNotFoundError()
   }
   const trimmed = value.trim()
   let identity: string

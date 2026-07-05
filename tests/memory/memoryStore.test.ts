@@ -61,4 +61,12 @@ describe('openMemoryStore identities + profileStore', () => {
     expect(store.profileStore.recallFor(['household'])).toEqual({ x: 1 });
     store.close();
   });
+
+  it('enforces the identities → users foreign key on its connection', () => {
+    const store = openMemoryStore(TMP);
+    expect(() => store.identities.attachIdentity('voice', 'orphan-hash', 999_999)).toThrow(
+      /FOREIGN KEY/i,
+    );
+    store.close();
+  });
 });

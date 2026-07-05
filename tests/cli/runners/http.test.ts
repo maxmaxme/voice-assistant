@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { OpenAiAgent } from '../../../src/agent/openaiAgent.ts';
 import type { AgentRespondOptions } from '../../../src/agent/types.ts';
 import { Session } from '../../../src/agent/session.ts';
-import { buildHttpApp, type HttpAppDeps } from '../../../src/cli/runners/http.ts';
+import { buildHttpApp, runHttpMode, type HttpAppDeps } from '../../../src/cli/runners/http.ts';
 import { IdentitiesStore, hashToken } from '../../../src/memory/identities.ts';
 import { SqliteProfileMemory } from '../../../src/memory/sqliteProfileMemory.ts';
 import { freshTestDb } from '../../memory/helpers.ts';
@@ -95,6 +95,58 @@ describe('HTTP auth-fail rate limiting', () => {
   });
 });
 
+describe('HTTP 500 responses do not leak internals', () => {
+  const SECRET = 'OPENAI_SECRET_DETAIL http://internal:1234';
+
+  function throwingAgent(): OpenAiAgent {
+    return {
+      respond: vi.fn(async () => {
+        throw new Error(SECRET);
+      }),
+    } as unknown as OpenAiAgent;
+  }
+
+  it('/text returns a generic error body when the agent throws', async () => {
+    const agent = throwingAgent();
+    const app = buildHttpApp({ ...deps, agent, assistAgent: agent });
+    const res = await app.fetch(textRequest());
+    expect(res.status).toBe(500);
+    const body = await res.text();
+    expect(body).not.toContain('OPENAI_SECRET_DETAIL');
+    expect(body).not.toContain('internal:1234');
+    expect(JSON.parse(body)).toEqual({ error: 'Internal error' });
+  });
+
+  it('/audio returns a generic error body when the agent throws', async () => {
+    const agent = throwingAgent();
+    const app = buildHttpApp({ ...deps, agent, assistAgent: agent });
+    const res = await app.fetch(audioRequest());
+    expect(res.status).toBe(500);
+    const body = await res.text();
+    expect(body).not.toContain('OPENAI_SECRET_DETAIL');
+    expect(JSON.parse(body)).toEqual({ error: 'Internal error' });
+  });
+
+  it('/assist returns a generic error body when the agent throws', async () => {
+    const agent = throwingAgent();
+    const app = buildHttpApp({ ...deps, agent, assistAgent: agent });
+    const res = await app.fetch(
+      new Request('http://localhost/assist', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ text: 'hello' }),
+      }),
+    );
+    expect(res.status).toBe(500);
+    const body = await res.text();
+    expect(body).not.toContain('OPENAI_SECRET_DETAIL');
+    expect(JSON.parse(body)).toEqual({ error: 'Internal error' });
+  });
+});
+
 describe('HTTP per-request sessions', () => {
   it('/text gives every request its own fresh session — no chain is shared across tokens', async () => {
     const app = buildHttpApp(deps);
@@ -120,5 +172,23 @@ describe('HTTP per-request sessions', () => {
     expect(respondCalls).toHaveLength(2);
     expect(respondCalls[0]!.opts.session).toBeInstanceOf(Session);
     expect(respondCalls[0]!.opts.session).not.toBe(respondCalls[1]!.opts.session);
+  });
+});
+
+describe('runHttpMode shutdown seam', () => {
+  it('hands the server closer to onListen so shutdown can stop the listener', async () => {
+    let close: (() => Promise<void>) | null = null;
+    // Port 0 → ephemeral port; the runner promise never resolves by design.
+    void runHttpMode({
+      ...deps,
+      port: 0,
+      onListen: (c) => {
+        close = c;
+      },
+    });
+    await vi.waitFor(() => {
+      expect(close).not.toBeNull();
+    });
+    await expect(close!()).resolves.toBeUndefined();
   });
 });

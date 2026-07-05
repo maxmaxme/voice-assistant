@@ -20,6 +20,8 @@ import { BotPhotoLoader } from '../telegram/photoLoader.ts';
 import { Scheduler } from '../scheduling/scheduler.ts';
 import { resolveRealtimeConfig, realtimeDeviceConfig } from '../settings/realtimeConfig.ts';
 import { getServerTimezone } from '../utils/time.ts';
+import { raceWithTimeout } from '../utils/withTimeout.ts';
+import { memoWithTtl } from '../utils/ttlMemo.ts';
 import { createLogger } from '../utils/logger.ts';
 
 const log = createLogger('unified');
@@ -27,6 +29,12 @@ const log = createLogger('unified');
 export interface RunnerSet {
   telegram: (deps: TelegramRunnerDeps) => Promise<void>;
   http: (deps: HttpRunnerDeps) => Promise<void>;
+}
+
+export interface DispatchHooks {
+  /** Forwarded as the http runner's `onListen` — main() stores the closer so
+   *  shutdown can stop the listener before exiting. */
+  onHttpListen?: (close: () => Promise<void>) => void;
 }
 
 /** Authenticate a Voice PE device by its bearer token: hash → `voice` identity.
@@ -48,7 +56,11 @@ export function authorizeSpeaker(
 
 /** Dispatch logic, exported for tests. Does NOT call initializeCommonDependencies
  * — the caller passes deps so tests can use mocks. */
-export async function dispatch(deps: CommonDeps, runners: RunnerSet): Promise<void> {
+export async function dispatch(
+  deps: CommonDeps,
+  runners: RunnerSet,
+  hooks: DispatchHooks = {},
+): Promise<void> {
   const tasks: Promise<void>[] = [];
 
   // Each channel self-gates from DB-backed web-panel config. Telegram needs a
@@ -137,6 +149,7 @@ export async function dispatch(deps: CommonDeps, runners: RunnerSet): Promise<vo
         endpoints: deps.http,
         identities: deps.memory.identities,
         profileStore: deps.memory.profileStore,
+        onListen: hooks.onHttpListen,
       }),
     );
   }
@@ -183,6 +196,11 @@ export async function main(): Promise<void> {
     // server bounce flushes stale device snapshots.
     const toolCache = new ToolResultCache();
     const TOOL_CACHE_TTL_MS = 5_000;
+    // The HA tool list barely changes; memoize it so a slow/wedged HA can't
+    // delay every speaker handshake with a live listTools round-trip. A fresh
+    // process start still fetches fresh (the memo starts empty).
+    const TOOL_LIST_TTL_MS = 60_000;
+    const listMcpTools = memoWithTtl(() => deps.mcp.listTools(), TOOL_LIST_TTL_MS);
     realtimeServer = await startRealtimeServer({
       port: deps.config.realtime.port,
       authorize: (token) => authorizeSpeaker(deps.memory.identities, token),
@@ -231,7 +249,7 @@ export async function main(): Promise<void> {
             profile.recall(),
           ),
           tools: [
-            ...mcpToolsToRealtime(applyHaToolSuffixes(await deps.mcp.listTools())),
+            ...mcpToolsToRealtime(applyHaToolSuffixes(await listMcpTools())),
             ...localToolsToRealtime(localToolset.tools),
           ],
           runTool: buildRealtimeToolRunner({
@@ -246,22 +264,43 @@ export async function main(): Promise<void> {
     log.info({ port: realtimeServer.port }, 'realtime server listening');
   }
 
+  let closeHttpServer: (() => Promise<void>) | null = null;
+
+  // Bound teardown: a hung grammY stop / MCP disconnect must not leave the
+  // container waiting for docker's SIGKILL.
+  const SHUTDOWN_TIMEOUT_MS = 5_000;
   const onShutdown = async (signal: string): Promise<void> => {
     log.info({ signal }, `received ${signal}, shutting down`);
-    if (realtimeServer) {
-      await realtimeServer.close().catch(() => {});
+    const teardown = (async () => {
+      if (realtimeServer) {
+        await realtimeServer.close().catch(() => {});
+      }
+      if (closeHttpServer) {
+        await closeHttpServer().catch(() => {});
+      }
+      await deps.dispose();
+    })();
+    if ((await raceWithTimeout(teardown, SHUTDOWN_TIMEOUT_MS)) === 'timeout') {
+      log.warn(`shutdown did not finish within ${SHUTDOWN_TIMEOUT_MS}ms, exiting anyway`);
     }
-    await deps.dispose();
     process.exit(0);
   };
   process.on('SIGINT', () => void onShutdown('SIGINT'));
   process.on('SIGTERM', () => void onShutdown('SIGTERM'));
 
   try {
-    await dispatch(deps, {
-      telegram: runTelegramMode,
-      http: runHttpMode,
-    });
+    await dispatch(
+      deps,
+      {
+        telegram: runTelegramMode,
+        http: runHttpMode,
+      },
+      {
+        onHttpListen: (close) => {
+          closeHttpServer = close;
+        },
+      },
+    );
   } finally {
     if (realtimeServer) {
       await realtimeServer.close().catch(() => {});

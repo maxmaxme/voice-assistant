@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { freshTestDb, type TestDb } from './helpers.ts';
+import { captureLogs } from '../helpers/captureLogs.ts';
 import { SqliteProfileMemory } from '../../src/memory/sqliteProfileMemory.ts';
 
 describe('SqliteProfileMemory', () => {
@@ -47,6 +48,47 @@ describe('SqliteProfileMemory', () => {
     m.remember('list', [1, 2, 3]);
     m.remember('flag', true);
     expect(m.recall()).toEqual({ list: [1, 2, 3], flag: true });
+  });
+
+  // The DB is also hand-edited via the sqlite-web CRUD UI, so a non-JSON
+  // `value` is a real scenario — one bad row must not break the whole recall.
+  describe('corrupt rows (hand-edited DB)', () => {
+    function insertRawRow(owner: string, key: string, value: string): void {
+      h.sqlite
+        .prepare(`INSERT INTO profile (owner, key, value, updated_at) VALUES (?, ?, ?, ?)`)
+        .run(owner, key, value, Date.now());
+    }
+
+    it('recall() skips a corrupt row and still returns the healthy ones', () => {
+      m.remember('name', 'Maxim');
+      insertRawRow('household', 'broken', '{not json');
+      m.remember('coffee', 'black');
+      expect(m.recall()).toEqual({ name: 'Maxim', coffee: 'black' });
+    });
+
+    it('recall(key) of a corrupt row returns empty instead of throwing', () => {
+      insertRawRow('household', 'broken', 'oops');
+      expect(() => m.recall('broken')).not.toThrow();
+      expect(m.recall('broken')).toEqual({});
+    });
+
+    it('a corrupt personal row does not shadow a healthy household value', () => {
+      m.rememberFor('household', 'city', 'Madrid');
+      insertRawRow('user:1', 'city', '{truncated');
+      expect(m.recallFor(['household', 'user:1'], 'city')).toEqual({ city: 'Madrid' });
+    });
+
+    it('logs a warning identifying the corrupt row', () => {
+      insertRawRow('household', 'broken', '{not json');
+      const logs = captureLogs();
+      try {
+        m.recall();
+        expect(logs.text()).toContain('broken');
+        expect(logs.text()).toContain('"level":"warn"');
+      } finally {
+        logs.restore();
+      }
+    });
   });
 
   it('accepts an externally-owned db; close() does not close it', () => {

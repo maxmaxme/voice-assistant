@@ -146,6 +146,16 @@ describe('dispatch', () => {
     expect(runners.telegram).not.toHaveBeenCalled();
   });
 
+  it('forwards the onHttpListen hook to the http runner so shutdown can close the listener', async () => {
+    const deps = makeDeps();
+    const runners = makeRunners();
+    const onHttpListen = vi.fn();
+    await dispatch(deps, runners as never, { onHttpListen });
+    expect(runners.http).toHaveBeenCalledTimes(1);
+    const httpDeps = runners.http.mock.calls[0]![0] as { onListen?: unknown };
+    expect(httpDeps.onListen).toBe(onHttpListen);
+  });
+
   it('starts and stops the scheduler around runners', async () => {
     const deps = makeDeps();
     const startSpy = vi.spyOn(Scheduler.prototype, 'start');

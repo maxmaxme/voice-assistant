@@ -322,6 +322,21 @@ export class OpenAiAgent implements Agent {
       const settled = await Promise.allSettled(
         nonAskCalls.map(async (tc) => {
           const args = this.parseArgs(tc.arguments);
+          // Executing with silently-empty args would hit the wrong device or
+          // surface a cryptic adapter error — tell the model its call was
+          // malformed so it re-emits with valid JSON instead.
+          if (args === null) {
+            log.warn(
+              { tool: tc.name, rawArguments: tc.arguments },
+              `${tc.name} got malformed argument JSON`,
+            );
+            return {
+              type: 'function_call_output' as const,
+              call_id: tc.call_id,
+              output:
+                'ERROR: invalid JSON in tool arguments — re-emit this tool call with valid JSON arguments',
+            };
+          }
           const startedAt = Date.now();
           const { text: resultText, isError } = await executeRoutedTool(
             localToolset,
@@ -366,7 +381,7 @@ export class OpenAiAgent implements Agent {
         // Stash non-ask outputs alongside the pending ask call_id. The next
         // user turn replays the stashed outputs together with the user's
         // answer (which serves as ask's output) — keeping the chain valid.
-        const askArgs = this.parseArgs(askCall.arguments);
+        const askArgs = this.parseArgs(askCall.arguments) ?? {};
         const askText = typeof askArgs.text === 'string' ? askArgs.text : '';
         log.debug(
           { tool: 'ask', args: askArgs },
@@ -423,11 +438,13 @@ export class OpenAiAgent implements Agent {
     );
   }
 
-  private parseArgs(raw: string | undefined): Record<string, unknown> {
+  /** Returns null on malformed JSON so the tool loop can refuse to execute
+   *  the call (the `ask` path stays lenient — it only extracts display text). */
+  private parseArgs(raw: string | undefined): Record<string, unknown> | null {
     try {
       return JSON.parse(raw || '{}');
     } catch {
-      return {};
+      return null;
     }
   }
 }

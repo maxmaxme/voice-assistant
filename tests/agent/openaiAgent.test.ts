@@ -297,6 +297,34 @@ describe('OpenAiAgent', () => {
     expect(session.isFresh()).toBe(true);
   });
 
+  it('malformed tool-argument JSON short-circuits with an ERROR output instead of executing with {}', async () => {
+    const mcp = fakeMcp();
+    const llm = fakeLlm([
+      fnCallResponse('HassTurnOn', '{"name": "Lamp', 'call_bad', 'resp_1'),
+      textResponse('Sorry, retrying.', 'resp_2'),
+    ]);
+    const agent = new OpenAiAgent({
+      mcp,
+      memory: emptyMemory(),
+      session: new Session({ idleTimeoutMs: 60_000 }),
+      systemPrompt: 'sys',
+      model: 'gpt-4o',
+      llmClient: llm as never,
+      telegram: noopTelegram,
+    });
+    const res = await agent.respond('turn on the lamp');
+    expect(res.text).toBe('Sorry, retrying.');
+    // Executing HassTurnOn with silently-empty args would hit the wrong
+    // device (or produce a cryptic adapter error) — the tool must not run.
+    expect(mcp.callTool).not.toHaveBeenCalled();
+    const second = llm.calls[1]!;
+    expect(second.input[0]).toMatchObject({
+      type: 'function_call_output',
+      call_id: 'call_bad',
+    });
+    expect(second.input[0]!.output as string).toMatch(/ERROR: invalid JSON/i);
+  });
+
   it('routes memory-tool calls to MemoryAdapter, not MCP', async () => {
     const mcp = fakeMcp();
     const profile = new SqliteProfileMemory(freshTestDb().db);

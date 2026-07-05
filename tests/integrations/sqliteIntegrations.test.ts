@@ -47,4 +47,32 @@ describe('SqliteIntegrations', () => {
       .run();
     expect(store.get('broken')).toBeNull();
   });
+
+  // The DB is also hand-edited via the sqlite-web CRUD UI: valid JSON that is
+  // not a string→string object must not crash-loop the bootstrap
+  // (resolveOpenAiConfig does `(c.apiKey ?? '').trim()` on the result).
+  describe('corrupt config shapes (hand-edited DB)', () => {
+    function insert(type: string, config: string): void {
+      h.db.insert(integrations).values({ type, config, enabled: 1, updatedAt: Date.now() }).run();
+    }
+
+    it('returns null when config JSON is not an object', () => {
+      insert('str', '"just a string"');
+      insert('num', '42');
+      insert('arr', '["a","b"]');
+      insert('nul', 'null');
+      expect(store.get('str')).toBeNull();
+      expect(store.get('num')).toBeNull();
+      expect(store.get('arr')).toBeNull();
+      expect(store.get('nul')).toBeNull();
+    });
+
+    it('drops non-string values so every surviving entry is a string', () => {
+      insert('openai', JSON.stringify({ apiKey: 'sk-x', count: 7, nested: { a: 1 }, ok: 'y' }));
+      expect(store.get('openai')).toEqual({
+        config: { apiKey: 'sk-x', ok: 'y' },
+        enabled: true,
+      });
+    });
+  });
 });

@@ -3,6 +3,9 @@ import type { Db } from './db.ts';
 import { profile } from './schema.ts';
 import { HOUSEHOLD_OWNER } from './scope.ts';
 import type { MemoryAdapter, ProfileFacts } from './types.ts';
+import { createLogger } from '../utils/logger.ts';
+
+const log = createLogger('profile-memory');
 
 export class SqliteProfileMemory implements MemoryAdapter {
   private readonly db: Db;
@@ -36,7 +39,10 @@ export class SqliteProfileMemory implements MemoryAdapter {
           .where(and(eq(profile.owner, owner), eq(profile.key, key)))
           .get();
         if (row) {
-          out[key] = JSON.parse(row.value);
+          const parsed = parseStoredValue(owner, key, row.value);
+          if (parsed.ok) {
+            out[key] = parsed.value;
+          }
         }
       } else {
         const rows = this.db
@@ -45,7 +51,10 @@ export class SqliteProfileMemory implements MemoryAdapter {
           .where(eq(profile.owner, owner))
           .all();
         for (const r of rows) {
-          out[r.key] = JSON.parse(r.value);
+          const parsed = parseStoredValue(owner, r.key, r.value);
+          if (parsed.ok) {
+            out[r.key] = parsed.value;
+          }
         }
       }
     }
@@ -74,5 +83,22 @@ export class SqliteProfileMemory implements MemoryAdapter {
 
   close(): void {
     // DB lifecycle is owned by openMemoryStore (memoryStore.ts); nothing to do.
+  }
+}
+
+// The DB is also hand-edited via the sqlite-web CRUD UI, so a non-JSON `value`
+// is a real scenario. Skip the row rather than surface the raw string: recall
+// feeds the model as facts, and skipping also lets an owner earlier in the
+// union (e.g. household under a mangled personal row) keep providing the key.
+function parseStoredValue(
+  owner: string,
+  key: string,
+  raw: string,
+): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(raw) };
+  } catch {
+    log.warn({ owner, key }, 'skipping corrupt profile row: value is not valid JSON');
+    return { ok: false };
   }
 }

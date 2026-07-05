@@ -223,6 +223,10 @@ export async function executeWeatherTool(
   deps: { fetch?: typeof fetch; units?: WeatherUnits; defaultLocation?: string } = {},
 ): Promise<WeatherToolResult> {
   const fetchImpl = deps.fetch ?? fetch;
+  // Bound each upstream call: undici's default timeout is minutes, and a hung
+  // Open-Meteo would stall the whole agent turn (a dead speaker on the voice
+  // path). 10s is generous for a geocode/forecast round-trip.
+  const requestTimeoutMs = 10_000;
   const imperial = deps.units === 'imperial';
   // Fall back to the configured default place when the model passes none.
   const argLocation = typeof args.location === 'string' ? args.location.trim() : '';
@@ -245,7 +249,7 @@ export async function executeWeatherTool(
     const geoUrl =
       `https://geocoding-api.open-meteo.com/v1/search?count=1&format=json&language=${lang}&name=` +
       encodeURIComponent(location);
-    const geoRes = await fetchImpl(geoUrl);
+    const geoRes = await fetchImpl(geoUrl, { signal: AbortSignal.timeout(requestTimeoutMs) });
     if (!geoRes.ok) {
       throw new Error(`get_weather: geocoding HTTP ${geoRes.status}`);
     }
@@ -276,7 +280,9 @@ export async function executeWeatherTool(
     start_date: date,
     end_date: date,
   });
-  const wxRes = await fetchImpl(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
+  const wxRes = await fetchImpl(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, {
+    signal: AbortSignal.timeout(requestTimeoutMs),
+  });
   if (!wxRes.ok) {
     throw new Error(`get_weather: forecast HTTP ${wxRes.status}`);
   }

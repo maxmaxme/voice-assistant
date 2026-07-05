@@ -19,6 +19,10 @@ export function getDb(): Database.Database {
   const sqlite = new Database(path)
   sqlite.pragma('journal_mode = WAL')
   sqlite.pragma('busy_timeout = 5000')
+  // better-sqlite3 happens to compile SQLite with FKs on, but that's a driver
+  // build flag, not a DB property — pin it so identities.user_id → users.id
+  // stays enforced regardless of driver build. Mirrors core's memoryStore.ts.
+  sqlite.pragma('foreign_keys = ON')
   handle = sqlite
   return sqlite
 }

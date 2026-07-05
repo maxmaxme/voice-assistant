@@ -1,4 +1,4 @@
-import { fileLinkResolver, type TelegramFileLinkResolver } from './fileLink.ts';
+import { fileLinkResolver, redactBotToken, type TelegramFileLinkResolver } from './fileLink.ts';
 import { createLogger } from '../utils/logger.ts';
 
 const log = createLogger('telegram.photoLoader');
@@ -47,7 +47,7 @@ export class BotPhotoLoader implements TelegramPhotoLoader {
 
   async load(fileId: string): Promise<LoadedPhoto> {
     const url = await this.links.getFileLink(fileId);
-    log.debug({ fileId, url }, 'resolved Telegram file URL');
+    log.debug({ fileId, url: redactBotToken(url) }, 'resolved Telegram file URL');
     const res = await this.fetchImpl(url);
     if (!res.ok) {
       throw new Error(`Telegram photo download failed: ${res.status} ${res.statusText}`);

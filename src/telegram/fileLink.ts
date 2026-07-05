@@ -8,6 +8,12 @@ export interface TelegramFileLinkResolver {
 
 type GetFileApi = Pick<Api, 'getFile'>;
 
+/** Telegram download URLs embed the bot token in the path
+ *  (`…/file/bot<TOKEN>/<file_path>`) — strip it before the URL reaches logs. */
+export function redactBotToken(url: string): string {
+  return url.replace(/\/bot[^/]+\//, '/bot<redacted>/');
+}
+
 export function fileLinkResolver(botToken: string, api?: GetFileApi): TelegramFileLinkResolver {
   const client: GetFileApi = api ?? new Api(botToken);
   return {
