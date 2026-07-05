@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.25
 FROM node:24-bookworm-slim
 
 # better-sqlite3 builds against the bundled Node ABI; node:24-bookworm-slim
