@@ -104,6 +104,17 @@ export class RealtimeBridge {
   // backend, and the voice session must not sit in `thinking` forever.
   private static readonly TOOL_BATCH_TIMEOUT_MS = 30_000;
 
+  // One-off instructions for the empty-follow-up retry. A model that chose
+  // silence usually stays silent on an identical response.create — the user
+  // then hears nothing after a successful action. These REPLACE the session
+  // prompt for the retry response only (Realtime API semantics), so they are
+  // self-contained: language, brevity and plain-speech rules ride along.
+  private static readonly RETRY_INSTRUCTIONS =
+    'Your previous response was empty, but the user is waiting to hear from you. ' +
+    'Speak now: in one short sentence, in the language the user spoke, confirm the ' +
+    'outcome of what was just done (or report the problem, or ask the question you ' +
+    'intended). Plain speech only, no markup.';
+
   // Idle-reset: drops the upstream Realtime session after the bridge sits
   // in `idle` for `idleResetMs`, so the next wake word starts a fresh
   // conversation instead of resuming whatever was being discussed N
@@ -604,7 +615,7 @@ export class RealtimeBridge {
                 { responseId, sessionId: this.sessionId },
                 'request_follow_up without a spoken message — retrying response.create once',
               );
-              this.openai.requestResponse();
+              this.openai.requestResponse(RealtimeBridge.RETRY_INSTRUCTIONS);
               break;
             }
             log.warn(
@@ -621,7 +632,7 @@ export class RealtimeBridge {
                 { responseId, sessionId: this.sessionId },
                 'follow-up response was empty after a tool batch — retrying response.create once',
               );
-              this.openai.requestResponse();
+              this.openai.requestResponse(RealtimeBridge.RETRY_INSTRUCTIONS);
               break;
             }
             log.warn(

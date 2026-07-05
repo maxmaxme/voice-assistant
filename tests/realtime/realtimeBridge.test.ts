@@ -926,6 +926,8 @@ describe('RealtimeBridge silent request_follow_up guard', () => {
     await finishResponse('r1', ['request_follow_up']); // no message item
     expect(windowOpened()).toBe(false);
     expect(client.requestResponse).toHaveBeenCalledTimes(1);
+    // Same instructed retry as the empty-follow-up path.
+    expect(client.requestResponse).toHaveBeenLastCalledWith(expect.any(String));
   });
 
   it('opens the window once the retried response actually speaks', async () => {
@@ -1018,6 +1020,18 @@ describe('RealtimeBridge empty follow-up retry', () => {
 
     await finishEmpty('r2');
     expect(client.requestResponse).toHaveBeenCalledTimes(2);
+  });
+
+  it('the retry carries one-off instructions forcing a spoken confirmation', async () => {
+    await callTool('c1', 'HassTurnOff', '{}');
+    await finishResponse('r1', ['HassTurnOff']);
+    // The regular post-tool follow-up lets the session prompt drive the reply.
+    expect(client.requestResponse).toHaveBeenLastCalledWith();
+
+    await finishEmpty('r2');
+    // A model that chose silence once tends to stay silent on an identical
+    // ask — the retry overrides with explicit "speak now" instructions.
+    expect(client.requestResponse).toHaveBeenLastCalledWith(expect.any(String));
   });
 
   it('stays in thinking across the retry so the device is not released early', async () => {

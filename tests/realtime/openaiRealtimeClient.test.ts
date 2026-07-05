@@ -188,6 +188,30 @@ describe('OpenAiRealtimeClient tool-result paths on a closed ws', () => {
   });
 });
 
+describe('OpenAiRealtimeClient.requestResponse', () => {
+  it('sends a bare response.create when no instructions are given', async () => {
+    const client = makeClient();
+    await connectClient(client);
+    const socket = fakeSockets.at(-1)!;
+    socket.send.mockClear();
+    client.requestResponse();
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    const ev = JSON.parse(String(socket.send.mock.calls[0][0]));
+    expect(ev).toEqual({ type: 'response.create' });
+  });
+
+  it('sends response.create with one-off instructions when provided', async () => {
+    const client = makeClient();
+    await connectClient(client);
+    const socket = fakeSockets.at(-1)!;
+    socket.send.mockClear();
+    client.requestResponse('speak up');
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    const ev = JSON.parse(String(socket.send.mock.calls[0][0]));
+    expect(ev).toEqual({ type: 'response.create', response: { instructions: 'speak up' } });
+  });
+});
+
 describe('OpenAiRealtimeClient.connect session configuration', () => {
   function sentSession(socket: (typeof fakeSockets)[number]): Record<string, unknown> {
     expect(socket.send).toHaveBeenCalledTimes(1);

@@ -216,12 +216,20 @@ export class OpenAiRealtimeClient {
 
   /** Ask the model to produce a new response. Pairs with
    * {@link submitToolResult} when coalescing parallel tool results.
-   * No-op on a closed WS — see {@link submitToolResult}. */
-  requestResponse(): void {
+   * No-op on a closed WS — see {@link submitToolResult}.
+   *
+   * `instructions` are one-off: they REPLACE the session prompt for this
+   * single response (Realtime API semantics), so they must be self-contained
+   * — used by the empty-follow-up retry to force a spoken confirmation. */
+  requestResponse(instructions?: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return;
     }
-    this.send({ type: 'response.create' });
+    this.send(
+      instructions === undefined
+        ? { type: 'response.create' }
+        : { type: 'response.create', response: { instructions } },
+    );
   }
 
   close(): void {
