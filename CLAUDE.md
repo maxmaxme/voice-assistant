@@ -487,7 +487,9 @@ Key files:
 - `src/realtime/toolAdapter.ts` — converts the MCP tool list (from
   `HaMcpClient`) into the Realtime API's `tools` schema.
 - `src/realtime/protocol.ts` — JSON wire protocol with the device:
-  server→device `hello` (handshake ack; carries `audioOut` + `wakeChime`,
+  server→device `hello` (handshake ack; carries `proto` — the wire-protocol
+  version (`PROTO_VERSION`), which the firmware checks tolerantly and warns
+  loudly on mismatch — plus `audioOut` + `wakeChime`,
   the admin's wake-beep preference the device gates its local wake sound
   on), `phase`, `error`, `pong`, `follow_up`; device→server `start`,
   `interrupt`, `ping`. Binary frames are raw PCM16 in both directions. `follow_up {ms, chime?}` is sent right before

@@ -19,6 +19,13 @@ export type DeviceMessage = z.infer<typeof DeviceMessageSchema>;
 
 export type Phase = 'idle' | 'listening' | 'thinking' | 'replying';
 
+/** Wire-protocol version, carried in `hello`. The firmware reads it tolerantly
+ *  (`doc["proto"] | 0`) and logs a loud warning on mismatch instead of
+ *  disconnecting — the point is to make server↔firmware drift visible in both
+ *  logs, not to brick a stale speaker. Bump on any breaking change to the
+ *  message shapes below, in lockstep with va_client (home-assistant-voice-pe). */
+export const PROTO_VERSION = 1;
+
 export type ServerMessage =
   | { type: 'phase'; value: Phase }
   | { type: 'error'; message: string }
@@ -26,7 +33,7 @@ export type ServerMessage =
   // Handshake ack, sent once on connect. `wakeChime` pushes the admin's
   // wake-beep preference to the device (which has no other control surface —
   // no HA API, no web server), so the local wake-word sound is gated by it.
-  | { type: 'hello'; audioOut: 'pcm' | 'opus'; wakeChime: boolean }
+  | { type: 'hello'; proto: number; audioOut: 'pcm' | 'opus'; wakeChime: boolean }
   // Reopen the mic after a SPOKEN reply so the user can answer without a wake
   // word. Sent right before the end-of-turn `idle`; the device latches it and
   // opens the window once the reply drains. `ms` = window length (from realtime

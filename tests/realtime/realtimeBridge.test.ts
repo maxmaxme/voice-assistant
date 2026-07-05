@@ -176,6 +176,16 @@ describe('RealtimeBridge lazy upstream connect', () => {
   });
 });
 
+describe('RealtimeBridge hello handshake', () => {
+  it('hello carries the protocol version so a stale firmware can detect drift', async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+
+    const hello = serverMessages().find((m) => m.type === 'hello');
+    expect(hello).toMatchObject({ proto: 1 });
+  });
+});
+
 describe('RealtimeBridge device socket errors', () => {
   it('survives a device ws error (ECONNRESET) without an unhandled throw', async () => {
     bridge = new RealtimeBridge(deviceWs as never, makeDeps());
@@ -443,13 +453,13 @@ describe('RealtimeBridge hello', () => {
   it('sends the wake-chime preference in hello (default on)', async () => {
     bridge = new RealtimeBridge(deviceWs as never, makeDeps());
     await bridge.start();
-    expect(hello()).toEqual({ type: 'hello', audioOut: 'pcm', wakeChime: true });
+    expect(hello()).toEqual({ type: 'hello', proto: 1, audioOut: 'pcm', wakeChime: true });
   });
 
   it('reflects wakeChime=false in hello', async () => {
     bridge = new RealtimeBridge(deviceWs as never, makeDeps({ wakeChime: false }));
     await bridge.start();
-    expect(hello()).toEqual({ type: 'hello', audioOut: 'pcm', wakeChime: false });
+    expect(hello()).toEqual({ type: 'hello', proto: 1, audioOut: 'pcm', wakeChime: false });
   });
 
   it('applyDeviceConfig re-sends hello with the new value (live push, no restart)', async () => {
@@ -457,7 +467,9 @@ describe('RealtimeBridge hello', () => {
     await bridge.start();
     deviceWs.send.mockClear();
     bridge.applyDeviceConfig({ wakeChime: false });
-    expect(serverMessages()).toEqual([{ type: 'hello', audioOut: 'pcm', wakeChime: false }]);
+    expect(serverMessages()).toEqual([
+      { type: 'hello', proto: 1, audioOut: 'pcm', wakeChime: false },
+    ]);
   });
 
   it('applyDeviceConfig is a no-op when the config is unchanged', async () => {

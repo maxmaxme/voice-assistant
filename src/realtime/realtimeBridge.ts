@@ -7,6 +7,7 @@ import { pcm16ToBase64, base64ToPcm16 } from './audio/format.ts';
 import {
   encodeServerMessage,
   parseDeviceMessage,
+  PROTO_VERSION,
   type Phase,
   type ServerMessage,
 } from './protocol.ts';
@@ -802,7 +803,7 @@ export class RealtimeBridge {
   /** Send the handshake ack + current device config. Single builder so `hello`
    *  and any live re-send (applyDeviceConfig) always carry the same shape. */
   private sendHello(): void {
-    this.sendDevice({ type: 'hello', audioOut: 'pcm', ...this.deviceConfig });
+    this.sendDevice({ type: 'hello', proto: PROTO_VERSION, audioOut: 'pcm', ...this.deviceConfig });
   }
 
   /** Open a follow-up mic window on the device (if `ms > 0`), then drop to idle.
