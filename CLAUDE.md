@@ -508,6 +508,18 @@ Key files:
 - `src/realtime/metrics.ts` — `LatencyTracker` for the
   `bridge_start → openai_connected → first_audio_in → first_audio_out`
   markers. Logged on session end.
+- `src/realtime/wakeArbiter.ts` — co-located wake-word arbitration.
+  One `WakeArbiter` is created in `wsServer` and shared across all
+  bridges (each device has its own bridge and can't see the others). On
+  a device `start`, the bridge calls `arbiter.claim(this, now)`;
+  first-come-first-served within a short window (`WAKE_DEDUPE_WINDOW_MS`,
+  1.5 s) — the loser is sent `phase: idle` and its mic audio is dropped
+  (`suppressAudio`) so one spoken "okay nabu" in a room yields one answer,
+  not one per speaker. A short window (not a turn-long lock) dedupes the
+  single wake event without blocking a genuinely separate turn on another
+  device seconds later (multi-room). Backend-only — no protocol/firmware
+  change; both devices still play their local wake beep (killing the
+  double-beep would need a beep-after-confirm protocol change).
 
 Important behaviour:
 

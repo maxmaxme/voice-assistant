@@ -15,6 +15,7 @@ import { LatencyTracker } from './metrics.ts';
 import { OutputPacer } from './outputPacer.ts';
 import { AudioDiagnostics } from './audioDiagnostics.ts';
 import { FollowUpController } from './followUpController.ts';
+import type { WakeArbiter } from './wakeArbiter.ts';
 import { resolvePrompt } from '../agent/prompts/registry.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
 import type { RealtimeDeviceConfig } from '../settings/realtimeConfig.ts';
@@ -75,6 +76,12 @@ export class RealtimeBridge {
   private sessionId = Math.random().toString(36).slice(2, 10);
   private deviceWs: WebSocket;
   private deps: BridgeDeps;
+  // Shared across all bridges (created by wsServer): decides which co-located
+  // speaker owns a wake word when several fire at once. Null = no arbitration.
+  private arbiter: WakeArbiter | null;
+  // Set when this device lost wake arbitration: drop its mic audio until its
+  // next winning `start`, so a duplicate wake can't leak audio to OpenAI.
+  private suppressAudio = false;
   private currentPhase: Phase = 'idle';
   // Follow-up state machine (empty-follow-up retry, deferred request_follow_up
   // window, watchdog) — see FollowUpController for the full rationale.
@@ -157,9 +164,10 @@ export class RealtimeBridge {
   // AudioDiagnostics for the full rationale.
   private audioDiag: AudioDiagnostics;
 
-  constructor(deviceWs: WebSocket, deps: BridgeDeps) {
+  constructor(deviceWs: WebSocket, deps: BridgeDeps, arbiter?: WakeArbiter) {
     this.deviceWs = deviceWs;
     this.deps = deps;
+    this.arbiter = arbiter ?? null;
     this.idleResetMs = deps.idleResetMs ?? 0;
     this.pacer = new OutputPacer(
       deps.outputPacingMs ?? 0,
@@ -359,6 +367,12 @@ export class RealtimeBridge {
 
   private handleDeviceInner(data: WebSocket.RawData, isBinary: boolean): void {
     if (isBinary) {
+      // Lost wake arbitration (a co-located device won this wake word): drop
+      // the mic audio so only the winner streams to OpenAI. Cleared on the
+      // next winning `start`.
+      if (this.suppressAudio) {
+        return;
+      }
       this.metrics.mark('first_audio_in');
       // Device sends PCM16 16kHz; OpenAI Realtime expects PCM16 24kHz.
       let pcm16k: Buffer;
@@ -398,6 +412,21 @@ export class RealtimeBridge {
       const msg = parseDeviceMessage(data.toString());
       log.debug({ msg }, 'device control msg');
       if (msg.type === 'start') {
+        // Co-located wake arbitration: if several speakers heard the same
+        // "okay nabu", only the first to `start` opens a turn; the rest are
+        // sent back to idle and their mic audio is dropped, so the user gets
+        // one answer, not one per device. The winner re-claims freely (this is
+        // also barge-in on its own reply). Runs before any turn setup below.
+        if (this.arbiter && !this.arbiter.claim(this, Date.now())) {
+          log.info(
+            { sessionId: this.sessionId },
+            'wake arbitration: lost to another device — aborting turn',
+          );
+          this.suppressAudio = true;
+          this.setPhase('idle', { force: true });
+          return;
+        }
+        this.suppressAudio = false;
         // Wake word fired on the device — a turn is beginning. This is the
         // *only* signal that opens a turn, including barge-in: the device no
         // longer pairs it with a separate `interrupt`. So `start` also has to

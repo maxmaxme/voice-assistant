@@ -4,7 +4,15 @@ import type WebSocket from 'ws';
 import { createLogger } from '../utils/logger.ts';
 import { bearerToken } from './auth.ts';
 import { RealtimeBridge, type BridgeDeps } from './realtimeBridge.ts';
+import { createWakeArbiter } from './wakeArbiter.ts';
 import type { RealtimeDeviceConfig } from '../settings/realtimeConfig.ts';
+
+// Window in which a second speaker's `start` counts as the *same* spoken wake
+// word (co-located duplicate) and is suppressed. Co-located devices fire within
+// ~200 ms; 1.5 s covers detection + LAN jitter without blocking a genuinely
+// separate turn on another device seconds later. Hardcoded for now — promote to
+// realtime config if it ever needs per-deployment tuning.
+const WAKE_DEDUPE_WINDOW_MS = 1_500;
 
 const log = createLogger('realtime-ws-server');
 
@@ -49,6 +57,10 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
   // changes to connected speakers. Membership is tied to the ws lifetime.
   const bridges = new Set<RealtimeBridge>();
 
+  // Shared across every bridge: arbitrates co-located duplicate wake words so
+  // only one speaker in a room answers a single "okay nabu".
+  const wakeArbiter = createWakeArbiter(WAKE_DEDUPE_WINDOW_MS);
+
   // Peers that answered the last heartbeat ping (or just connected). The
   // heartbeat loop below consumes membership each round.
   const alive = new WeakSet<WebSocket>();
@@ -90,7 +102,7 @@ export async function startRealtimeServer(opts: StartOptions): Promise<RealtimeS
             log.info('device closed before the bridge was ready — skipping bridge start');
             return;
           }
-          const bridge = new RealtimeBridge(ws, deps);
+          const bridge = new RealtimeBridge(ws, deps, wakeArbiter);
           bridges.add(bridge);
           ws.on('close', () => bridges.delete(bridge));
           await bridge.start();
