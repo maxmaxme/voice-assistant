@@ -8,7 +8,7 @@ export default defineEventHandler((event) => {
   try {
     const res = remintDevice(id)
     if (!res) {
-      throw createError({ statusCode: 400, statusMessage: 'Only HTTP devices can be re-minted.' })
+      throw createError({ statusCode: 400, statusMessage: 'Only HTTP and voice devices can be re-minted.' })
     }
     return res
   }

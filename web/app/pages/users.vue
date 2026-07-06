@@ -114,22 +114,26 @@ const deviceValueLabel = computed(() => {
   if (deviceChannel.value === 'http') return 'Token'
   return 'Device token'
 })
+// http/voice both hash their token and can auto-generate; telegram is a chat id.
+const isTokenChannel = (c: Channel): boolean => c === 'http' || c === 'voice'
 const deviceValueHelp = computed(() => {
   if (deviceChannel.value === 'telegram') return 'The Telegram chat id this user messages from.'
-  if (deviceChannel.value === 'voice') return 'The device token this speaker presents on its WebSocket connection (in the firmware\'s secrets.yaml). Stored as a hash — re-enter it to change.'
+  if (deviceChannel.value === 'voice') {
+    return deviceMode.value === 'add'
+      ? 'The token this speaker presents on its WebSocket connection (goes in the firmware\'s secrets.yaml). Leave blank to generate a strong random token (shown once).'
+      : 'Enter a new token, or use Re-mint to generate a random one. Stored as a hash.'
+  }
   // http
   return deviceMode.value === 'add'
     ? 'Leave blank to generate a strong random token (shown once).'
     : 'Enter a new token, or use Re-mint to generate a random one.'
 })
-const devicePlaceholder = computed(() => {
-  if (deviceChannel.value === 'http' && deviceMode.value === 'add') return '(auto-generated if blank)'
-  if (deviceChannel.value === 'voice' && deviceMode.value === 'edit') return 'Enter the new token'
-  return ''
-})
-// http on add may be blank (= generate); everything else needs a value.
+const devicePlaceholder = computed(() =>
+  isTokenChannel(deviceChannel.value) && deviceMode.value === 'add' ? '(auto-generated if blank)' : '',
+)
+// http/voice on add may be blank (= generate); everything else needs a value.
 const canSubmitDevice = computed(() =>
-  (deviceChannel.value === 'http' && deviceMode.value === 'add') || deviceValue.value.trim().length > 0,
+  (isTokenChannel(deviceChannel.value) && deviceMode.value === 'add') || deviceValue.value.trim().length > 0,
 )
 
 async function submitDevice() {
@@ -429,7 +433,7 @@ async function copyToken() {
           <UFormField
             :label="deviceValueLabel"
             :description="deviceValueHelp"
-            :required="deviceChannel !== 'http'"
+            :required="!isTokenChannel(deviceChannel)"
           >
             <UInput
               v-model="deviceValue"
@@ -464,7 +468,7 @@ async function copyToken() {
             Cancel
           </UButton>
           <UButton
-            v-if="deviceMode === 'edit' && deviceChannel === 'http'"
+            v-if="deviceMode === 'edit' && isTokenChannel(deviceChannel)"
             color="neutral"
             variant="outline"
             icon="i-lucide-rotate-cw"
@@ -516,7 +520,7 @@ async function copyToken() {
     <UModal
       :open="!!tokenValue"
       title="Copy this token now"
-      description="It is shown only once — only its hash is stored. Put it in the client (Apple Shortcut header, etc.)."
+      description="It is shown only once — only its hash is stored. Put it in the client: an HTTP client (Apple Shortcut header, etc.) or a speaker's firmware secrets.yaml."
       @update:open="(v: boolean) => { if (!v) tokenValue = null }"
     >
       <template #body>

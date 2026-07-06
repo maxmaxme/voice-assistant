@@ -142,8 +142,8 @@ export function deleteUser(id: number): boolean {
 }
 
 /** Attach a device. telegram → chatId stored as-is; voice/http → sha256(token).
- *  For http a blank value means "generate a random token", which is returned
- *  once (never stored); a supplied token is hashed like voice. */
+ *  For http/voice a blank value means "generate a random token", which is
+ *  returned once (never stored); a supplied token is hashed. */
 export function addDevice(userId: number, channel: Channel, value: string): { token?: string } {
   if (!tableExists('identities')) {
     throw new DbNotReadyError('identities')
@@ -160,12 +160,12 @@ export function addDevice(userId: number, channel: Channel, value: string): { to
   if (channel === 'telegram') {
     identity = trimmed
   }
-  else if (channel === 'http' && !trimmed) {
+  else if ((channel === 'http' || channel === 'voice') && !trimmed) {
     token = genToken()
     identity = hashToken(token)
   }
   else {
-    // voice, or http with a user-supplied token.
+    // http/voice with a user-supplied token.
     identity = hashToken(trimmed)
   }
   try {
@@ -203,8 +203,8 @@ export function updateDevice(id: number, value: string): boolean {
   }
 }
 
-/** Issue a new http token for an existing http device, returning it once. Null
- *  if the row is absent or not an http device. */
+/** Issue a new token for an existing http/voice device, returning it once. Null
+ *  if the row is absent or a telegram device (its identity is a raw chat id). */
 export function remintDevice(id: number): { token: string } | null {
   if (!tableExists('identities')) {
     throw new DbNotReadyError('identities')
@@ -212,7 +212,7 @@ export function remintDevice(id: number): { token: string } | null {
   const row = getDb().prepare(`SELECT channel FROM identities WHERE id = ?`).get(id) as
     | { channel: Channel }
     | undefined
-  if (!row || row.channel !== 'http') {
+  if (!row || row.channel === 'telegram') {
     return null
   }
   const token = genToken()
