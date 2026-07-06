@@ -18,10 +18,9 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'channel must be telegram, http or voice' })
   }
   const value = (body?.value ?? '').trim()
-  // http mints its own token; telegram/voice need a value from the caller.
-  if (channel !== 'http' && !value) {
-    const label = channel === 'telegram' ? 'Chat ID' : 'Device token'
-    throw createError({ statusCode: 400, statusMessage: `${label} is required.` })
+  // http/voice mint their own token when blank; telegram needs a chat id.
+  if (channel === 'telegram' && !value) {
+    throw createError({ statusCode: 400, statusMessage: 'Chat ID is required.' })
   }
   try {
     return addDevice(userId, channel as Channel, value)
