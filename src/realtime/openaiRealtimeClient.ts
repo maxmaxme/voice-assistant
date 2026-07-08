@@ -42,6 +42,22 @@ export class OpenAiRealtimeClient {
   async connect(): Promise<void> {
     const oa = new OpenAI({ apiKey: this.opts.apiKey });
     const sdk = new OpenAIRealtimeWS({ model: this.opts.model }, oa);
+    // Attach the SDK-level 'error' sink BEFORE awaiting 'open'. The SDK re-emits
+    // a socket error as an rt-level OpenAIRealtimeError; with no listener that's
+    // an unhandled rejection that kills the whole process. The dangerous window
+    // is the handshake itself: close() during the dial (the device WS dropping
+    // mid-connect, or the bridge's connect timeout) aborts the CONNECTING socket
+    // and surfaces exactly this error BEFORE 'open' ever fires — so registering
+    // the sink after 'open' (as we used to) left that window uncovered.
+    //
+    // The same server-side errors are ALSO delivered via the 'event' channel
+    // below, where the bridge is the authoritative handler (logs real ones at
+    // error level, suppresses benign codes, surfaces to the device when
+    // warranted). This sink deliberately does nothing else, to avoid logging
+    // every error twice.
+    sdk.on('error', () => {
+      // intentionally no-op — see comment above
+    });
     // Track the socket from the start of the dial, not from 'open': close()
     // during the handshake (the bridge's connect timeout) must abort the
     // in-flight socket. Otherwise the hung dial keeps going and, if it opens
@@ -62,16 +78,6 @@ export class OpenAiRealtimeClient {
       for (const l of this.listeners) {
         l(ev);
       }
-    });
-    // SDK emits 'error' as OpenAIRealtimeError. The same server-side errors are
-    // ALSO delivered via the 'event' channel above, where the bridge is the
-    // authoritative handler (logs real ones at error level, suppresses benign
-    // codes, surfaces to the device when warranted). This listener exists ONLY
-    // to swallow the SDK's unhandled-rejection path when no 'error' listener is
-    // attached — so it deliberately does nothing else, to avoid logging every
-    // error twice.
-    sdk.on('error', () => {
-      // intentionally no-op — see comment above
     });
 
     // OpenAI Realtime caps each session at 30 minutes — sockets WILL close

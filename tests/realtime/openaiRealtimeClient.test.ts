@@ -44,10 +44,28 @@ const { fakeSockets, fakeSdks, FakeRealtimeWS } = vi.hoisted(() => {
   const sockets: InstanceType<typeof FakeSocket>[] = [];
   class FakeRealtimeWS {
     socket = new FakeSocket();
-    on = vi.fn();
+    errorHandlers: Array<(...args: unknown[]) => void> = [];
+    on = vi.fn((event: string, fn: (...args: unknown[]) => void) => {
+      if (event === 'error') {
+        this.errorHandlers.push(fn);
+      }
+      return this;
+    });
     constructor() {
       sockets.push(this.socket);
       instances.push(this);
+      // Mirror the real OpenAIRealtimeWS: a socket-level 'error' is re-surfaced
+      // as an rt-level 'error'. Node's EventEmitter throws on an 'error' with no
+      // listener — that's the unhandled rejection that kills the process. Model
+      // exactly that so a test can prove the sink is attached in time.
+      this.socket.on('error', (err) => {
+        if (this.errorHandlers.length === 0) {
+          throw err instanceof Error ? err : new Error('OpenAIRealtimeError');
+        }
+        for (const fn of this.errorHandlers) {
+          fn(err);
+        }
+      });
     }
   }
   const instances: InstanceType<typeof FakeRealtimeWS>[] = [];
@@ -106,6 +124,22 @@ describe('OpenAiRealtimeClient.connect abort', () => {
     await expect(pending).rejects.toThrow(/abort/i);
     expect(client.isOpen()).toBe(false);
     expect(socket.send).not.toHaveBeenCalled();
+  });
+
+  it('survives a socket error during the handshake (before open) without crashing the process', () => {
+    const client = makeClient();
+    // Mid-handshake: 'open' has NOT fired yet. This is the window a device WS
+    // dropping mid-dial hits — deviceWs 'close' → bridge calls openai.close(),
+    // which aborts the CONNECTING socket and makes the SDK emit an rt-level
+    // error. Before the fix the error sink was attached only AFTER 'open', so
+    // this became an unhandled OpenAIRealtimeError and took the whole process
+    // down (observed as restarts=1 + "realtime ws server listening" again).
+    const pending = client.connect();
+    pending.catch(() => {}); // the connect promise rejects via socket 'error' — expected
+    const socket = fakeSockets.at(-1)!;
+    expect(() =>
+      socket.emit('error', new Error('WebSocket was closed before the connection was established')),
+    ).not.toThrow();
   });
 });
 
