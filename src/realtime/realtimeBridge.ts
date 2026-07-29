@@ -14,6 +14,7 @@ import {
 import { LatencyTracker } from './metrics.ts';
 import { OutputPacer } from './outputPacer.ts';
 import { AudioDiagnostics } from './audioDiagnostics.ts';
+import { MicDump } from './micDump.ts';
 import { FollowUpController } from './followUpController.ts';
 import type { WakeArbiter } from './wakeArbiter.ts';
 import { resolvePrompt } from '../agent/prompts/registry.ts';
@@ -163,6 +164,7 @@ export class RealtimeBridge {
   // Per-response audio delivery telemetry (OpenAI→bridge edge) — see
   // AudioDiagnostics for the full rationale.
   private audioDiag: AudioDiagnostics;
+  private micDump: MicDump;
 
   constructor(deviceWs: WebSocket, deps: BridgeDeps, arbiter?: WakeArbiter) {
     this.deviceWs = deviceWs;
@@ -178,6 +180,7 @@ export class RealtimeBridge {
       () => this.deviceWs.bufferedAmount,
     );
     this.audioDiag = new AudioDiagnostics(this.sessionId);
+    this.micDump = new MicDump(this.sessionId);
     this.followUpMs = deps.followUpMs ?? 0;
     this.requestFollowUpMs = deps.requestFollowUpMs ?? 0;
     this.followUpChime = deps.followUpChime ?? false;
@@ -259,6 +262,7 @@ export class RealtimeBridge {
     });
     this.deviceWs.on('close', () => {
       log.info({ sessionId: this.sessionId }, 'device closed');
+      this.micDump.flush();
       this.followUps.clearWatchdog();
       this.clearIdleResetTimer();
       this.pacer.flush();
@@ -384,6 +388,7 @@ export class RealtimeBridge {
         // data is Buffer[] - concatenate them
         pcm16k = Buffer.concat(data);
       }
+      this.micDump.push(pcm16k);
       const pcm24k = resamplePcm16(pcm16k, 16000, 24000);
       const b64 = pcm16ToBase64(pcm24k);
       if (this.openaiState === 'connected') {
@@ -860,6 +865,7 @@ export class RealtimeBridge {
     this.currentPhase = next;
     this.sendDevice({ type: 'phase', value: next });
     if (next === 'idle') {
+      this.micDump.flush();
       this.armIdleResetTimer();
     } else {
       this.clearIdleResetTimer();
