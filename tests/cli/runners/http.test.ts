@@ -465,3 +465,32 @@ describe('runHttpMode shutdown seam', () => {
     await expect(close!()).resolves.toBeUndefined();
   });
 });
+
+describe('CORS', () => {
+  it('answers a preflight without auth and allows the endpoint headers', async () => {
+    const app = buildHttpApp(deps);
+    const res = await app.fetch(
+      new Request('http://localhost/text', {
+        method: 'OPTIONS',
+        headers: {
+          origin: 'null',
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'authorization, content-type',
+        },
+      }),
+    );
+    expect(res.status).toBe(204);
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    expect(res.headers.get('access-control-allow-headers')).toContain('authorization');
+    expect(respondCalls).toHaveLength(0);
+  });
+
+  it('sets the origin header on real responses too', async () => {
+    const app = buildHttpApp(deps);
+    const ok = await app.fetch(new Request('http://localhost/health'));
+    expect(ok.headers.get('access-control-allow-origin')).toBe('*');
+    const denied = await app.fetch(new Request('http://localhost/text', { method: 'POST' }));
+    expect(denied.status).toBe(401);
+    expect(denied.headers.get('access-control-allow-origin')).toBe('*');
+  });
+});

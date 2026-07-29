@@ -163,6 +163,21 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
 
   const app = new H3().register(loggerPlugin({ log }));
 
+  // Wildcard origin is safe here: auth is a Bearer token, never a cookie, so
+  // there is no ambient credential a hostile page could ride on. Clients with
+  // no origin at all (a Pebble PKJS relay page) need `*` — a reflected origin
+  // would be `null` for them.
+  app.use((event: H3Event) => {
+    event.res.headers.set('access-control-allow-origin', '*');
+    if (event.req.method !== 'OPTIONS') {
+      return;
+    }
+    event.res.headers.set('access-control-allow-methods', 'GET, POST, OPTIONS');
+    event.res.headers.set('access-control-allow-headers', 'authorization, content-type');
+    event.res.headers.set('access-control-max-age', '86400');
+    return new Response(null, { status: 204, headers: event.res.headers });
+  });
+
   if (endpoints.audio) {
     app.post('/audio', async (event: H3Event) => {
       const denied = checkAuthAndRate(event);
