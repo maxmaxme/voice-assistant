@@ -274,6 +274,8 @@ describe('OpenAiRealtimeClient.connect session configuration', () => {
       audio: {
         input: {
           format: { type: 'audio/pcm', rate: 24000 },
+          // Filters the hiss of an across-the-room mic before VAD sees it.
+          noise_reduction: { type: 'far_field' },
           // 900ms (not the 500ms default): a natural mid-sentence pause must
           // not split the turn — see the comment in openaiRealtimeClient.ts.
           turn_detection: { type: 'server_vad', silence_duration_ms: 900 },

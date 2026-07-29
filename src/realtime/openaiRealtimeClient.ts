@@ -121,6 +121,12 @@ export class OpenAiRealtimeClient {
       audio: {
         input: {
           format: { type: 'audio/pcm', rate: 24000 },
+          // Off by default upstream. Our speakers are across-the-room mics —
+          // the Atom Echo has no XMOS DSP at all and measures ~12 dB SNR, so
+          // its hiss reaches VAD as speech-ish energy. Filtering happens before
+          // VAD and the model, so this buys both fewer false turns and better
+          // recognition, for free (server-side, no firmware).
+          noise_reduction: { type: 'far_field' },
           turn_detection: {
             type: 'server_vad',
             // Default silence_duration_ms is 500 — short enough that a

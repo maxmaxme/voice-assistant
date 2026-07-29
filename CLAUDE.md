@@ -506,8 +506,10 @@ Key files:
   never decides on its own. (`request_follow_up` is a model tool, not a
   wire message — it maps to `follow_up {chime}`.)
 - `src/realtime/micDump.ts` — debug tap on the device→bridge mic
-  stream: buffers a turn's PCM16 and writes `<sessionId>-<n>.wav`
-  (16 kHz mono) to `MIC_DUMP_DIR`, keeping the newest 20 files. Off
+  stream: buffers a turn's PCM16 and writes
+  `<date>_<time>-<speaker>.wav` (16 kHz mono, server timezone, speaker
+  name from `identities.userName`) to `MIC_DUMP_DIR`, keeping the newest
+  20 files. Copy them off with `scp -p` — plain `scp` rewrites mtime. Off
   unless that env var is set. This is how mic level / SNR / clipping is
   measured on a real speaker instead of guessed by ear — the firmware's
   gain knobs (`va_client` `mic_gain`, codec PGA) are tuned against these
