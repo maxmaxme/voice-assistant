@@ -43,4 +43,17 @@ describe('MicDump', () => {
     expect(wav.readUInt32LE(24)).toBe(16000);
     expect(wav.readUInt32LE(40)).toBe(480);
   });
+
+  it('keeps only the newest 20 dumps', () => {
+    const dir = tmp();
+    const dump = new MicDump('s1', dir);
+    for (let i = 0; i < 25; i++) {
+      dump.push(Buffer.alloc(32, i));
+      dump.flush();
+    }
+    const left = readdirSync(dir);
+    expect(left).toHaveLength(20);
+    expect(left).toContain('s1-25.wav');
+    expect(left).not.toContain('s1-1.wav');
+  });
 });
