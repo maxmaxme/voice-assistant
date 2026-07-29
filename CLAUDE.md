@@ -413,7 +413,8 @@ on agent flavour and response shape:
 - `POST /audio` — raw audio bytes (Content-Type derives the format).
   Transcribed via `OpenAiStt` then run through the **plain** agent.
   Returns `{response, transcript}`. Used by Apple Shortcut.
-- `POST /text` — `application/x-www-form-urlencoded`, `text` form field.
+- `POST /text` — `application/x-www-form-urlencoded` (`text` form field)
+  or `application/json` (`{"text": "..."}`).
   Run through the **plain** agent. Returns `{response}`. Minimal
   generic contract — any HTTP client (Apple Shortcut, curl, third-party
   bridges) can hit it.

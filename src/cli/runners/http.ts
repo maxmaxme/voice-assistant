@@ -84,8 +84,11 @@ const TOKEN_RATE_MAX = 30;
 /** Whisper + LLM round-trips are heavy on a Pi; cap concurrent /audio work. */
 const AUDIO_CONCURRENCY = 2;
 
-const AssistBodySchema = z.object({
+const TextBodySchema = z.object({
   text: z.string(),
+});
+
+const AssistBodySchema = TextBodySchema.extend({
   conversation_id: z.string().optional(),
 });
 
@@ -242,10 +245,10 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
   if (endpoints.text) {
     app.post('/text', async (event: H3Event) => {
       // Apple Shortcut "Get contents of URL" with Request Body=Form sends
-      // application/x-www-form-urlencoded with the keys as fields. We
-      // extract `text` from that. No other body shape is accepted —
-      // misconfigured clients get a clear 400 instead of silently
-      // injecting `text=...` strings into the agent.
+      // application/x-www-form-urlencoded with the keys as fields; other
+      // clients (Pebble relay etc.) find JSON easier. Both carry a `text`
+      // field and nothing else is accepted — misconfigured clients get a
+      // clear 400 instead of silently injecting `text=...` into the agent.
       const denied = checkAuthAndRate(event);
       if (denied) {
         return denied;
@@ -258,17 +261,29 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
       }
 
       const contentType = parseContentType(event.req.headers.get('content-type'));
-      if (!contentType.startsWith('application/x-www-form-urlencoded')) {
+      const isJson = contentType.startsWith('application/json');
+      if (!isJson && !contentType.startsWith('application/x-www-form-urlencoded')) {
         event.res.status = 415;
         return {
-          error: 'Expected Content-Type: application/x-www-form-urlencoded with a "text" field',
+          error:
+            'Expected Content-Type: application/x-www-form-urlencoded or application/json with a "text" field',
         };
       }
-      const body = await event.req.text();
-      const text = new URLSearchParams(body).get('text')?.trim() ?? '';
+      let text: string;
+      if (isJson) {
+        const raw: unknown = await event.req.json().catch(() => null);
+        const parsed = TextBodySchema.safeParse(raw);
+        if (!parsed.success) {
+          event.res.status = 400;
+          return { error: 'Expected JSON body with string "text" field' };
+        }
+        text = parsed.data.text.trim();
+      } else {
+        text = new URLSearchParams(await event.req.text()).get('text')?.trim() ?? '';
+      }
       if (!text) {
         event.res.status = 400;
-        return { error: 'Missing or empty "text" form field' };
+        return { error: 'Missing or empty "text" field' };
       }
 
       log.debug({ contentType, bytes: text.length }, `text payload ${text.length} chars`);

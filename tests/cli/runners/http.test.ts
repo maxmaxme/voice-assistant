@@ -273,7 +273,23 @@ describe('POST /assist contract', () => {
 });
 
 describe('POST /text error branches', () => {
-  it('415s a non-form content-type', async () => {
+  it('415s a content-type that is neither form nor JSON', async () => {
+    const app = buildHttpApp(deps);
+    const res = await app.fetch(
+      new Request('http://localhost/text', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+          'content-type': 'text/plain',
+        },
+        body: 'hello',
+      }),
+    );
+    expect(res.status).toBe(415);
+    expect(respondCalls).toHaveLength(0);
+  });
+
+  it('accepts a JSON body', async () => {
     const app = buildHttpApp(deps);
     const res = await app.fetch(
       new Request('http://localhost/text', {
@@ -285,7 +301,23 @@ describe('POST /text error branches', () => {
         body: JSON.stringify({ text: 'hello' }),
       }),
     );
-    expect(res.status).toBe(415);
+    expect(res.status).toBe(200);
+    expect(respondCalls.map((c) => c.text)).toEqual(['hello']);
+  });
+
+  it('400s a JSON body without a string text field', async () => {
+    const app = buildHttpApp(deps);
+    const res = await app.fetch(
+      new Request('http://localhost/text', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ text: 42 }),
+      }),
+    );
+    expect(res.status).toBe(400);
     expect(respondCalls).toHaveLength(0);
   });
 
