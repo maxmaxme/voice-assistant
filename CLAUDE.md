@@ -505,6 +505,13 @@ Key files:
   so the mic stays closed. The server owns this decision; the device
   never decides on its own. (`request_follow_up` is a model tool, not a
   wire message — it maps to `follow_up {chime}`.)
+- `src/realtime/micDump.ts` — debug tap on the device→bridge mic
+  stream: buffers a turn's PCM16 and writes `<sessionId>-<n>.wav`
+  (16 kHz mono) to `MIC_DUMP_DIR`, keeping the newest 20 files. Off
+  unless that env var is set. This is how mic level / SNR / clipping is
+  measured on a real speaker instead of guessed by ear — the firmware's
+  gain knobs (`va_client` `mic_gain`, codec PGA) are tuned against these
+  files.
 - `src/realtime/metrics.ts` — `LatencyTracker` for the
   `bridge_start → openai_connected → first_audio_in → first_audio_out`
   markers. Logged on session end.
