@@ -129,6 +129,15 @@ export class OpenAiRealtimeClient {
           noise_reduction: { type: 'far_field' },
           turn_detection: {
             type: 'server_vad',
+            // VAD activation threshold (0..1 on the VAD model's own output —
+            // NOT dBFS; there is no documented mapping to a level). Default 0.5
+            // assumes a close mic. Measured on a Voice PE dump: four
+            // repetitions of one phrase landed in a SINGLE 16-second turn —
+            // the quiet ones (-25..-35 dBFS RMS) never registered as speech, so
+            // their end never registered either, and the reply came only once
+            // the user raised their voice to -15. 0.3 is a step toward "hears
+            // quieter", to be tuned by experiment: lower if turns still fail to
+            // close, raise if room noise starts opening turns by itself.
             // Default silence_duration_ms is 500 — short enough that a
             // natural pause mid-sentence ("Turn off… the living-room light")
             // splits the turn in two. Whisper then hallucinates random
@@ -136,6 +145,7 @@ export class OpenAiRealtimeClient {
             // onomatopoeia "뿅!" appear). 900 ms holds the turn open
             // long enough for normal pauses while still feeling responsive.
             silence_duration_ms: 900,
+            threshold: 0.3,
           },
           // Ask the server to transcribe user audio so we can log what was
           // actually heard. Free-ish (whisper-style) and very useful when

@@ -278,7 +278,9 @@ describe('OpenAiRealtimeClient.connect session configuration', () => {
           noise_reduction: { type: 'far_field' },
           // 900ms (not the 500ms default): a natural mid-sentence pause must
           // not split the turn — see the comment in openaiRealtimeClient.ts.
-          turn_detection: { type: 'server_vad', silence_duration_ms: 900 },
+          // threshold below the 0.5 default: quiet across-the-room speech was
+          // not registering as speech at all, so turns never closed.
+          turn_detection: { type: 'server_vad', silence_duration_ms: 900, threshold: 0.3 },
           transcription: { model: 'whisper-1' },
         },
         output: {
