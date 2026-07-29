@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLogger } from '../utils/logger.ts';
 
@@ -6,6 +6,8 @@ const log = createLogger('realtime:micdump');
 
 const SAMPLE_RATE = 16000;
 const MAX_BYTES = SAMPLE_RATE * 2 * 60;
+// Debug tap left on for days would otherwise fill the Pi's disk.
+const KEEP_FILES = 20;
 
 function wavHeader(dataBytes: number): Buffer {
   const h = Buffer.alloc(44);
@@ -70,8 +72,21 @@ export class MicDump {
         { sessionId: this.sessionId, file, ms: Math.round((data.length / 2 / SAMPLE_RATE) * 1000) },
         'mic dump written',
       );
+      prune(dir);
     } catch (err) {
       log.warn({ err, file }, 'mic dump failed');
     }
+  }
+}
+
+/** Keep only the newest {@link KEEP_FILES} dumps — mtime order, not name
+ * order: session ids aren't chronological. */
+function prune(dir: string): void {
+  const wavs = readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.wav'))
+    .map((e) => ({ path: join(dir, e.name), mtime: statSync(join(dir, e.name)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime);
+  for (const stale of wavs.slice(KEEP_FILES)) {
+    unlinkSync(stale.path);
   }
 }
