@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLogger } from '../utils/logger.ts';
 
@@ -8,6 +8,23 @@ const SAMPLE_RATE = 16000;
 const MAX_BYTES = SAMPLE_RATE * 2 * 60;
 // Debug tap left on for days would otherwise fill the Pi's disk.
 const KEEP_FILES = 20;
+
+/** `2026-07-29_20-24-31` in the server timezone — sorts chronologically and
+ *  survives being read on a mac (no colons). */
+function localStamp(d: Date): string {
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` +
+    `_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`
+  );
+}
+
+function slug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
 
 function wavHeader(dataBytes: number): Buffer {
   const h = Buffer.alloc(44);
@@ -34,6 +51,7 @@ function wavHeader(dataBytes: number): Buffer {
 export class MicDump {
   private readonly dir: string | undefined;
   private readonly sessionId: string;
+  private speaker = 'speaker';
   private chunks: Buffer[] = [];
   private bytes = 0;
   private turn = 0;
@@ -41,6 +59,12 @@ export class MicDump {
   constructor(sessionId: string, dir = process.env.MIC_DUMP_DIR) {
     this.sessionId = sessionId;
     this.dir = dir || undefined;
+  }
+
+  /** Names the dumps after the speaker instead of `speaker`. Set once the
+   *  handshake has resolved the device to its principal. */
+  setSpeaker(name: string): void {
+    this.speaker = slug(name) || this.speaker;
   }
 
   get enabled(): boolean {
@@ -55,7 +79,9 @@ export class MicDump {
     this.bytes += pcm16.length;
   }
 
-  /** Write the buffered turn to `<dir>/<sessionId>-<n>.wav`, then reset. */
+  /** Write the buffered turn to `<dir>/<date>_<time>-<speaker>.wav`, then
+   *  reset. Turn number and session id only appear on a name collision (two
+   *  turns inside one second), so the common case stays readable. */
   flush(): void {
     const dir = this.dir;
     if (dir === undefined || this.bytes === 0) {
@@ -64,7 +90,12 @@ export class MicDump {
     const data = Buffer.concat(this.chunks);
     this.chunks = [];
     this.bytes = 0;
-    const file = join(dir, `${this.sessionId}-${++this.turn}.wav`);
+    this.turn++;
+    const base = `${localStamp(new Date())}-${this.speaker}`;
+    let file = join(dir, `${base}.wav`);
+    if (existsSync(file)) {
+      file = join(dir, `${base}-${this.sessionId}${this.turn}.wav`);
+    }
     try {
       mkdirSync(dir, { recursive: true });
       writeFileSync(file, Buffer.concat([wavHeader(data.length), data]));

@@ -38,6 +38,9 @@ function truncatePreview(value: unknown): string {
 }
 
 export interface BridgeDeps {
+  /** The resolved principal's name, used to label mic dumps. Diagnostics only —
+   *  nothing behavioural keys off it. */
+  speakerName?: string;
   apiKey: string;
   model: string;
   instructions: string;
@@ -181,6 +184,9 @@ export class RealtimeBridge {
     );
     this.audioDiag = new AudioDiagnostics(this.sessionId);
     this.micDump = new MicDump(this.sessionId);
+    if (deps.speakerName !== undefined) {
+      this.micDump.setSpeaker(deps.speakerName);
+    }
     this.followUpMs = deps.followUpMs ?? 0;
     this.requestFollowUpMs = deps.requestFollowUpMs ?? 0;
     this.followUpChime = deps.followUpChime ?? false;

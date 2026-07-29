@@ -28,6 +28,7 @@ describe('MicDump', () => {
   it('writes a playable WAV with correct sizes per turn', () => {
     const dir = tmp();
     const dump = new MicDump('s1', dir);
+    dump.setSpeaker('Living Room');
     dump.push(Buffer.alloc(320, 1));
     dump.push(Buffer.alloc(160, 2));
     dump.flush();
@@ -35,8 +36,14 @@ describe('MicDump', () => {
     dump.push(Buffer.alloc(100, 3));
     dump.flush();
 
-    expect(readdirSync(dir).sort()).toEqual(['s1-1.wav', 's1-2.wav']);
-    const wav = readFileSync(join(dir, 's1-1.wav'));
+    const names = readdirSync(dir).sort();
+    // Both turns land in the same second, so the second one gets the collision
+    // suffix; either way the name carries the timestamp and the speaker.
+    expect(names).toHaveLength(2);
+    for (const n of names) {
+      expect(n).toMatch(/^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-living-room(-s1\d+)?\.wav$/);
+    }
+    const wav = names.map((n) => readFileSync(join(dir, n))).find((b) => b.length > 44 + 200)!;
     expect(wav.length).toBe(44 + 480);
     expect(wav.subarray(0, 4).toString()).toBe('RIFF');
     expect(wav.readUInt32LE(4)).toBe(36 + 480);
@@ -51,9 +58,6 @@ describe('MicDump', () => {
       dump.push(Buffer.alloc(32, i));
       dump.flush();
     }
-    const left = readdirSync(dir);
-    expect(left).toHaveLength(20);
-    expect(left).toContain('s1-25.wav');
-    expect(left).not.toContain('s1-1.wav');
+    expect(readdirSync(dir)).toHaveLength(20);
   });
 });

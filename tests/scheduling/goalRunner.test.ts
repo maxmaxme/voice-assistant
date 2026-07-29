@@ -38,6 +38,7 @@ function fakeIdentities(telegramByUser: Record<number, string>): IdentitiesAdapt
         name: `user${userId}`,
         chatId,
       })),
+    userName: () => null,
     addUser: () => 0,
     attachIdentity: () => {},
     isAdmin: () => false,

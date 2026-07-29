@@ -67,6 +67,11 @@ export class IdentitiesStore implements IdentitiesAdapter {
     this.db.insert(identities).values({ channel, identity, userId, createdAt: Date.now() }).run();
   }
 
+  userName(userId: number): string | null {
+    const row = this.db.select({ name: users.name }).from(users).where(eq(users.id, userId)).get();
+    return row?.name ?? null;
+  }
+
   isAdmin(userId: number): boolean {
     const row = this.db
       .select({ isAdmin: users.isAdmin })

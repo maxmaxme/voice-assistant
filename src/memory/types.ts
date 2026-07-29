@@ -25,6 +25,8 @@ export interface IdentitiesAdapter {
   /** All users that have a Telegram identity, for recipient resolution and
    *  for listing valid recipients in errors. */
   listTelegramUsers(): { userId: number; name: string; chatId: string }[];
+  /** Display name of a principal, or null if the user is gone. */
+  userName(userId: number): string | null;
   addUser(name: string): number;
   attachIdentity(channel: Channel, identity: string, userId: number): void;
   /** Whether a user is allowed to run privileged commands (e.g. /update).

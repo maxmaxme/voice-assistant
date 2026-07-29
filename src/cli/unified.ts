@@ -231,6 +231,7 @@ export async function main(): Promise<void> {
           weatherDefaultLocation: deps.tools.weather.defaultLocation,
         });
         return {
+          speakerName: deps.memory.identities.userName(auth.userId) ?? undefined,
           apiKey: deps.openai.apiKey,
           model: deps.openai.realtime.model,
           voice: deps.openai.realtime.voice,
