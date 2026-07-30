@@ -551,6 +551,32 @@ describe('POST /text?stream=1', () => {
     expect(body).toContain('"error":"Internal error"');
   });
 
+  it('swallows deltas after the client hangs up', async () => {
+    let sawDeltaAfterCancel = false;
+    const agent = {
+      respond: vi.fn(async (_text: string, opts: AgentRespondOptions = {}) => {
+        opts.onTextDelta?.('first');
+        await released;
+        opts.onTextDelta?.('after-cancel');
+        sawDeltaAfterCancel = true;
+        return { text: 'done', toolsUsed: [] };
+      }),
+    } as unknown as OpenAiAgent;
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const app = buildHttpApp({ ...deps, agent });
+    const res = await app.fetch(streamRequest());
+    const reader = res.body!.getReader();
+    await reader.read();
+    await reader.cancel();
+    release();
+
+    await vi.waitFor(() => expect(sawDeltaAfterCancel).toBe(true));
+  });
+
   it('leaves the non-streaming response shape untouched', async () => {
     const app = buildHttpApp(deps);
     const res = await app.fetch(textRequest());

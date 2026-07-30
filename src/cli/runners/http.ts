@@ -108,8 +108,20 @@ function streamTextReply(
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
+      // A client that hangs up mid-turn (Shortcut cancelled, curl ^C) leaves
+      // the controller closed while the agent keeps streaming deltas — an
+      // enqueue then throws, and unguarded that throw travels back through the
+      // OpenAI stream and surfaces as a bogus "handling failed" error.
+      let gone = false;
       const send = (frame: unknown): void => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
+        if (gone) {
+          return;
+        }
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
+        } catch {
+          gone = true;
+        }
       };
       try {
         const reply = await run((delta) => send({ delta }));
@@ -119,7 +131,9 @@ function streamTextReply(
         log.error({ err }, `streaming text handling failed: ${message}`);
         send({ error: 'Internal error' });
       }
-      controller.close();
+      if (!gone) {
+        controller.close();
+      }
     },
   });
   const headers = new Headers(event.res.headers);
