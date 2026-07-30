@@ -494,3 +494,67 @@ describe('CORS', () => {
     expect(denied.headers.get('access-control-allow-origin')).toBe('*');
   });
 });
+
+describe('POST /text?stream=1', () => {
+  function streamingAgent(deltas: string[], final: string): OpenAiAgent {
+    return {
+      respond: vi.fn(async (_text: string, opts: AgentRespondOptions = {}) => {
+        for (const d of deltas) {
+          opts.onTextDelta?.(d);
+        }
+        return { text: final, toolsUsed: [] };
+      }),
+    } as unknown as OpenAiAgent;
+  }
+
+  function streamRequest(): Request {
+    return new Request('http://localhost/text?stream=1', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ text: 'hello' }),
+    });
+  }
+
+  async function frames(res: Response): Promise<unknown[]> {
+    return (await res.text())
+      .split('\n\n')
+      .filter((chunk) => chunk.startsWith('data: '))
+      .map((chunk) => JSON.parse(chunk.slice('data: '.length)));
+  }
+
+  it('emits deltas then one terminal response frame', async () => {
+    const agent = streamingAgent(['he', 'llo'], 'hello there');
+    const app = buildHttpApp({ ...deps, agent });
+    const res = await app.fetch(streamRequest());
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    expect(await frames(res)).toEqual([
+      { delta: 'he' },
+      { delta: 'llo' },
+      { response: 'hello there' },
+    ]);
+  });
+
+  it('ends the stream with a generic error frame when the agent throws', async () => {
+    const agent = {
+      respond: vi.fn(async () => {
+        throw new Error('OPENAI_SECRET_DETAIL');
+      }),
+    } as unknown as OpenAiAgent;
+    const app = buildHttpApp({ ...deps, agent });
+    const res = await app.fetch(streamRequest());
+    const body = await res.text();
+    expect(body).not.toContain('OPENAI_SECRET_DETAIL');
+    expect(body).toContain('"error":"Internal error"');
+  });
+
+  it('leaves the non-streaming response shape untouched', async () => {
+    const app = buildHttpApp(deps);
+    const res = await app.fetch(textRequest());
+    expect(res.headers.get('content-type')).toContain('application/json');
+    expect(await res.json()).toEqual({ response: 'ok' });
+  });
+});

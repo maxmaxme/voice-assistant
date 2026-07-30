@@ -415,7 +415,11 @@ on agent flavour and response shape:
   Returns `{response, transcript}`. Used by Apple Shortcut.
 - `POST /text` — `application/x-www-form-urlencoded` (`text` form field)
   or `application/json` (`{"text": "..."}`).
-  Run through the **plain** agent. Returns `{response}`. Minimal
+  Run through the **plain** agent. Returns `{response}`; with `?stream=1`
+  returns SSE instead — `data: {"delta":…}` frames (ephemeral draft
+  text, re-streamed from scratch on each tool-loop iteration, exactly
+  like the Telegram drafts) closed by one terminal `{"response":…}` or
+  `{"error":…}`. Minimal
   generic contract — any HTTP client (Apple Shortcut, curl, third-party
   bridges) can hit it.
 - `POST /assist` — `application/json`, `{"text": "...",

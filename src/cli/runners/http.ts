@@ -92,6 +92,44 @@ const AssistBodySchema = TextBodySchema.extend({
   conversation_id: z.string().optional(),
 });
 
+/** SSE variant of a text reply (`?stream=1`). Frames are one JSON object per
+ *  `data:` line: `{delta}` while the model types, then exactly one terminal
+ *  `{response}` or `{error}`.
+ *
+ *  Deltas are **preview text, not a prefix of the answer** — the agent's
+ *  tool loop re-streams from scratch on every iteration, so a turn that calls
+ *  a tool mid-way emits deltas that get superseded. Clients must render them
+ *  as a draft and replace the whole thing with `response`, exactly like the
+ *  Telegram draft streamer does. */
+function streamTextReply(
+  event: H3Event,
+  run: (onTextDelta: (delta: string) => void) => Promise<{ text: string }>,
+): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (frame: unknown): void => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
+      };
+      try {
+        const reply = await run((delta) => send({ delta }));
+        send({ response: reply.text });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err }, `streaming text handling failed: ${message}`);
+        send({ error: 'Internal error' });
+      }
+      controller.close();
+    },
+  });
+  const headers = new Headers(event.res.headers);
+  headers.set('content-type', 'text/event-stream');
+  headers.set('cache-control', 'no-cache');
+  // Caddy/nginx in front of this would otherwise hold the whole stream.
+  headers.set('x-accel-buffering', 'no');
+  return new Response(body, { headers });
+}
+
 function clientIp(event: H3Event): string {
   return getRequestIP(event, { xForwardedFor: true }) ?? 'unknown';
 }
@@ -303,14 +341,22 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
 
       log.debug({ contentType, bytes: text.length }, `text payload ${text.length} chars`);
 
+      const scope = resolveHttpScope(identities, event.req.headers.get('authorization'));
+      const respondOptions = {
+        // One-shot endpoint — fresh session per request, see /audio.
+        session: new Session(),
+        profile: makeScopedProfile(profileStore, scope),
+        scope,
+      };
+
+      if (event.url.searchParams.get('stream') === '1') {
+        return streamTextReply(event, (onTextDelta) =>
+          agent.respond(text, { ...respondOptions, onTextDelta }),
+        );
+      }
+
       try {
-        const scope = resolveHttpScope(identities, event.req.headers.get('authorization'));
-        const reply = await agent.respond(text, {
-          // One-shot endpoint — fresh session per request, see /audio.
-          session: new Session(),
-          profile: makeScopedProfile(profileStore, scope),
-          scope,
-        });
+        const reply = await agent.respond(text, respondOptions);
         return { response: reply.text };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
