@@ -6,6 +6,8 @@ export interface RealtimeResponse {
   requestFollowUpMs: string
   followUpChime: boolean
   wakeChime: boolean
+  language: string
+  transcription: boolean
 }
 
 export interface HttpResponse {
