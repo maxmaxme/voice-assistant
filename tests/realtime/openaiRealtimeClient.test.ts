@@ -254,6 +254,10 @@ describe('OpenAiRealtimeClient.connect session configuration', () => {
     return event.session as Record<string, unknown>;
   }
 
+  function sessionAudioInput(session: Record<string, unknown>): Record<string, unknown> {
+    return (session.audio as { input: Record<string, unknown> }).input;
+  }
+
   it('sends a session.update carrying the full session payload after open', async () => {
     const tool = {
       type: 'function' as const,
@@ -300,6 +304,25 @@ describe('OpenAiRealtimeClient.connect session configuration', () => {
 
     const session = sentSession(fakeSockets.at(-1)!);
     expect(session.reasoning).toEqual({ effort: 'low' });
+  });
+
+  it('pins the transcription language when one is configured', async () => {
+    const client = makeClient({ language: 'ru' });
+    await connectClient(client);
+
+    const session = sentSession(fakeSockets.at(-1)!);
+    expect(sessionAudioInput(session).transcription).toEqual({
+      model: 'whisper-1',
+      language: 'ru',
+    });
+  });
+
+  it('drops transcription entirely when it is turned off', async () => {
+    const client = makeClient({ transcription: false, language: 'ru' });
+    await connectClient(client);
+
+    const session = sentSession(fakeSockets.at(-1)!);
+    expect(sessionAudioInput(session).transcription).toBeUndefined();
   });
 });
 

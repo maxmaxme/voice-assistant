@@ -10,7 +10,7 @@ import { buildLocalToolset } from '../agent/localTools.ts';
 import { makeScopedProfile } from '../memory/scope.ts';
 import { hashToken } from '../memory/identities.ts';
 import type { IdentitiesAdapter } from '../memory/types.ts';
-import { appendUserContext } from '../agent/systemPrompt.ts';
+import { appendLanguage, appendUserContext } from '../agent/systemPrompt.ts';
 import { ToolResultCache } from '../realtime/toolCache.ts';
 import { buildRealtimeToolRunner } from '../realtime/toolRunner.ts';
 import { Session } from '../agent/session.ts';
@@ -245,9 +245,11 @@ export async function main(): Promise<void> {
           // admin change gets the current wake-beep setting in its hello; the
           // watcher above then keeps already-connected devices in sync.
           wakeChime: resolveRealtimeConfig(deps.memory.settings).wakeChime,
-          instructions: appendUserContext(
-            buildSystemPromptFor('realtime', deps.haEnabled),
-            profile.recall(),
+          language: deps.realtime.language,
+          transcription: deps.realtime.transcription,
+          instructions: appendLanguage(
+            appendUserContext(buildSystemPromptFor('realtime', deps.haEnabled), profile.recall()),
+            deps.realtime.language,
           ),
           tools: [
             ...mcpToolsToRealtime(applyHaToolSuffixes(await listMcpTools())),

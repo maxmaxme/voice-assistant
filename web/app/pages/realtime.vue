@@ -6,7 +6,7 @@ useHead({ title: 'Realtime' })
 const toast = useToast()
 const { data, refresh } = await useFetch<RealtimeResponse>('/api/realtime')
 
-const form = reactive<{ enabled: boolean, outputPacingMs: string, idleResetMs: string, followUpMs: string, requestFollowUpMs: string, followUpChime: boolean, wakeChime: boolean }>({
+const form = reactive<{ enabled: boolean, outputPacingMs: string, idleResetMs: string, followUpMs: string, requestFollowUpMs: string, followUpChime: boolean, wakeChime: boolean, language: string, transcription: boolean }>({
   enabled: false,
   outputPacingMs: '',
   idleResetMs: '',
@@ -14,6 +14,8 @@ const form = reactive<{ enabled: boolean, outputPacingMs: string, idleResetMs: s
   requestFollowUpMs: '',
   followUpChime: false,
   wakeChime: true,
+  language: '',
+  transcription: false,
 })
 watchEffect(() => {
   if (!data.value) return
@@ -24,6 +26,8 @@ watchEffect(() => {
   form.requestFollowUpMs = data.value.requestFollowUpMs
   form.followUpChime = data.value.followUpChime
   form.wakeChime = data.value.wakeChime
+  form.language = data.value.language
+  form.transcription = data.value.transcription
 })
 
 const dirty = computed(() =>
@@ -34,7 +38,9 @@ const dirty = computed(() =>
     || form.followUpMs !== data.value.followUpMs
     || form.requestFollowUpMs !== data.value.requestFollowUpMs
     || form.followUpChime !== data.value.followUpChime
-    || form.wakeChime !== data.value.wakeChime),
+    || form.wakeChime !== data.value.wakeChime
+    || form.language !== data.value.language
+    || form.transcription !== data.value.transcription),
 )
 
 const saving = ref(false)
@@ -257,6 +263,24 @@ async function save() {
             description="Play a chime when the assistant explicitly asks you a question and waits for your answer. The ambient after-every-reply window stays silent regardless."
           >
             <USwitch v-model="form.followUpChime" />
+          </UFormField>
+
+          <UFormField
+            label="Spoken language"
+            description="Two-letter code of the language spoken to the device (ru, en, es…). Tells the model which language to expect — without it a non-English household gets heard as accented English — and pins the transcription language. Blank = auto-detect."
+          >
+            <UInput
+              v-model="form.language"
+              class="w-full sm:w-60"
+              placeholder="auto"
+            />
+          </UFormField>
+
+          <UFormField
+            label="Transcribe user audio"
+            description="Run Whisper over the user's audio to log what was heard. Diagnostics only — the model does its own speech recognition regardless, so this is extra cost per turn."
+          >
+            <USwitch v-model="form.transcription" />
           </UFormField>
 
           <UFormField

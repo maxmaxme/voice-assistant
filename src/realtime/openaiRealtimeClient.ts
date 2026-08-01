@@ -20,6 +20,12 @@ export interface RealtimeClientOptions {
   tools: RealtimeTool[];
   voice: string;
   reasoningEffort?: ReasoningEffort;
+  /** ISO 639-1 code pinning Whisper's input transcription; '' / undefined lets
+   *  it auto-detect (and mis-detect a short noisy turn). */
+  language?: string;
+  /** Transcribe the user's audio for logs/memory. Omitted = on (the DB-backed
+   *  setting that feeds this defaults it off). */
+  transcription?: boolean;
 }
 
 export class OpenAiRealtimeClient {
@@ -148,9 +154,18 @@ export class OpenAiRealtimeClient {
             threshold: 0.3,
           },
           // Ask the server to transcribe user audio so we can log what was
-          // actually heard. Free-ish (whisper-style) and very useful when
-          // debugging "the AI did something weird" — we can see the input.
-          transcription: { model: 'whisper-1' },
+          // actually heard — very useful when debugging "the AI did something
+          // weird", but a separate paid pass on top of the model's own STT, so
+          // the DB setting keeps it off unless an admin turns it on. Pinning
+          // `language` stops Whisper hallucinating a foreign-language
+          // transcript out of a short or silence-heavy turn.
+          transcription:
+            this.opts.transcription === false
+              ? undefined
+              : {
+                  model: 'whisper-1',
+                  ...(this.opts.language ? { language: this.opts.language } : {}),
+                },
         },
         output: {
           format: { type: 'audio/pcm', rate: 24000 },

@@ -1,6 +1,6 @@
 import { setSetting, deleteSetting } from '../utils/db/settings'
 import { DbNotReadyError } from '../utils/db/client'
-import { REALTIME_KEYS, canonicalizeNumber } from '../utils/realtime'
+import { REALTIME_KEYS, canonicalizeLanguage, canonicalizeNumber } from '../utils/realtime'
 
 interface PutBody {
   enabled?: boolean
@@ -11,6 +11,8 @@ interface PutBody {
   requestFollowUpMs?: string | number
   followUpChime?: boolean
   wakeChime?: boolean
+  language?: string
+  transcription?: boolean
 }
 
 export default defineEventHandler(async (event) => {
@@ -33,7 +35,12 @@ export default defineEventHandler(async (event) => {
     canonical.push([key, c])
   }
 
-  const writeNumber = (key: string, value: string | null): void => {
+  const { canonical: language, error: languageError } = canonicalizeLanguage(body.language)
+  if (languageError) {
+    throw createError({ statusCode: 400, statusMessage: languageError })
+  }
+
+  const writeOrClear = (key: string, value: string | null): void => {
     if (value === null) deleteSetting(key)
     else setSetting(key, value)
   }
@@ -41,13 +48,17 @@ export default defineEventHandler(async (event) => {
   try {
     if (body.enabled) setSetting(REALTIME_KEYS.enabled, '1')
     else deleteSetting(REALTIME_KEYS.enabled)
-    for (const [key, value] of canonical) writeNumber(key, value)
+    for (const [key, value] of canonical) writeOrClear(key, value)
     // Chime defaults to off — persist '1' only to turn it on, else clear the key.
     if (body.followUpChime === true) setSetting(REALTIME_KEYS.followUpChime, '1')
     else deleteSetting(REALTIME_KEYS.followUpChime)
     // Wake beep defaults to on — persist '0' only to turn it off, else clear.
     if (body.wakeChime === false) setSetting(REALTIME_KEYS.wakeChime, '0')
     else deleteSetting(REALTIME_KEYS.wakeChime)
+    writeOrClear(REALTIME_KEYS.language, language)
+    // Transcription defaults to off — persist '1' only to turn it on, else clear.
+    if (body.transcription === true) setSetting(REALTIME_KEYS.transcription, '1')
+    else deleteSetting(REALTIME_KEYS.transcription)
   }
   catch (e) {
     if (e instanceof DbNotReadyError) {

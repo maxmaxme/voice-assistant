@@ -21,6 +21,8 @@ describe('resolveRealtimeConfig', () => {
       requestFollowUpMs: 10_000,
       followUpChime: false,
       wakeChime: true,
+      language: '',
+      transcription: false,
     });
   });
 
@@ -32,6 +34,8 @@ describe('resolveRealtimeConfig', () => {
     store.set(REALTIME_KEYS.requestFollowUpMs, '15000');
     store.set(REALTIME_KEYS.followUpChime, '0');
     store.set(REALTIME_KEYS.wakeChime, '0');
+    store.set(REALTIME_KEYS.language, ' RU ');
+    store.set(REALTIME_KEYS.transcription, '1');
     expect(resolveRealtimeConfig(store)).toEqual({
       enabled: true,
       outputPacingMs: 40,
@@ -40,6 +44,8 @@ describe('resolveRealtimeConfig', () => {
       requestFollowUpMs: 15000,
       followUpChime: false,
       wakeChime: false,
+      language: 'ru',
+      transcription: true,
     });
   });
 
@@ -83,6 +89,8 @@ describe('resolveRealtimeConfig', () => {
     store.set(REALTIME_KEYS.wakeChime, '1');
     expect(resolveRealtimeConfig(store).wakeChime).toBe(true);
     store.set(REALTIME_KEYS.wakeChime, '0');
+    store.set(REALTIME_KEYS.language, ' RU ');
+    store.set(REALTIME_KEYS.transcription, '1');
     expect(resolveRealtimeConfig(store).wakeChime).toBe(false);
   });
 

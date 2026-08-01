@@ -72,6 +72,11 @@ export interface BridgeDeps {
   // Whether the device plays its local wake-word beep. Pushed to the device in
   // `hello` (the device has no other control surface for it).
   wakeChime?: boolean;
+  // ISO 639-1 code pinning Whisper's input transcription. The model-facing half
+  // of this setting is already baked into `instructions` by the caller.
+  language?: string;
+  // Transcribe user audio for logs/memory (default on).
+  transcription?: boolean;
 }
 
 export class RealtimeBridge {
@@ -224,6 +229,8 @@ export class RealtimeBridge {
       voice: deps.voice,
       tools: toolsWithWait,
       reasoningEffort: deps.reasoningEffort,
+      language: deps.language,
+      transcription: deps.transcription,
     });
   }
 

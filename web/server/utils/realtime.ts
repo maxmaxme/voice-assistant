@@ -10,6 +10,8 @@ export const REALTIME_KEYS = {
   requestFollowUpMs: 'realtime.requestFollowUpMs',
   followUpChime: 'realtime.followUpChime',
   wakeChime: 'realtime.wakeChime',
+  language: 'realtime.language',
+  transcription: 'realtime.transcription',
 } as const
 
 export interface RealtimeForm {
@@ -21,6 +23,9 @@ export interface RealtimeForm {
   requestFollowUpMs: string
   followUpChime: boolean
   wakeChime: boolean
+  /** ISO 639-1 code, '' = auto-detect. */
+  language: string
+  transcription: boolean
 }
 
 export function readRealtime(all: Record<string, string>): RealtimeForm {
@@ -34,7 +39,24 @@ export function readRealtime(all: Record<string, string>): RealtimeForm {
     followUpChime: all[REALTIME_KEYS.followUpChime] === '1',
     // Default on: only a stored '0' turns the wake beep off.
     wakeChime: all[REALTIME_KEYS.wakeChime] !== '0',
+    language: all[REALTIME_KEYS.language] ?? '',
+    // Default off: only a stored '1' turns transcription on.
+    transcription: all[REALTIME_KEYS.transcription] === '1',
   }
+}
+
+/** Accept a bare ISO 639-1/639-3 code (what Whisper's `language` param takes),
+ *  or blank for auto-detect. Rejecting anything else keeps a locale string like
+ *  `ru-RU` — which Whisper 400s on — out of the DB. */
+export function canonicalizeLanguage(value: string | undefined): { canonical: string | null, error: string | null } {
+  const v = (value ?? '').trim().toLowerCase()
+  if (v === '') {
+    return { canonical: null, error: null }
+  }
+  if (!/^[a-z]{2,3}$/.test(v)) {
+    return { canonical: null, error: 'Language must be a two-letter code like ru, en, es (or blank for auto)' }
+  }
+  return { canonical: v, error: null }
 }
 
 /**

@@ -13,6 +13,10 @@ export interface RealtimeConfig {
   requestFollowUpMs: number;
   followUpChime: boolean;
   wakeChime: boolean;
+  /** ISO 639-1 code of the language the household speaks, '' = let the model
+   *  and Whisper auto-detect. */
+  language: string;
+  transcription: boolean;
 }
 
 export const REALTIME_KEYS = {
@@ -23,6 +27,8 @@ export const REALTIME_KEYS = {
   requestFollowUpMs: 'realtime.requestFollowUpMs',
   followUpChime: 'realtime.followUpChime',
   wakeChime: 'realtime.wakeChime',
+  language: 'realtime.language',
+  transcription: 'realtime.transcription',
 } as const;
 
 const DEFAULTS: RealtimeConfig = {
@@ -45,6 +51,14 @@ const DEFAULTS: RealtimeConfig = {
   // Play the local wake-word beep when the device wakes. Pushed to the device
   // in `hello`. On by default (matches the stock firmware behaviour).
   wakeChime: true,
+  // Auto-detect by default. Pinning it both tells the model which language to
+  // expect (it otherwise mishears a non-English household as accented English)
+  // and pins Whisper's transcription language.
+  language: '',
+  // Whisper transcription of the user's audio, for logs/memory only — the
+  // Realtime model does its own STT regardless, so this is pure extra spend per
+  // turn. Off by default; turn it on when debugging what the speaker heard.
+  transcription: false,
 };
 
 function num(value: string | undefined, fallback: number): number {
@@ -80,5 +94,7 @@ export function resolveRealtimeConfig(store: SettingsStore): RealtimeConfig {
     requestFollowUpMs: num(store.get(REALTIME_KEYS.requestFollowUpMs), DEFAULTS.requestFollowUpMs),
     followUpChime: flagDefaultOff(store.get(REALTIME_KEYS.followUpChime)),
     wakeChime: flagDefaultOn(store.get(REALTIME_KEYS.wakeChime)),
+    language: (store.get(REALTIME_KEYS.language) ?? '').trim().toLowerCase(),
+    transcription: flagDefaultOff(store.get(REALTIME_KEYS.transcription)),
   };
 }
