@@ -420,7 +420,7 @@ export class OpenAiAgent implements Agent {
       `get_current_time tool whenever you need "now" or to resolve a relative date ` +
       `(today/tomorrow/this weekend), e.g. before get_weather or schedule_action.`;
     const webSearchBlock = this.opts.webSearch
-      ? `\n\nThe web_search tool is available — use it for weather, news, and general-knowledge queries that no Home Assistant entity covers.`
+      ? `\n\nThe web_search tool is available — use it for news, and general-knowledge queries that no Home Assistant entity covers.`
       : '';
     // Profile injection is shared with the realtime path (appendUserContext)
     // so the two channels' formats can't drift.
