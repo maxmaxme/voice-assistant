@@ -6,7 +6,7 @@ useHead({ title: 'Realtime' })
 const toast = useToast()
 const { data, refresh } = await useFetch<RealtimeResponse>('/api/realtime')
 
-const form = reactive<{ enabled: boolean, outputPacingMs: string, idleResetMs: string, followUpMs: string, requestFollowUpMs: string, followUpChime: boolean, wakeChime: boolean, language: string, transcription: boolean }>({
+const form = reactive<{ enabled: boolean, outputPacingMs: string, idleResetMs: string, followUpMs: string, requestFollowUpMs: string, followUpChime: boolean, wakeChime: boolean, language: string, transcription: boolean, noiseReduction: string }>({
   enabled: false,
   outputPacingMs: '',
   idleResetMs: '',
@@ -16,6 +16,7 @@ const form = reactive<{ enabled: boolean, outputPacingMs: string, idleResetMs: s
   wakeChime: true,
   language: '',
   transcription: false,
+  noiseReduction: 'far_field',
 })
 watchEffect(() => {
   if (!data.value) return
@@ -28,6 +29,7 @@ watchEffect(() => {
   form.wakeChime = data.value.wakeChime
   form.language = data.value.language
   form.transcription = data.value.transcription
+  form.noiseReduction = data.value.noiseReduction
 })
 
 const dirty = computed(() =>
@@ -40,7 +42,8 @@ const dirty = computed(() =>
     || form.followUpChime !== data.value.followUpChime
     || form.wakeChime !== data.value.wakeChime
     || form.language !== data.value.language
-    || form.transcription !== data.value.transcription),
+    || form.transcription !== data.value.transcription
+    || form.noiseReduction !== data.value.noiseReduction),
 )
 
 const saving = ref(false)
@@ -273,6 +276,17 @@ async function save() {
               v-model="form.language"
               class="w-full sm:w-60"
               placeholder="auto"
+            />
+          </UFormField>
+
+          <UFormField
+            label="Noise reduction"
+            description="OpenAI's server-side input filter, applied before voice detection. far_field for across-the-room speakers, near_field for a headset or close mic, off to send raw audio."
+          >
+            <USelect
+              v-model="form.noiseReduction"
+              class="w-full sm:w-60"
+              :items="['far_field', 'near_field', 'off']"
             />
           </UFormField>
 

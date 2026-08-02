@@ -8,6 +8,7 @@ export interface RealtimeResponse {
   wakeChime: boolean
   language: string
   transcription: boolean
+  noiseReduction: string
 }
 
 export interface HttpResponse {

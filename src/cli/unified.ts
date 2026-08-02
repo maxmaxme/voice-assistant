@@ -247,6 +247,7 @@ export async function main(): Promise<void> {
           wakeChime: resolveRealtimeConfig(deps.memory.settings).wakeChime,
           language: deps.realtime.language,
           transcription: deps.realtime.transcription,
+          noiseReduction: deps.realtime.noiseReduction,
           instructions: appendLanguage(
             appendUserContext(buildSystemPromptFor('realtime', deps.haEnabled), profile.recall()),
             deps.realtime.language,

@@ -1,6 +1,6 @@
 import { setSetting, deleteSetting } from '../utils/db/settings'
 import { DbNotReadyError } from '../utils/db/client'
-import { REALTIME_KEYS, canonicalizeLanguage, canonicalizeNumber } from '../utils/realtime'
+import { REALTIME_KEYS, NOISE_REDUCTIONS, canonicalizeLanguage, canonicalizeNumber } from '../utils/realtime'
 
 interface PutBody {
   enabled?: boolean
@@ -13,6 +13,7 @@ interface PutBody {
   wakeChime?: boolean
   language?: string
   transcription?: boolean
+  noiseReduction?: string
 }
 
 export default defineEventHandler(async (event) => {
@@ -40,6 +41,11 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: languageError })
   }
 
+  const noise = body.noiseReduction ?? ''
+  if (noise !== '' && !NOISE_REDUCTIONS.includes(noise)) {
+    throw createError({ statusCode: 400, statusMessage: `Noise reduction must be one of ${NOISE_REDUCTIONS.join(', ')}` })
+  }
+
   const writeOrClear = (key: string, value: string | null): void => {
     if (value === null) deleteSetting(key)
     else setSetting(key, value)
@@ -59,6 +65,8 @@ export default defineEventHandler(async (event) => {
     // Transcription defaults to off — persist '1' only to turn it on, else clear.
     if (body.transcription === true) setSetting(REALTIME_KEYS.transcription, '1')
     else deleteSetting(REALTIME_KEYS.transcription)
+    // far_field is the built-in default — clear the key instead of storing it.
+    writeOrClear(REALTIME_KEYS.noiseReduction, noise === '' || noise === 'far_field' ? null : noise)
   }
   catch (e) {
     if (e instanceof DbNotReadyError) {

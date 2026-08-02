@@ -8,6 +8,7 @@ import type {
 } from 'openai/resources/realtime/realtime';
 import { createLogger } from '../utils/logger.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
+import type { NoiseReduction } from '../settings/realtimeConfig.ts';
 
 const log = createLogger('openai-realtime');
 
@@ -26,6 +27,8 @@ export interface RealtimeClientOptions {
   /** Transcribe the user's audio for logs/memory. Omitted = on (the DB-backed
    *  setting that feeds this defaults it off). */
   transcription?: boolean;
+  /** Server-side input filter applied before VAD. Omitted = far_field. */
+  noiseReduction?: NoiseReduction;
 }
 
 export class OpenAiRealtimeClient {
@@ -132,7 +135,11 @@ export class OpenAiRealtimeClient {
           // its hiss reaches VAD as speech-ish energy. Filtering happens before
           // VAD and the model, so this buys both fewer false turns and better
           // recognition, for free (server-side, no firmware).
-          noise_reduction: { type: 'far_field' },
+          // Omitted = upstream's own default, which is no filtering at all.
+          noise_reduction:
+            this.opts.noiseReduction === 'off'
+              ? undefined
+              : { type: this.opts.noiseReduction ?? 'far_field' },
           turn_detection: {
             type: 'server_vad',
             // VAD activation threshold (0..1 on the VAD model's own output —

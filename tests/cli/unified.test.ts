@@ -72,6 +72,7 @@ function makeDeps(): CommonDeps {
       idleResetMs: 90_000,
       followUpMs: 8_000,
       requestFollowUpMs: 10_000,
+      noiseReduction: 'far_field',
       followUpChime: true,
       language: '',
       transcription: false,

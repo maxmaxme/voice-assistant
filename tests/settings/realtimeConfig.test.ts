@@ -23,6 +23,7 @@ describe('resolveRealtimeConfig', () => {
       wakeChime: true,
       language: '',
       transcription: false,
+      noiseReduction: 'far_field',
     });
   });
 
@@ -36,6 +37,7 @@ describe('resolveRealtimeConfig', () => {
     store.set(REALTIME_KEYS.wakeChime, '0');
     store.set(REALTIME_KEYS.language, ' RU ');
     store.set(REALTIME_KEYS.transcription, '1');
+    store.set(REALTIME_KEYS.noiseReduction, 'off');
     expect(resolveRealtimeConfig(store)).toEqual({
       enabled: true,
       outputPacingMs: 40,
@@ -46,6 +48,7 @@ describe('resolveRealtimeConfig', () => {
       wakeChime: false,
       language: 'ru',
       transcription: true,
+      noiseReduction: 'off',
     });
   });
 
@@ -53,7 +56,9 @@ describe('resolveRealtimeConfig', () => {
     store.set(REALTIME_KEYS.outputPacingMs, '');
     store.set(REALTIME_KEYS.idleResetMs, 'bogus');
     store.set(REALTIME_KEYS.followUpMs, 'bogus');
+    store.set(REALTIME_KEYS.noiseReduction, 'bogus');
     const cfg = resolveRealtimeConfig(store);
+    expect(cfg.noiseReduction).toBe('far_field');
     expect(cfg.outputPacingMs).toBe(20);
     expect(cfg.idleResetMs).toBe(90_000);
     expect(cfg.followUpMs).toBe(8_000);
@@ -91,6 +96,7 @@ describe('resolveRealtimeConfig', () => {
     store.set(REALTIME_KEYS.wakeChime, '0');
     store.set(REALTIME_KEYS.language, ' RU ');
     store.set(REALTIME_KEYS.transcription, '1');
+    store.set(REALTIME_KEYS.noiseReduction, 'off');
     expect(resolveRealtimeConfig(store).wakeChime).toBe(false);
   });
 

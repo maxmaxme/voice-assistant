@@ -5,6 +5,11 @@ import type { SettingsStore } from './types.ts';
  *  — like the integration resolvers, not via the env overlay. These keys are
  *  intentionally NOT env-var names: realtime config is DB-only and never read
  *  from `process.env`. Device token + port stay in `config.ts` (infra/secret). */
+/** OpenAI's server-side input filter, applied before VAD and the model.
+ *  'off' is upstream's default; we default to far_field for across-the-room
+ *  mics. */
+export type NoiseReduction = 'far_field' | 'near_field' | 'off';
+
 export interface RealtimeConfig {
   enabled: boolean;
   outputPacingMs: number;
@@ -17,6 +22,7 @@ export interface RealtimeConfig {
    *  and Whisper auto-detect. */
   language: string;
   transcription: boolean;
+  noiseReduction: NoiseReduction;
 }
 
 export const REALTIME_KEYS = {
@@ -29,6 +35,7 @@ export const REALTIME_KEYS = {
   wakeChime: 'realtime.wakeChime',
   language: 'realtime.language',
   transcription: 'realtime.transcription',
+  noiseReduction: 'realtime.noiseReduction',
 } as const;
 
 const DEFAULTS: RealtimeConfig = {
@@ -59,6 +66,9 @@ const DEFAULTS: RealtimeConfig = {
   // Realtime model does its own STT regardless, so this is pure extra spend per
   // turn. Off by default; turn it on when debugging what the speaker heard.
   transcription: false,
+  // Across-the-room mics with weak SNR — filtering before VAD buys fewer false
+  // turns and better recognition. 'near_field' suits a headset/close mic.
+  noiseReduction: 'far_field',
 };
 
 function num(value: string | undefined, fallback: number): number {
@@ -69,6 +79,18 @@ function num(value: string | undefined, fallback: number): number {
   // All realtime numerics are durations: negatives would feed nonsense into
   // timers (0 stays valid — it means "disabled" for the follow-up windows).
   return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function noiseReduction(value: string | undefined): NoiseReduction {
+  const v = (value ?? '').trim();
+  switch (v) {
+    case 'far_field':
+    case 'near_field':
+    case 'off':
+      return v;
+    default:
+      return DEFAULTS.noiseReduction;
+  }
 }
 
 /** The device-facing realtime config — exactly what the `hello` message carries
@@ -96,5 +118,6 @@ export function resolveRealtimeConfig(store: SettingsStore): RealtimeConfig {
     wakeChime: flagDefaultOn(store.get(REALTIME_KEYS.wakeChime)),
     language: (store.get(REALTIME_KEYS.language) ?? '').trim().toLowerCase(),
     transcription: flagDefaultOff(store.get(REALTIME_KEYS.transcription)),
+    noiseReduction: noiseReduction(store.get(REALTIME_KEYS.noiseReduction)),
   };
 }

@@ -12,7 +12,11 @@ export const REALTIME_KEYS = {
   wakeChime: 'realtime.wakeChime',
   language: 'realtime.language',
   transcription: 'realtime.transcription',
+  noiseReduction: 'realtime.noiseReduction',
 } as const
+
+/** KEEP in sync with NOISE_REDUCTIONS in src/settings/realtimeConfig.ts. */
+export const NOISE_REDUCTIONS: readonly string[] = ['far_field', 'near_field', 'off']
 
 export interface RealtimeForm {
   enabled: boolean
@@ -26,6 +30,7 @@ export interface RealtimeForm {
   /** ISO 639-1 code, '' = auto-detect. */
   language: string
   transcription: boolean
+  noiseReduction: string
 }
 
 export function readRealtime(all: Record<string, string>): RealtimeForm {
@@ -42,6 +47,7 @@ export function readRealtime(all: Record<string, string>): RealtimeForm {
     language: all[REALTIME_KEYS.language] ?? '',
     // Default off: only a stored '1' turns transcription on.
     transcription: all[REALTIME_KEYS.transcription] === '1',
+    noiseReduction: all[REALTIME_KEYS.noiseReduction] ?? 'far_field',
   }
 }
 
