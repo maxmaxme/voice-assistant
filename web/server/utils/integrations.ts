@@ -92,8 +92,9 @@ export const INTEGRATIONS: IntegrationDef[] = [
       {
         key: 'realtimeModel',
         label: 'Realtime model',
-        type: 'text',
-        placeholder: 'gpt-realtime-2',
+        type: 'enum',
+        options: ['gpt-realtime-2', 'gpt-realtime-2.1', 'gpt-realtime-2.1-mini'],
+        default: 'gpt-realtime-2',
       },
       { key: 'realtimeVoice', label: 'Realtime voice', type: 'text', placeholder: 'marin' },
       {
