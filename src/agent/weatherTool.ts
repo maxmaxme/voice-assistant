@@ -152,7 +152,9 @@ export function buildWeatherTool(): OpenAiFunctionTool {
     type: 'function',
     name: WEATHER_TOOL_NAME,
     description:
-      'Get the weather forecast for a place on a specific day. ' +
+      'Get the OUTDOOR weather forecast for a geographic place on a specific day. ' +
+      'NOT for conditions indoors: a question about a room in the home (CO2, air quality, ' +
+      'indoor temperature, humidity) is a Home Assistant sensor query, never a weather call. ' +
       'Use whenever the user asks about weather ("weather in Madrid tomorrow", ' +
       '"what\'s the weather like on Friday in Paris", "will it rain this weekend"). ' +
       'You are not told the current date — call get_current_time first, then resolve ' +
