@@ -20,6 +20,11 @@
       "automerge": false
     },
     {
+      "description": "nuxt sits in web/ devDependencies (build-time only — Nitro bundles it into .output), but a framework bump still warrants its own PR instead of riding along in the dev-tooling group",
+      "matchPackageNames": ["nuxt"],
+      "groupName": "nuxt"
+    },
+    {
       "description": "Node base image — only bump within the 24.x line; the Pi runs 24",
       "matchPackageNames": ["node"],
       "allowedVersions": "/^24\\./"
