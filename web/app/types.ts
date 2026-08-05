@@ -75,6 +75,7 @@ export interface Device {
   id: number
   channel: Channel
   identity: string
+  label: string | null
   createdAt: number
   lastUsedAt: number | null
 }

@@ -89,6 +89,7 @@ const deviceUserId = ref<number>()
 const deviceId = ref<number>()
 const deviceChannel = ref<Channel>('telegram')
 const deviceValue = ref('')
+const deviceLabel = ref('')
 const savingDevice = ref(false)
 
 function openAddDevice(u: User) {
@@ -97,12 +98,14 @@ function openAddDevice(u: User) {
   deviceId.value = undefined
   deviceChannel.value = 'telegram'
   deviceValue.value = ''
+  deviceLabel.value = ''
   deviceFormOpen.value = true
 }
 function openEditDevice(d: Device) {
   deviceMode.value = 'edit'
   deviceId.value = d.id
   deviceChannel.value = d.channel
+  deviceLabel.value = d.label ?? ''
   // telegram value is the editable chat id; voice token is write-only (we only
   // store its hash) so the field starts blank.
   deviceValue.value = d.channel === 'telegram' ? d.identity : ''
@@ -131,9 +134,10 @@ const deviceValueHelp = computed(() => {
 const devicePlaceholder = computed(() =>
   isTokenChannel(deviceChannel.value) && deviceMode.value === 'add' ? '(auto-generated if blank)' : '',
 )
-// http/voice on add may be blank (= generate); everything else needs a value.
+// Only a new telegram device strictly needs a value: http/voice generate one
+// when blank, and on edit a blank value means "keep it, just save the name".
 const canSubmitDevice = computed(() =>
-  (isTokenChannel(deviceChannel.value) && deviceMode.value === 'add') || deviceValue.value.trim().length > 0,
+  deviceMode.value === 'edit' || isTokenChannel(deviceChannel.value) || deviceValue.value.trim().length > 0,
 )
 
 async function submitDevice() {
@@ -142,13 +146,13 @@ async function submitDevice() {
     if (deviceMode.value === 'add') {
       const res = await $fetch<{ token?: string }>(`/api/users/${deviceUserId.value}/devices`, {
         method: 'POST',
-        body: { channel: deviceChannel.value, value: deviceValue.value },
+        body: { channel: deviceChannel.value, value: deviceValue.value, label: deviceLabel.value },
       })
       toast.add({ title: 'Device added', color: 'success' })
       if (res?.token) revealToken(res.token)
     }
     else {
-      await $fetch(`/api/devices/${deviceId.value}`, { method: 'PUT', body: { value: deviceValue.value } })
+      await $fetch(`/api/devices/${deviceId.value}`, { method: 'PUT', body: { value: deviceValue.value, label: deviceLabel.value } })
       toast.add({ title: 'Device updated', color: 'success' })
     }
     deviceFormOpen.value = false
@@ -289,7 +293,11 @@ async function copyToken() {
                 :name="channelIcon(d.channel)"
                 class="size-4 text-[var(--ui-text-muted)] shrink-0"
               />
-              <span class="text-sm font-medium">{{ channelLabel(d.channel) }}</span>
+              <span class="text-sm font-medium">{{ d.label || channelLabel(d.channel) }}</span>
+              <span
+                v-if="d.label"
+                class="text-xs text-[var(--ui-text-muted)]"
+              >{{ channelLabel(d.channel) }}</span>
               <code class="text-xs text-[var(--ui-text-muted)] truncate">{{ showIdentity(d) }}</code>
               <span class="text-xs text-[var(--ui-text-muted)]">
                 · {{ d.lastUsedAt ? `used ${fmtDate(d.lastUsedAt)}` : 'never used' }}
@@ -427,6 +435,17 @@ async function copyToken() {
               v-model="deviceChannel"
               class="w-full"
               :items="CHANNELS"
+            />
+          </UFormField>
+
+          <UFormField
+            label="Name"
+            description="What this device is, so you can tell tokens apart later."
+          >
+            <UInput
+              v-model="deviceLabel"
+              class="w-full"
+              placeholder="Apple Shortcut / kitchen speaker"
             />
           </UFormField>
 

@@ -12,6 +12,7 @@ export interface DeviceRow {
   channel: Channel
   /** Raw chatId for telegram; sha256 hash for http/voice (never the token). */
   identity: string
+  label: string | null
   createdAt: number
   lastUsedAt: number | null
 }
@@ -83,7 +84,7 @@ export function listUsers(): UserRow[] {
   const devices = tableExists('identities')
     ? (getDb()
         .prepare(
-          `SELECT id, channel, identity, user_id AS userId,
+          `SELECT id, channel, identity, label, user_id AS userId,
                   created_at AS createdAt, last_used_at AS lastUsedAt
            FROM identities ORDER BY id`,
         )
@@ -93,7 +94,7 @@ export function listUsers(): UserRow[] {
   const byUser = new Map<number, DeviceRow[]>()
   for (const d of devices) {
     const list = byUser.get(d.userId) ?? []
-    list.push({ id: d.id, channel: d.channel, identity: d.identity, createdAt: d.createdAt, lastUsedAt: d.lastUsedAt })
+    list.push({ id: d.id, channel: d.channel, identity: d.identity, label: d.label, createdAt: d.createdAt, lastUsedAt: d.lastUsedAt })
     byUser.set(d.userId, list)
   }
 
@@ -144,7 +145,7 @@ export function deleteUser(id: number): boolean {
 /** Attach a device. telegram → chatId stored as-is; voice/http → sha256(token).
  *  For http/voice a blank value means "generate a random token", which is
  *  returned once (never stored); a supplied token is hashed. */
-export function addDevice(userId: number, channel: Channel, value: string): { token?: string } {
+export function addDevice(userId: number, channel: Channel, value: string, label: string): { token?: string } {
   if (!tableExists('identities')) {
     throw new DbNotReadyError('identities')
   }
@@ -170,8 +171,8 @@ export function addDevice(userId: number, channel: Channel, value: string): { to
   }
   try {
     getDb()
-      .prepare(`INSERT INTO identities (channel, identity, user_id, created_at) VALUES (?, ?, ?, ?)`)
-      .run(channel, identity, userId, Date.now())
+      .prepare(`INSERT INTO identities (channel, identity, label, user_id, created_at) VALUES (?, ?, ?, ?, ?)`)
+      .run(channel, identity, label.trim() || null, userId, Date.now())
   }
   catch (e) {
     if (isUniqueViolation(e)) throw new IdentityConflictError()
@@ -180,10 +181,11 @@ export function addDevice(userId: number, channel: Channel, value: string): { to
   return { token }
 }
 
-/** Edit a device's value in place. telegram → new chatId; voice/http → re-hash
- *  the supplied token (or use remintDevice to generate a random http one).
+/** Edit a device in place. telegram → new chatId; voice/http → re-hash the
+ *  supplied token (or use remintDevice to generate a random one). A blank
+ *  value keeps the current identity, so the label can be edited on its own.
  *  Returns false if the row is gone. */
-export function updateDevice(id: number, value: string): boolean {
+export function updateDevice(id: number, value: string, label: string): boolean {
   if (!tableExists('identities')) {
     throw new DbNotReadyError('identities')
   }
@@ -193,9 +195,16 @@ export function updateDevice(id: number, value: string): boolean {
   if (!row) {
     return false
   }
-  const identity = row.channel === 'telegram' ? value.trim() : hashToken(value.trim())
+  const trimmed = value.trim()
+  const newLabel = label.trim() || null
   try {
-    return getDb().prepare(`UPDATE identities SET identity = ? WHERE id = ?`).run(identity, id).changes > 0
+    if (!trimmed) {
+      return getDb().prepare(`UPDATE identities SET label = ? WHERE id = ?`).run(newLabel, id).changes > 0
+    }
+    const identity = row.channel === 'telegram' ? trimmed : hashToken(trimmed)
+    return getDb()
+      .prepare(`UPDATE identities SET identity = ?, label = ? WHERE id = ?`)
+      .run(identity, newLabel, id).changes > 0
   }
   catch (e) {
     if (isUniqueViolation(e)) throw new IdentityConflictError()

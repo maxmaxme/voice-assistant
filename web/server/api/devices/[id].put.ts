@@ -2,6 +2,7 @@ import { updateDevice, dbErrorToHttp } from '../../utils/db/users'
 
 interface PutBody {
   value?: string
+  label?: string
 }
 
 export default defineEventHandler(async (event) => {
@@ -10,12 +11,10 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Invalid device id' })
   }
   const body = await readBody<PutBody>(event)
+  // A blank value is a label-only edit (keeps the current identity).
   const value = (body?.value ?? '').trim()
-  if (!value) {
-    throw createError({ statusCode: 400, statusMessage: 'A value is required.' })
-  }
   try {
-    if (!updateDevice(id, value)) {
+    if (!updateDevice(id, value, body?.label ?? '')) {
       throw createError({ statusCode: 404, statusMessage: 'Device not found' })
     }
   }

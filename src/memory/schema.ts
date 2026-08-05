@@ -38,6 +38,9 @@ export const identities = sqliteTable(
       .references(() => users.id),
     createdAt: integer('created_at').notNull(),
     lastUsedAt: integer('last_used_at'),
+    // Human-readable name for the device: http/voice identities are token
+    // hashes, so there is otherwise nothing to tell two of them apart.
+    label: text('label'),
   },
   (t) => [
     unique('identities_channel_identity_unique').on(t.channel, t.identity),

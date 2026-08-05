@@ -3,6 +3,7 @@ import { addDevice, dbErrorToHttp, type Channel } from '../../../utils/db/users'
 interface PostBody {
   channel?: string
   value?: string
+  label?: string
 }
 
 const CHANNELS: Channel[] = ['telegram', 'http', 'voice']
@@ -23,7 +24,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Chat ID is required.' })
   }
   try {
-    return addDevice(userId, channel as Channel, value)
+    return addDevice(userId, channel as Channel, value, body?.label ?? '')
   }
   catch (e) {
     dbErrorToHttp(e)
