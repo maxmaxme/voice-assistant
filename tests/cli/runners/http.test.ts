@@ -8,6 +8,26 @@ import { SqliteProfileMemory } from '../../../src/memory/sqliteProfileMemory.ts'
 import { freshTestDb } from '../../memory/helpers.ts';
 
 const TOKEN = 'good-token';
+const OTHER_TOKEN = 'other-good-token';
+
+/** Stand-in for the real per-conversation store in `unified.ts`: one Session
+ *  per key, plus the key log so tests can assert how requests are bucketed. */
+function fakeSessionFor(): { sessionFor: (key: string) => Session; keys: () => string[] } {
+  const sessions = new Map<string, Session>();
+  const seen: string[] = [];
+  return {
+    sessionFor: (key: string) => {
+      seen.push(key);
+      let session = sessions.get(key);
+      if (!session) {
+        session = new Session({ idleTimeoutMs: 60_000 });
+        sessions.set(key, session);
+      }
+      return session;
+    },
+    keys: () => seen,
+  };
+}
 
 interface RespondCall {
   text: string;
@@ -31,13 +51,14 @@ beforeEach(() => {
   const identities = new IdentitiesStore(db);
   const user = identities.addUser('Max');
   identities.attachIdentity('http', hashToken(TOKEN), user);
+  identities.attachIdentity('http', hashToken(OTHER_TOKEN), identities.addUser('Someone else'));
 
   respondCalls = [];
   const agent = fakeAgent(respondCalls);
   deps = {
     agent,
     assistAgent: agent,
-    assistSessionFor: () => new Session({ idleTimeoutMs: 60_000 }),
+    sessionFor: () => new Session({ idleTimeoutMs: 60_000 }),
     stt: { transcribeFile: vi.fn(async () => 'transcribed text') },
     endpoints: { text: true, audio: true, assist: true },
     identities,
@@ -59,14 +80,18 @@ function assistRequest(
   });
 }
 
-function textRequest(token: string | null = TOKEN): Request {
+function textRequest(token: string | null = TOKEN, conversationId?: string): Request {
+  const form = new URLSearchParams({ text: 'hello' });
+  if (conversationId !== undefined) {
+    form.set('conversation_id', conversationId);
+  }
   return new Request('http://localhost/text', {
     method: 'POST',
     headers: {
       ...(token !== null ? { authorization: `Bearer ${token}` } : {}),
       'content-type': 'application/x-www-form-urlencoded',
     },
-    body: new URLSearchParams({ text: 'hello' }).toString(),
+    body: form.toString(),
   });
 }
 
@@ -162,19 +187,28 @@ describe('HTTP 500 responses do not leak internals', () => {
 });
 
 describe('HTTP per-request sessions', () => {
-  it('/text gives every request its own fresh session — no chain is shared across tokens', async () => {
-    const app = buildHttpApp(deps);
-    await app.fetch(textRequest());
-    await app.fetch(textRequest());
+  it('/text chains turns that share a conversation_id, and splits different ones', async () => {
+    const { sessionFor } = fakeSessionFor();
+    const app = buildHttpApp({ ...deps, sessionFor });
+    await app.fetch(textRequest(TOKEN, 'conv-a'));
+    await app.fetch(textRequest(TOKEN, 'conv-a'));
+    await app.fetch(textRequest(TOKEN, 'conv-b'));
 
-    expect(respondCalls).toHaveLength(2);
-    const [first, second] = respondCalls;
-    // A shared (or absent) session would chain the second caller's turn onto
-    // the first one's previous_response_id — leaking the conversation.
-    expect(first!.opts.session).toBeInstanceOf(Session);
-    expect(second!.opts.session).toBeInstanceOf(Session);
-    expect(first!.opts.session).not.toBe(second!.opts.session);
-    expect(second!.opts.session!.isFresh()).toBe(true);
+    const [first, second, third] = respondCalls;
+    expect(first!.opts.session).toBe(second!.opts.session);
+    expect(third!.opts.session).not.toBe(first!.opts.session);
+  });
+
+  it('/text keys the chain by token, so two principals never share one', async () => {
+    const { sessionFor, keys } = fakeSessionFor();
+    const app = buildHttpApp({ ...deps, sessionFor });
+    // Both omit conversation_id — only the token keeps them apart.
+    await app.fetch(textRequest(TOKEN));
+    await app.fetch(textRequest(OTHER_TOKEN));
+
+    expect(keys()[0]).not.toBe(keys()[1]);
+    expect(keys().every((k) => k.startsWith('text:') && k.endsWith(':default'))).toBe(true);
+    expect(respondCalls[0]!.opts.session).not.toBe(respondCalls[1]!.opts.session);
   });
 
   it('/audio gives every request its own fresh session', async () => {
@@ -210,28 +244,15 @@ describe('POST /assist contract', () => {
   });
 
   it('routes conversation_id to per-conversation sessions, falling back to "default"', async () => {
-    const sessions = new Map<string, Session>();
-    const assistSessionFor = vi.fn((conversationId: string) => {
-      let session = sessions.get(conversationId);
-      if (!session) {
-        session = new Session({ idleTimeoutMs: 60_000 });
-        sessions.set(conversationId, session);
-      }
-      return session;
-    });
-    const app = buildHttpApp({ ...deps, assistSessionFor });
+    const { sessionFor, keys } = fakeSessionFor();
+    const app = buildHttpApp({ ...deps, sessionFor });
 
     await app.fetch(assistRequest(JSON.stringify({ text: 'one', conversation_id: 'conv-a' })));
     await app.fetch(assistRequest(JSON.stringify({ text: 'two', conversation_id: 'conv-a' })));
     await app.fetch(assistRequest(JSON.stringify({ text: 'three', conversation_id: 'conv-b' })));
     await app.fetch(assistRequest(JSON.stringify({ text: 'four' })));
 
-    expect(assistSessionFor.mock.calls.map((c) => c[0])).toEqual([
-      'conv-a',
-      'conv-a',
-      'conv-b',
-      'default',
-    ]);
+    expect(keys()).toEqual(['assist:conv-a', 'assist:conv-a', 'assist:conv-b', 'assist:default']);
     expect(respondCalls).toHaveLength(4);
     const [first, second, third] = respondCalls;
     expect(first!.opts.session).toBe(second!.opts.session);

@@ -152,14 +152,19 @@ personal memory (e.g. its room). Register one with
 The HTTP server always runs (so `GET /health` is always up for the container
 healthcheck); each input endpoint mounts only when its panel toggle is on.
 
-| Endpoint       | Body                                               | Returns                             |
-| -------------- | -------------------------------------------------- | ----------------------------------- |
-| `POST /text`   | form-urlencoded, field `text`                      | `{response}`                        |
-| `POST /audio`  | raw audio bytes (Content-Type sets the format)     | `{response, transcript}`            |
-| `POST /assist` | JSON `{text, conversation_id?}` — HA Assist bridge | `{response, continue_conversation}` |
-| `GET /health`  | —                                                  | `{status:"ok"}`                     |
+| Endpoint       | Body                                                         | Returns                             |
+| -------------- | ------------------------------------------------------------ | ----------------------------------- |
+| `POST /text`   | form-urlencoded or JSON, `text` + optional `conversation_id` | `{response}`                        |
+| `POST /audio`  | raw audio bytes (Content-Type sets the format)               | `{response, transcript}`            |
+| `POST /assist` | JSON `{text, conversation_id?}` — HA Assist bridge           | `{response, continue_conversation}` |
+| `GET /health`  | —                                                            | `{status:"ok"}`                     |
 
 All non-health endpoints require `Authorization: Bearer <token>`.
+
+`/text` keeps a server-side conversation per `conversation_id` (10 min idle),
+scoped to the calling token — so a follow-up like "yes, send it" lands in the
+same chain. Omit the field and the token gets one shared chain; send a new id to
+start a fresh topic.
 
 ### 💬 Telegram
 

@@ -18,19 +18,18 @@ import { createRateLimiter, createSemaphore } from '../../utils/rateLimiter.ts';
 const log = createLogger('http');
 
 export interface HttpRunnerDeps {
-  /** Agent for `/text` (Apple Shortcut etc.) and `/audio`. No `ask` tool,
-   *  no `continue_conversation` in the response — these endpoints are one-shot. */
+  /** Agent for `/text` (Apple Shortcut etc.) and `/audio`. No `ask` tool and
+   *  no `continue_conversation` in the response — a client that wants a
+   *  follow-up just sends the next `/text` with the same `conversation_id`. */
   agent: OpenAiAgent;
   /** Agent for `/assist` — used by the HA bridge driving Voice PE. Has the
    *  `ask` tool and the voice-addendum prompt; response includes
    *  `continue_conversation` so HA can reopen the mic. */
   assistAgent: OpenAiAgent;
-  /** Per-conversation Session lookup for `/assist`. Keyed by the
-   *  `conversation_id` HA's Assist pipeline mints for each user dialog —
-   *  callers without one share a single fallback session. Sessions expire
-   *  after a short idle window so the chain doesn't leak between unrelated
-   *  utterances on the same Voice PE device. */
-  assistSessionFor: (conversationId: string) => Session;
+  /** Per-conversation Session lookup, shared by `/assist` and `/text`. The
+   *  caller owns the key (endpoint-prefixed, and token-scoped on `/text`) and
+   *  the idle window after which the chain is dropped. */
+  sessionFor: (key: string, idleMs: number) => Session;
   stt: AudioFileStt;
   port: number;
   /** Which endpoints to mount. `/health` is always mounted regardless. A
@@ -86,11 +85,21 @@ const AUDIO_CONCURRENCY = 2;
 
 const TextBodySchema = z.object({
   text: z.string(),
-});
-
-const AssistBodySchema = TextBodySchema.extend({
   conversation_id: z.string().optional(),
 });
+
+const AssistBodySchema = TextBodySchema;
+
+/** `/assist`: short window. An unrelated utterance after a pause starts a
+ *  fresh chain (no "still thinks we're talking about X" leak), while natural
+ *  follow-ups inside one spoken dialog still chain. */
+const ASSIST_SESSION_IDLE_MS = 60 * 1000;
+
+/** `/text`: longer window. Typing on a watch, reading the reply and dictating
+ *  again takes far more than a minute, and there is no wake-word cost to a
+ *  chain that outlives the topic — the client can always mint a new
+ *  `conversation_id`. */
+const TEXT_SESSION_IDLE_MS = 10 * 60 * 1000;
 
 /** SSE variant of a text reply (`?stream=1`). Frames are one JSON object per
  *  `data:` line: `{delta}` while the model types, then exactly one terminal
@@ -160,7 +169,7 @@ function tokenKey(authHeader: string | null | undefined): string {
 export type HttpAppDeps = Omit<HttpRunnerDeps, 'port'>;
 
 export function buildHttpApp(deps: HttpAppDeps): H3 {
-  const { agent, assistAgent, assistSessionFor, stt, endpoints, identities, profileStore } = deps;
+  const { agent, assistAgent, sessionFor, stt, endpoints, identities, profileStore } = deps;
 
   const authFailLimiter = createRateLimiter({
     windowMs: AUTH_FAIL_WINDOW_MS,
@@ -337,6 +346,7 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
         };
       }
       let text: string;
+      let conversationId: string | undefined;
       if (isJson) {
         const raw: unknown = await event.req.json().catch(() => null);
         const parsed = TextBodySchema.safeParse(raw);
@@ -345,20 +355,33 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
           return { error: 'Expected JSON body with string "text" field' };
         }
         text = parsed.data.text.trim();
+        conversationId = parsed.data.conversation_id;
       } else {
-        text = new URLSearchParams(await event.req.text()).get('text')?.trim() ?? '';
+        const form = new URLSearchParams(await event.req.text());
+        text = form.get('text')?.trim() ?? '';
+        conversationId = form.get('conversation_id') ?? undefined;
       }
       if (!text) {
         event.res.status = 400;
         return { error: 'Missing or empty "text" field' };
       }
 
-      log.debug({ contentType, bytes: text.length }, `text payload ${text.length} chars`);
+      log.debug(
+        { contentType, bytes: text.length, conversationId },
+        `text payload ${text.length} chars`,
+      );
 
-      const scope = resolveHttpScope(identities, event.req.headers.get('authorization'));
+      const authHeader = event.req.headers.get('authorization');
+      const scope = resolveHttpScope(identities, authHeader);
       const respondOptions = {
-        // One-shot endpoint — fresh session per request, see /audio.
-        session: new Session(),
+        // Chains follow-ups, so "send X to Y?" / "yes" actually works. The key
+        // is token-scoped: two clients that both omit `conversation_id` (or
+        // pick the same one) still get separate chains, and one caller can
+        // never read another principal's conversation.
+        session: sessionFor(
+          `text:${tokenKey(authHeader)}:${conversationId ?? 'default'}`,
+          TEXT_SESSION_IDLE_MS,
+        ),
         profile: makeScopedProfile(profileStore, scope),
         scope,
       };
@@ -425,7 +448,7 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
       // chain at all for follow-ups, and still bounded by the 60s idle
       // timeout on the session itself.
       const conversationId = parsed.data.conversation_id ?? 'default';
-      const session = assistSessionFor(conversationId);
+      const session = sessionFor(`assist:${conversationId}`, ASSIST_SESSION_IDLE_MS);
 
       log.debug(
         { contentType, bytes: text.length, conversationId },

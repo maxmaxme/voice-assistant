@@ -110,29 +110,24 @@ export async function dispatch(
     // healthcheck). /text /audio /assist are mounted per-flag inside the runner.
     const agent = deps.buildAgent('http');
     const assistAgent = deps.buildAgent('assist');
-    // Per-conversation Sessions for `/assist`. 60s idle is short enough
-    // that an unrelated utterance after a pause starts a fresh chain
-    // (avoiding the "still thinks we're talking about X" leak), and long
-    // enough that natural follow-ups inside a single dialog still chain.
-    // In-memory only: 60s is far shorter than any restart cadence, so
-    // SQLite persistence would buy nothing.
-    const ASSIST_SESSION_IDLE_MS = 60 * 1000;
-    type Entry = { session: Session; lastTouch: number };
-    const assistSessions = new Map<string, Entry>();
-    const assistSessionFor = (conversationId: string): Session => {
+    // Per-conversation Sessions shared by `/assist` and `/text`; the caller
+    // owns the key and picks the idle window, so the two endpoints can't
+    // collide and each keeps its own notion of "stale". In-memory only: both
+    // windows are far shorter than any restart cadence, so SQLite persistence
+    // would buy nothing.
+    type Entry = { session: Session; lastTouch: number; idleMs: number };
+    const sessions = new Map<string, Entry>();
+    const sessionFor = (key: string, idleMs: number): Session => {
       const now = Date.now();
-      for (const [key, entry] of assistSessions) {
-        if (now - entry.lastTouch >= ASSIST_SESSION_IDLE_MS) {
-          assistSessions.delete(key);
+      for (const [k, entry] of sessions) {
+        if (now - entry.lastTouch >= entry.idleMs) {
+          sessions.delete(k);
         }
       }
-      let entry = assistSessions.get(conversationId);
+      let entry = sessions.get(key);
       if (!entry) {
-        entry = {
-          session: new Session({ idleTimeoutMs: ASSIST_SESSION_IDLE_MS }),
-          lastTouch: now,
-        };
-        assistSessions.set(conversationId, entry);
+        entry = { session: new Session({ idleTimeoutMs: idleMs }), lastTouch: now, idleMs };
+        sessions.set(key, entry);
       } else {
         entry.lastTouch = now;
       }
@@ -143,7 +138,7 @@ export async function dispatch(
       runners.http({
         agent,
         assistAgent,
-        assistSessionFor,
+        sessionFor,
         stt: new OpenAiStt({ client: deps.llm }),
         port,
         endpoints: deps.http,
