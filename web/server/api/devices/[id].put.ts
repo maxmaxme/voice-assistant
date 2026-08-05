@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
   // A blank value is a label-only edit (keeps the current identity).
   const value = (body?.value ?? '').trim()
   try {
-    if (!updateDevice(id, value, body?.label ?? '')) {
+    if (!updateDevice(id, value, body?.label)) {
       throw createError({ statusCode: 404, statusMessage: 'Device not found' })
     }
   }

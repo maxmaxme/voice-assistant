@@ -197,15 +197,23 @@ export function updateDevice(id: number, value: string, label?: string): boolean
     return false
   }
   const trimmed = value.trim()
-  const newLabel = label.trim() || null
+  const sets: string[] = []
+  const params: (string | null)[] = []
+  if (trimmed) {
+    sets.push('identity = ?')
+    params.push(row.channel === 'telegram' ? trimmed : hashToken(trimmed))
+  }
+  if (label !== undefined) {
+    sets.push('label = ?')
+    params.push(label.trim() || null)
+  }
+  if (!sets.length) {
+    return true
+  }
   try {
-    if (!trimmed) {
-      return getDb().prepare(`UPDATE identities SET label = ? WHERE id = ?`).run(newLabel, id).changes > 0
-    }
-    const identity = row.channel === 'telegram' ? trimmed : hashToken(trimmed)
     return getDb()
-      .prepare(`UPDATE identities SET identity = ?, label = ? WHERE id = ?`)
-      .run(identity, newLabel, id).changes > 0
+      .prepare(`UPDATE identities SET ${sets.join(', ')} WHERE id = ?`)
+      .run(...params, id).changes > 0
   }
   catch (e) {
     if (isUniqueViolation(e)) throw new IdentityConflictError()
