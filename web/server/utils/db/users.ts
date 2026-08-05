@@ -145,7 +145,7 @@ export function deleteUser(id: number): boolean {
 /** Attach a device. telegram → chatId stored as-is; voice/http → sha256(token).
  *  For http/voice a blank value means "generate a random token", which is
  *  returned once (never stored); a supplied token is hashed. */
-export function addDevice(userId: number, channel: Channel, value: string, label: string): { token?: string } {
+export function addDevice(userId: number, channel: Channel, value: string, label = ''): { token?: string } {
   if (!tableExists('identities')) {
     throw new DbNotReadyError('identities')
   }
@@ -183,9 +183,10 @@ export function addDevice(userId: number, channel: Channel, value: string, label
 
 /** Edit a device in place. telegram → new chatId; voice/http → re-hash the
  *  supplied token (or use remintDevice to generate a random one). A blank
- *  value keeps the current identity, so the label can be edited on its own.
+ *  value keeps the current identity, so the label can be edited on its own;
+ *  an undefined label leaves the label untouched.
  *  Returns false if the row is gone. */
-export function updateDevice(id: number, value: string, label: string): boolean {
+export function updateDevice(id: number, value: string, label?: string): boolean {
   if (!tableExists('identities')) {
     throw new DbNotReadyError('identities')
   }
