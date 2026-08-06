@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.25
+# syntax=docker/dockerfile:1.26
 FROM node:24-bookworm-slim
 
 # Only `ca-certificates` is needed for the OpenAI / Telegram / HA TLS
