@@ -1,6 +1,8 @@
 # Nuxt SSR config panel. Runs its own Nitro Node server and opens the SQLite DB
 # shared with the voice-assistant container (read/write `settings` + `prompts`).
-FROM node:24-slim AS build
+# trixie, not the default -slim (bookworm): better-sqlite3's prebuilt
+# linux-arm64.node needs GLIBC_2.38, bookworm ships 2.36.
+FROM node:24-trixie-slim AS build
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
@@ -11,7 +13,7 @@ COPY . .
 RUN npm ci
 RUN npm run build
 
-FROM node:24-slim
+FROM node:24-trixie-slim
 WORKDIR /app
 ENV NODE_ENV=production
 # Nitro listens on $PORT (default 3000). The DB path is provided at runtime.
