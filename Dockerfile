@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1.26
-FROM node:24-bookworm-slim
+# trixie, not bookworm: better-sqlite3's prebuilt linux-arm64.node needs
+# GLIBC_2.38, bookworm ships 2.36.
+FROM node:24-trixie-slim
 
 # Only `ca-certificates` is needed for the OpenAI / Telegram / HA TLS
 # connections — no compiler toolchain, see the --ignore-scripts note below.
