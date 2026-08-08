@@ -53,18 +53,6 @@ const TODO_ITEM_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 const log = createLogger('tool-bridge');
-const warned = new Set<string>();
-
-/** The tool list is rebuilt on every request, so a patch that stops matching
- *  would otherwise degrade silently at one line per turn. Warn once per
- *  process instead. */
-function warnOnce(toolName: string, msg: string): void {
-  if (warned.has(toolName)) {
-    return;
-  }
-  warned.add(toolName);
-  log.warn({ tool: toolName }, `schema patch skipped: ${msg}`);
-}
 
 /** The real list names HA advertises on `todo_get_items` — the only tool in the
  *  export whose list argument is documented. */
@@ -92,7 +80,10 @@ function enrichTodoSchemas(tools: McpTool[]): McpTool[] {
     }
     const props = t.inputSchema.properties;
     if (!isRecord(props) || !isRecord(props.name) || !isRecord(props.item)) {
-      warnOnce(t.name, 'no {name, item} properties — upstream schema changed, leaving it as-is');
+      log.warn(
+        { tool: t.name },
+        'schema patch skipped: no {name, item} properties — upstream schema changed',
+      );
       return t;
     }
     const { name: nameProp, item: itemProp } = props;
