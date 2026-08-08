@@ -1,3 +1,4 @@
+import { isNumberArray, isRecord } from '../utils/guards.ts';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
 
 export const WEATHER_TOOL_NAME = 'get_weather';
@@ -29,14 +30,6 @@ interface ForecastResult {
     weather_code: number;
     wind_speed_10m: number;
   };
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null;
-}
-
-function isNumberArray(v: unknown): v is number[] {
-  return Array.isArray(v) && v.every((x) => typeof x === 'number');
 }
 
 function parseGeocode(raw: unknown): GeocodeResult {

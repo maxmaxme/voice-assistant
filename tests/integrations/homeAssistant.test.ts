@@ -39,6 +39,11 @@ describe('resolveHaConfig', () => {
     expect(resolveHaConfig(store)).toEqual({ url: 'http://ha:8123', token: 'tok' });
   });
 
+  it('strips a trailing slash from the url', () => {
+    install(h, { url: 'http://ha:8123/', token: 'tok' });
+    expect(resolveHaConfig(store)?.url).toBe('http://ha:8123');
+  });
+
   it('is null when installed but disabled', () => {
     install(h, { url: 'http://ha:8123', token: 'tok' }, 0);
     expect(resolveHaConfig(store)).toBeNull();

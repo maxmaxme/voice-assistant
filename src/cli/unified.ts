@@ -5,7 +5,7 @@ import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runne
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
 import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
 import { mcpToolsToRealtime, localToolsToRealtime } from '../realtime/toolAdapter.ts';
-import { applyHaToolSuffixes } from '../agent/toolBridge.ts';
+import { prepareHaTools } from '../agent/toolBridge.ts';
 import { buildLocalToolset } from '../agent/localTools.ts';
 import { makeScopedProfile } from '../memory/scope.ts';
 import { hashToken } from '../memory/identities.ts';
@@ -248,7 +248,7 @@ export async function main(): Promise<void> {
             deps.realtime.language,
           ),
           tools: [
-            ...mcpToolsToRealtime(applyHaToolSuffixes(await listMcpTools())),
+            ...mcpToolsToRealtime(prepareHaTools(await listMcpTools())),
             ...localToolsToRealtime(localToolset.tools),
           ],
           runTool: buildRealtimeToolRunner({

@@ -1,4 +1,6 @@
 import type { McpTool } from '../mcp/types.ts';
+import { isRecord, isStringArray } from '../utils/guards.ts';
+import { createLogger } from '../utils/logger.ts';
 import { resolvePrompt } from './prompts/registry.ts';
 
 /**
@@ -44,13 +46,86 @@ function haSuffixFor(toolName: string): string | undefined {
   return HA_SUFFIX_TOOLS.has(toolName) ? resolvePrompt(`ha-suffix/${toolName}`) : undefined;
 }
 
-/** Merge per-tool prompt suffixes into the MCP descriptions before either the
- * Responses-API or Realtime tool adapter sees them. Both code paths reach for
- * the same suffix map so a rule written once applies on every channel. */
-export function applyHaToolSuffixes<T extends { name: string; description?: string }>(
-  tools: T[],
-): T[] {
+const TODO_ITEM_TOOLS: ReadonlySet<string> = new Set([
+  'HassListAddItem',
+  'HassListCompleteItem',
+  'HassListRemoveItem',
+]);
+
+const log = createLogger('tool-bridge');
+const warned = new Set<string>();
+
+/** The tool list is rebuilt on every request, so a patch that stops matching
+ *  would otherwise degrade silently at one line per turn. Warn once per
+ *  process instead. */
+function warnOnce(toolName: string, msg: string): void {
+  if (warned.has(toolName)) {
+    return;
+  }
+  warned.add(toolName);
+  log.warn({ tool: toolName }, `schema patch skipped: ${msg}`);
+}
+
+/** The real list names HA advertises on `todo_get_items` — the only tool in the
+ *  export whose list argument is documented. */
+function todoListNames(tools: McpTool[]): string[] | undefined {
+  const props = tools.find((t) => t.name === 'todo_get_items')?.inputSchema.properties;
+  if (!isRecord(props) || !isRecord(props.todo_list)) {
+    return undefined;
+  }
+  const names = props.todo_list.enum;
+  return isStringArray(names) ? names : undefined;
+}
+
+/** HA exports the todo intents as a bare `{item, name}` — no descriptions, no
+ * `required`, and no hint that `name` is the list, while the sibling
+ * `todo_get_items` documents its list argument with an enum of real names. The
+ * model fills that gap by guessing `todo_list` (or omitting the list), and HA
+ * answers with an opaque "Received invalid slot info". Copying the enum across
+ * and marking both slots required puts the constraint in the schema, where the
+ * model can't misread it, instead of in prose. */
+function enrichTodoSchemas(tools: McpTool[]): McpTool[] {
+  const lists = todoListNames(tools);
   return tools.map((t) => {
+    if (!TODO_ITEM_TOOLS.has(t.name)) {
+      return t;
+    }
+    const props = t.inputSchema.properties;
+    if (!isRecord(props) || !isRecord(props.name) || !isRecord(props.item)) {
+      warnOnce(t.name, 'no {name, item} properties — upstream schema changed, leaving it as-is');
+      return t;
+    }
+    const { name: nameProp, item: itemProp } = props;
+    const upstreamRequired = isStringArray(t.inputSchema.required) ? t.inputSchema.required : [];
+    return {
+      ...t,
+      inputSchema: {
+        ...t.inputSchema,
+        properties: {
+          ...props,
+          item: { ...itemProp, description: 'The item summary.' },
+          name: {
+            ...nameProp,
+            description: 'Name of the target to-do list.',
+            ...(lists ? { enum: lists } : {}),
+          },
+        },
+        // Union, not overwrite: HA may start declaring `required` itself, and
+        // dropping a slot it marked mandatory would trade one silent failure
+        // for another.
+        required: [...new Set([...upstreamRequired, 'name', 'item'])],
+      },
+    };
+  });
+}
+
+/** Merge per-tool prompt suffixes into the MCP descriptions and patch the
+ * upstream schemas before either the Responses-API or Realtime tool adapter
+ * sees them. Both code paths go through here so a rule written once applies on
+ * every channel. Structural facts (required slots, allowed values) belong in
+ * the schema; behavioural rules go in the suffix. */
+export function prepareHaTools(tools: McpTool[]): McpTool[] {
+  return enrichTodoSchemas(tools).map((t) => {
     const suffix = haSuffixFor(t.name);
     if (!suffix) {
       return t;
@@ -61,7 +136,7 @@ export function applyHaToolSuffixes<T extends { name: string; description?: stri
 }
 
 export function mcpToolsToOpenAi(tools: McpTool[]): OpenAiFunctionTool[] {
-  return applyHaToolSuffixes(tools).map((t) => ({
+  return prepareHaTools(tools).map((t) => ({
     type: 'function',
     name: t.name,
     description: t.description ?? '',

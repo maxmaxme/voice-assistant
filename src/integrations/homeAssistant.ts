@@ -17,7 +17,9 @@ export function resolveHaConfig(store: SqliteIntegrations): HaConfig | null {
   if (!row || !row.enabled) {
     return null;
   }
-  const url = (row.config.url ?? '').trim();
+  // A trailing slash pasted into the panel turns `${url}/api/mcp` into a
+  // double-slash path, which HA answers with a bare 404.
+  const url = (row.config.url ?? '').trim().replace(/\/+$/, '');
   const token = (row.config.token ?? '').trim();
   if (!url || !token) {
     return null;
