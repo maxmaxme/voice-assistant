@@ -199,6 +199,10 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
         log.warn({ ip }, `auth-fail rate limit hit for ${ip}`);
         return { error: 'Too many authentication failures' };
       }
+      // The request log records url/status but not the caller, and a slow
+      // prober stays under the rate-limit threshold that does log one — so
+      // without this line single 401s are unattributable.
+      log.warn({ ip }, `unauthorized request from ${ip}`);
       event.res.status = 401;
       return { error: 'Unauthorized' };
     }
