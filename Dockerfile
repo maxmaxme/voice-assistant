@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.26
+# syntax=docker/dockerfile:1.27
 # trixie, not bookworm: better-sqlite3's prebuilt linux-arm64.node needs
 # GLIBC_2.38, bookworm ships 2.36.
 FROM node:24-trixie-slim
