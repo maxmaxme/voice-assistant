@@ -1,6 +1,7 @@
 import type { LocalToolset } from './localTools.ts';
 import type { McpClient } from '../mcp/types.ts';
 import { isValidContent } from '../utils/mcpContent.ts';
+import { resolveTodoList } from './toolBridge.ts';
 
 export interface ToolExecution {
   /** Payload for the model: JSON for local tools, extracted text for MCP,
@@ -29,7 +30,11 @@ export async function executeRoutedTool(
     }
   }
   try {
-    const result = await mcp.callTool(name, args);
+    const todo = await resolveTodoList(mcp, name, args);
+    if ('error' in todo) {
+      return { text: todo.error, isError: true };
+    }
+    const result = await mcp.callTool(name, todo.args);
     if (!isValidContent(result.content)) {
       throw new Error('Invalid content');
     }

@@ -73,3 +73,48 @@ describe('executeRoutedTool', () => {
     expect(invalid).toEqual({ text: 'Invalid content', isError: true });
   });
 });
+
+describe('todo list slot resolution', () => {
+  const listTools = (lists: string[]) =>
+    vi.fn().mockResolvedValue([
+      {
+        name: 'todo_get_items',
+        inputSchema: { type: 'object', properties: { todo_list: { enum: lists } } },
+      },
+    ]);
+
+  it('fills the missing list slot when the house has exactly one list', async () => {
+    const mcp = fakeMcp({ listTools: listTools(['Shopping List']) });
+    const res = await executeRoutedTool(buildLocalToolset(), mcp, 'HassListAddItem', {
+      item: '🥚 eggs',
+    });
+    expect(mcp.callTool).toHaveBeenCalledWith('HassListAddItem', {
+      item: '🥚 eggs',
+      name: 'Shopping List',
+    });
+    expect(res.isError).toBe(false);
+  });
+
+  it('names the available lists instead of calling HA when the slot is ambiguous', async () => {
+    const mcp = fakeMcp({ listTools: listTools(['Shopping List', 'Notes']) });
+    const res = await executeRoutedTool(buildLocalToolset(), mcp, 'HassListAddItem', {
+      item: '🥚 eggs',
+    });
+    expect(mcp.callTool).not.toHaveBeenCalled();
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain('Shopping List, Notes');
+  });
+
+  it('leaves an explicit list slot alone', async () => {
+    const mcp = fakeMcp({ listTools: listTools(['Shopping List', 'Notes']) });
+    await executeRoutedTool(buildLocalToolset(), mcp, 'HassListAddItem', {
+      item: '🥚 eggs',
+      name: 'Notes',
+    });
+    expect(mcp.callTool).toHaveBeenCalledWith('HassListAddItem', {
+      item: '🥚 eggs',
+      name: 'Notes',
+    });
+    expect(mcp.listTools).not.toHaveBeenCalled();
+  });
+});

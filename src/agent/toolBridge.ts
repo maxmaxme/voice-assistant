@@ -1,4 +1,4 @@
-import type { McpTool } from '../mcp/types.ts';
+import type { McpClient, McpTool } from '../mcp/types.ts';
 import { isRecord, isStringArray } from '../utils/guards.ts';
 import { createLogger } from '../utils/logger.ts';
 import { resolvePrompt } from './prompts/registry.ts';
@@ -109,6 +109,26 @@ function enrichTodoSchemas(tools: McpTool[]): McpTool[] {
       },
     };
   });
+}
+
+/** HA answers a todo intent whose list slot is missing with an opaque
+ * "Received invalid slot info", which the model reads as a dead end and gives
+ * up mid-request. Resolve the slot ourselves when the house has exactly one
+ * list, and otherwise hand back the real names so the retry can land. */
+export async function resolveTodoList(
+  mcp: McpClient,
+  tool: string,
+  args: Record<string, unknown>,
+): Promise<{ args: Record<string, unknown> } | { error: string }> {
+  if (!TODO_ITEM_TOOLS.has(tool) || (typeof args.name === 'string' && args.name.trim())) {
+    return { args };
+  }
+  const lists = todoListNames(await mcp.listTools()) ?? [];
+  if (lists.length === 1) {
+    return { args: { ...args, name: lists[0] } };
+  }
+  const known = lists.length ? ` Available lists: ${lists.join(', ')}.` : '';
+  return { error: `Missing required argument "name" (the to-do list).${known}` };
 }
 
 /** Merge per-tool prompt suffixes into the MCP descriptions and patch the
