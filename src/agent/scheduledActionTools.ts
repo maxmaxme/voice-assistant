@@ -93,9 +93,7 @@ export interface CancelScheduledResult {
 }
 
 export type ScheduledActionToolResult =
-  | ScheduleActionResult
-  | ListScheduledItem[]
-  | CancelScheduledResult;
+  ScheduleActionResult | ListScheduledItem[] | CancelScheduledResult;
 
 function buildSchedule(kind: unknown, expr: unknown): { schedule: Schedule; nextFireAt: number } {
   const exprStr = String(expr ?? '').trim();

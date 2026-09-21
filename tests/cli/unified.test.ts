@@ -91,12 +91,10 @@ function makeDeps(): CommonDeps {
         >,
     ),
     dispose: vi.fn(async () => {}),
-    telegramReceiver: vi.fn(
-      (): TelegramReceiver => ({
-        messages: async function* () {},
-        stop: vi.fn(async () => {}),
-      }),
-    ),
+    telegramReceiver: vi.fn((): TelegramReceiver => ({
+      messages: async function* () {},
+      stop: vi.fn(async () => {}),
+    })),
   };
 }
 

@@ -233,10 +233,9 @@ describe('fresh DB schema', () => {
   it('creates the partial due index', () => {
     h = freshTestDb();
     const idx = h.sqlite
-      .prepare<
-        [],
-        { name: string }
-      >(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_scheduled_actions_due'`)
+      .prepare<[], { name: string }>(
+        `SELECT name FROM sqlite_master WHERE type='index' AND name='idx_scheduled_actions_due'`,
+      )
       .get();
     expect(idx?.name).toBe('idx_scheduled_actions_due');
   });
@@ -301,10 +300,9 @@ interface Journal {
  *  timestamp is <= the latest recorded `created_at`. No-op on a fresh DB. */
 function baselineLegacy(sqlite: Database.Database, migrationsFolder: string): void {
   const hasLegacy = sqlite
-    .prepare<
-      [],
-      { name: string }
-    >(`SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'`)
+    .prepare<[], { name: string }>(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'`,
+    )
     .get();
   if (!hasLegacy) {
     return;
@@ -403,10 +401,9 @@ describe('baseline shim on a legacy prod DB', () => {
     sqlite = new Database(':memory:');
     expect(() => applyMigrations(sqlite)).not.toThrow();
     const t = sqlite
-      .prepare<
-        [],
-        { name: string }
-      >(`SELECT name FROM sqlite_master WHERE type='table' AND name='profile'`)
+      .prepare<[], { name: string }>(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='profile'`,
+      )
       .get();
     expect(t?.name).toBe('profile');
   });
@@ -612,10 +609,9 @@ function withDb(): { sqlite: Database.Database; s: IdentitiesStore } {
 
 function lastUsed(sqlite: Database.Database, channel: string, identity: string): number | null {
   const row = sqlite
-    .prepare<
-      [string, string],
-      { last_used_at: number | null }
-    >(`SELECT last_used_at FROM identities WHERE channel = ? AND identity = ?`)
+    .prepare<[string, string], { last_used_at: number | null }>(
+      `SELECT last_used_at FROM identities WHERE channel = ? AND identity = ?`,
+    )
     .get(channel, identity);
   return row ? row.last_used_at : null;
 }

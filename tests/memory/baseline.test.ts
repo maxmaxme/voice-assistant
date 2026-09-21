@@ -95,10 +95,9 @@ describe('baseline shim on a legacy prod DB', () => {
     sqlite = new Database(':memory:');
     expect(() => applyMigrations(sqlite)).not.toThrow();
     const t = sqlite
-      .prepare<
-        [],
-        { name: string }
-      >(`SELECT name FROM sqlite_master WHERE type='table' AND name='profile'`)
+      .prepare<[], { name: string }>(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='profile'`,
+      )
       .get();
     expect(t?.name).toBe('profile');
   });

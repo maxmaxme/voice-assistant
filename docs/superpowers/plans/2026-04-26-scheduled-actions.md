@@ -57,30 +57,30 @@ src/cli/
 - [ ] Append v4 migration to `src/memory/migrations.ts` (table + index + back-fill from `reminders` and `timers`, see spec for exact SQL).
 - [ ] `src/memory/types.ts`:
       `ts
-    export interface ScheduledAction {
-      id: number;
-      goal: string;
-      schedule: Schedule;
-      status: 'active' | 'done' | 'cancelled' | 'error';
-      nextFireAt: number;
-      lastFiredAt: number | null;
-      createdAt: number;
-    }
-    export interface NewScheduledAction {
-      goal: string;
-      schedule: Schedule;
-      nextFireAt: number;
-    }
-    export interface ScheduledActionsAdapter {
-      add(input: NewScheduledAction): ScheduledAction;
-      listActive(): ScheduledAction[];
-      listDue(now: number): ScheduledAction[];
-      markFired(id: number, at: number, nextFireAt: number | null): void;
-      markError(id: number): void;
-      cancel(id: number): boolean;
-      get(id: number): ScheduledAction | null;
-    }
-    `
+export interface ScheduledAction {
+  id: number;
+  goal: string;
+  schedule: Schedule;
+  status: 'active' | 'done' | 'cancelled' | 'error';
+  nextFireAt: number;
+  lastFiredAt: number | null;
+  createdAt: number;
+}
+export interface NewScheduledAction {
+  goal: string;
+  schedule: Schedule;
+  nextFireAt: number;
+}
+export interface ScheduledActionsAdapter {
+  add(input: NewScheduledAction): ScheduledAction;
+  listActive(): ScheduledAction[];
+  listDue(now: number): ScheduledAction[];
+  markFired(id: number, at: number, nextFireAt: number | null): void;
+  markError(id: number): void;
+  cancel(id: number): boolean;
+  get(id: number): ScheduledAction | null;
+}
+`
 - [ ] `src/memory/sqliteScheduledActions.ts` — straightforward translation of the adapter against `scheduled_actions`. `markFired(id, at, nextFireAt)`: if `nextFireAt === null` set `status='done'`, else update `next_fire_at` and `last_fired_at`.
 - [ ] `src/memory/memoryStore.ts` adds `scheduledActions: SqliteScheduledActions`.
 - [ ] `tests/memory/sqliteScheduledActions.test.ts`: - Add → listActive returns it. - Migration v4 carries forward existing reminders/timers rows (use a v3 fixture DB). - listDue filters by `next_fire_at <= now AND status='active'`. - markFired with `null` advances to `done`; with a number updates next_fire_at. - cancel idempotent; returns false on missing.
@@ -91,12 +91,12 @@ src/cli/
 
 - [ ] `src/agent/scheduledActionTools.ts`: - `SCHEDULED_ACTION_TOOL_NAMES = new Set([...])` - `buildScheduledActionTools()` returning OpenAI function tool defs. Schema for `schedule_action`:
       `       properties: {
-        goal: string,
-        schedule_kind: enum 'once' | 'cron',
-        schedule_expr: string  // wall-clock 'YYYY-MM-DD HH:mm[:ss]' for once, POSIX cron for cron
-      }
-      required: all four
-      ` - `executeScheduledActionTool(adapter, name, args)` with overloads (mirror reminderTools' pattern). - For `once`: parse `schedule_expr` via `parseLocalWallClock`. Reject if past. - For `cron`: validate via `validateSchedule`. Compute first `nextFireAt`. - Return shape includes `next_fire_at` + `next_fire_at_local`.
+    goal: string,
+    schedule_kind: enum 'once' | 'cron',
+    schedule_expr: string  // wall-clock 'YYYY-MM-DD HH:mm[:ss]' for once, POSIX cron for cron
+  }
+  required: all four
+  ` - `executeScheduledActionTool(adapter, name, args)` with overloads (mirror reminderTools' pattern). - For `once`: parse `schedule_expr` via `parseLocalWallClock`. Reject if past. - For `cron`: validate via `validateSchedule`. Compute first `nextFireAt`. - Return shape includes `next_fire_at` + `next_fire_at_local`.
 - [ ] `tests/agent/scheduledActionTools.test.ts` covering: - Once-form happy path; rejects past times; rejects malformed at_local. - Cron-form happy path; rejects invalid expr; nextFireAt is in the future. - list_scheduled returns active only with both \_local fields. - cancel_scheduled returns ok:true / ok:false.
 
 **Definition of done:** tool tests pass, schema strict-mode-friendly (no optional fields outside `["X","null"]` pattern if any are needed).
@@ -105,9 +105,9 @@ src/cli/
 
 - [ ] `src/scheduling/goalRunner.ts`:
       `ts
-    export interface GoalRunner { fire(goal: string): Promise<void>; }
-    export function buildGoalRunner(agentForGoals: Agent): GoalRunner { ... }
-    `
+export interface GoalRunner { fire(goal: string): Promise<void>; }
+export function buildGoalRunner(agentForGoals: Agent): GoalRunner { ... }
+`
       Calls `agentForGoals.respond(systemDirective)` where the directive packages the goal into a self-contained instruction. Uses a separate `Session` instance per fire (no chain, no history).
 - [ ] In `OpenAiAgent`: add a constructor option `mode?: 'chat' | 'goal'` (default `'chat'`). In `'goal'` mode: - The base system prompt is replaced/augmented with a one-shot directive: "You are running a previously-scheduled goal. Execute it using your tools. Do NOT call `ask` (no user is present). When finished, return a single-sentence summary as your final reply." - The `ask` tool is omitted from the tool list. - `maxToolIterations` may be tuned (default 5 is fine).
 - [ ] `tests/scheduling/goalRunner.test.ts` with a fake `Agent` verifies `fire` calls `respond`. Integration is left to scheduler tests.

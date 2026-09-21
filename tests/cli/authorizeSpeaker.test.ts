@@ -31,10 +31,9 @@ describe('authorizeSpeaker', () => {
     const before = Date.now();
     authorizeSpeaker(ids, 'dev-tok'); // registered → touched
     const used = db
-      .prepare<
-        [string],
-        { last_used_at: number | null }
-      >(`SELECT last_used_at FROM identities WHERE channel='voice' AND identity=?`)
+      .prepare<[string], { last_used_at: number | null }>(
+        `SELECT last_used_at FROM identities WHERE channel='voice' AND identity=?`,
+      )
       .get(hashToken('dev-tok'));
     expect(used?.last_used_at).not.toBeNull();
     expect(used!.last_used_at!).toBeGreaterThanOrEqual(before);

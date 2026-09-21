@@ -250,8 +250,7 @@ import { runMigrations } from './migrate.ts';
 import type { MemoryAdapter, ProfileFacts } from './types.ts';
 
 export type SqliteProfileMemoryOptions =
-  | { dbPath: string; db?: undefined }
-  | { db: Database.Database; dbPath?: undefined };
+  { dbPath: string; db?: undefined } | { db: Database.Database; dbPath?: undefined };
 
 export class SqliteProfileMemory implements MemoryAdapter {
   private readonly db: Database.Database;
@@ -282,8 +281,7 @@ export class SqliteProfileMemory implements MemoryAdapter {
   recall(key?: string): ProfileFacts {
     if (key !== undefined) {
       const row = this.db.prepare('SELECT value FROM profile WHERE key = ?').get(key) as
-        | { value: string }
-        | undefined;
+        { value: string } | undefined;
       if (!row) return {};
       return { [key]: JSON.parse(row.value) };
     }

@@ -36,10 +36,9 @@ describe('resolveTelegramScope', () => {
     const before = Date.now();
     resolveTelegramScope(s, 111); // hit → touched
     const used = db
-      .prepare<
-        [],
-        { last_used_at: number | null }
-      >(`SELECT last_used_at FROM identities WHERE channel='telegram' AND identity='111'`)
+      .prepare<[], { last_used_at: number | null }>(
+        `SELECT last_used_at FROM identities WHERE channel='telegram' AND identity='111'`,
+      )
       .get();
     expect(used?.last_used_at).not.toBeNull();
     expect(used!.last_used_at!).toBeGreaterThanOrEqual(before);

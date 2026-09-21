@@ -34,10 +34,9 @@ describe('fresh DB schema', () => {
 
   it('creates the partial due index', () => {
     const idx = h.sqlite
-      .prepare<
-        [],
-        { name: string }
-      >(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_scheduled_actions_due'`)
+      .prepare<[], { name: string }>(
+        `SELECT name FROM sqlite_master WHERE type='index' AND name='idx_scheduled_actions_due'`,
+      )
       .get();
     expect(idx?.name).toBe('idx_scheduled_actions_due');
   });

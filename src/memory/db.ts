@@ -43,10 +43,9 @@ interface Journal {
  *  applied but no longer recorded). */
 function baselineLegacy(sqlite: Database.Database, migrationsFolder: string): void {
   const hasLegacy = sqlite
-    .prepare<
-      [],
-      { name: string }
-    >(`SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'`)
+    .prepare<[], { name: string }>(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'`,
+    )
     .get();
   if (!hasLegacy) {
     return;

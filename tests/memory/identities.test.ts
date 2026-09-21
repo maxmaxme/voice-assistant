@@ -14,10 +14,9 @@ function withDb(): { sqlite: Database.Database; s: IdentitiesStore } {
 
 function lastUsed(sqlite: Database.Database, channel: string, identity: string): number | null {
   const row = sqlite
-    .prepare<
-      [string, string],
-      { last_used_at: number | null }
-    >(`SELECT last_used_at FROM identities WHERE channel = ? AND identity = ?`)
+    .prepare<[string, string], { last_used_at: number | null }>(
+      `SELECT last_used_at FROM identities WHERE channel = ? AND identity = ?`,
+    )
     .get(channel, identity);
   return row ? row.last_used_at : null;
 }
