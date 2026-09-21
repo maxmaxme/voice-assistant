@@ -126,3 +126,32 @@ describe('mcpToolsToOpenAi', () => {
     expect(mcpToolsToOpenAi([])).toEqual([]);
   });
 });
+
+describe('domain-prefixed HA tool names', () => {
+  const prefixed: McpTool[] = [
+    {
+      name: 'todo__get_items',
+      inputSchema: {
+        type: 'object',
+        properties: { todo_list: { enum: ['Shopping List'] } },
+      },
+    },
+    {
+      name: 'todo__HassListAddItem',
+      description: 'Add item to a todo list',
+      inputSchema: {
+        type: 'object',
+        properties: { name: { type: 'string' }, item: { type: 'string' } },
+      },
+    },
+  ];
+
+  it('patches the schema and appends the suffix through the domain prefix', () => {
+    const add = mcpToolsToOpenAi(prefixed).find((t) => t.name === 'todo__HassListAddItem');
+    expect(add?.parameters.required).toEqual(['name', 'item']);
+    expect((add?.parameters.properties as Record<string, { enum?: string[] }>).name.enum).toEqual([
+      'Shopping List',
+    ]);
+    expect(add?.description).toContain('Shopping-list item formatting');
+  });
+});

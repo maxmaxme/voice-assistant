@@ -13,7 +13,7 @@ import type { MemoryStore } from '../memory/types.ts';
 import { householdFromAdapter, type ScopedProfile } from '../memory/scope.ts';
 import { Session } from './session.ts';
 import { appendUserContext } from './systemPrompt.ts';
-import { mcpToolsToOpenAi } from './toolBridge.ts';
+import { bareToolName, mcpToolsToOpenAi } from './toolBridge.ts';
 import { ASK_TOOL_NAME, buildAskTool } from './askTool.ts';
 import { buildLocalToolset } from './localTools.ts';
 import { executeRoutedTool } from './toolExecutor.ts';
@@ -505,7 +505,7 @@ function stripApiArtifacts(text: string): string {
 const HA_MATCH_FAILED_PATTERNS = ['MatchFailedError', 'MatchFailedReason', 'no_match_reason'];
 
 function appendRecoveryHint(toolName: string, errorText: string): string {
-  if (toolName === 'GetLiveContext') {
+  if (bareToolName(toolName) === 'GetLiveContext') {
     return '';
   }
   const isMatchFailure = HA_MATCH_FAILED_PATTERNS.some((p) => errorText.includes(p));

@@ -44,7 +44,16 @@ const HA_SUFFIX_TOOLS: ReadonlySet<string> = new Set([
 /** The (possibly web-edited) suffix for an HA tool, or undefined when the tool
  *  has none. Resolved at call time so DB edits take effect. */
 function haSuffixFor(toolName: string): string | undefined {
-  return HA_SUFFIX_TOOLS.has(toolName) ? resolvePrompt(`ha-suffix/${toolName}`) : undefined;
+  const bare = bareToolName(toolName);
+  return HA_SUFFIX_TOOLS.has(bare) ? resolvePrompt(`ha-suffix/${bare}`) : undefined;
+}
+
+/** HA 2026.x namespaces its MCP exports by domain (`todo__HassListAddItem`,
+ * `todo__get_items`); older builds export the bare intent name. Every
+ * name-keyed rule here matches on the bare tail so both shapes work. */
+export function bareToolName(name: string): string {
+  const sep = name.lastIndexOf('__');
+  return sep === -1 ? name : name.slice(sep + 2);
 }
 
 const TODO_ITEM_TOOLS: ReadonlySet<string> = new Set([
@@ -55,10 +64,12 @@ const TODO_ITEM_TOOLS: ReadonlySet<string> = new Set([
 
 const log = createLogger('tool-bridge');
 
-/** The real list names HA advertises on `todo_get_items` — the only tool in the
- *  export whose list argument is documented. */
+const TODO_GET_ITEMS: ReadonlySet<string> = new Set(['todo_get_items', 'get_items']);
+
+/** The real list names HA advertises on its get-items tool — the only tool in
+ *  the export whose list argument is documented. */
 function todoListNames(tools: McpTool[]): string[] | undefined {
-  const props = tools.find((t) => t.name === 'todo_get_items')?.inputSchema.properties;
+  const props = tools.find((t) => TODO_GET_ITEMS.has(bareToolName(t.name)))?.inputSchema.properties;
   if (!isRecord(props) || !isRecord(props.todo_list)) {
     return undefined;
   }
@@ -76,7 +87,7 @@ function todoListNames(tools: McpTool[]): string[] | undefined {
 function enrichTodoSchemas(tools: McpTool[]): McpTool[] {
   const lists = todoListNames(tools);
   return tools.map((t) => {
-    if (!TODO_ITEM_TOOLS.has(t.name)) {
+    if (!TODO_ITEM_TOOLS.has(bareToolName(t.name))) {
       return t;
     }
     const props = t.inputSchema.properties;
@@ -120,7 +131,10 @@ export async function resolveTodoList(
   tool: string,
   args: Record<string, unknown>,
 ): Promise<{ args: Record<string, unknown> } | { error: string }> {
-  if (!TODO_ITEM_TOOLS.has(tool) || (typeof args.name === 'string' && args.name.trim())) {
+  if (
+    !TODO_ITEM_TOOLS.has(bareToolName(tool)) ||
+    (typeof args.name === 'string' && args.name.trim())
+  ) {
     return { args };
   }
   const lists = todoListNames(await mcp.listTools()) ?? [];

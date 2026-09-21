@@ -1,4 +1,5 @@
 import { executeRoutedTool } from '../agent/toolExecutor.ts';
+import { bareToolName } from '../agent/toolBridge.ts';
 import type { LocalToolset } from '../agent/localTools.ts';
 import type { McpClient } from '../mcp/types.ts';
 import { ToolResultCache, CACHEABLE_TOOLS } from './toolCache.ts';
@@ -30,7 +31,7 @@ export function buildRealtimeToolRunner(
     disconnect: () => mcp.disconnect(),
     listTools: () => mcp.listTools(),
     callTool: async (name, args) => {
-      if (CACHEABLE_TOOLS.has(name)) {
+      if (CACHEABLE_TOOLS.has(bareToolName(name))) {
         const key = `${name}:${JSON.stringify(args)}`;
         const hit = cache.get(key);
         if (hit !== undefined) {
