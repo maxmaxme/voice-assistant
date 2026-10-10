@@ -32,6 +32,7 @@ const topLevel: NavLink[] = [
   { label: 'Prompts', icon: 'i-lucide-message-square-text', to: '/prompts' },
   { label: 'Integrations', icon: 'i-lucide-plug', to: '/integrations' },
   { label: 'Users', icon: 'i-lucide-users', to: '/users' },
+  { label: 'Mic dumps', icon: 'i-lucide-audio-lines', to: '/mic-dumps' },
 ]
 
 const route = useRoute()

@@ -93,3 +93,24 @@ export interface User {
 export interface UsersResponse {
   users: User[]
 }
+
+export interface MicDumpLevels {
+  peakDb: number
+  clippedPct: number
+  speechDb: number
+  noiseDb: number
+}
+
+export interface MicDump {
+  name: string
+  recordedAt: string
+  speaker: string
+  durationMs: number
+  bytes: number
+  levels: MicDumpLevels | null
+}
+
+export interface MicDumpsResponse {
+  available: boolean
+  dumps: MicDump[]
+}

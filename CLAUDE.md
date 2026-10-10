@@ -519,7 +519,11 @@ Key files:
   stream: buffers a turn's PCM16 and writes
   `<date>_<time>-<speaker>.wav` (16 kHz mono, server timezone, speaker
   name from `identities.userName`) to `MIC_DUMP_DIR`, keeping the newest
-  20 files. Copy them off with `scp -p` — plain `scp` rewrites mtime. Off
+  20 files. The web panel's **Mic dumps** page lists them with a player,
+  download and per-file levels (speech / noise floor / peak / clipping —
+  `web/server/utils/micDumps.ts`), reading `mic-dumps/` next to the DB (or
+  its own `MIC_DUMP_DIR`). To copy them off by hand use `scp -p` — plain
+  `scp` rewrites mtime. Off
   unless that env var is set. This is how mic level / SNR / clipping is
   measured on a real speaker instead of guessed by ear — the firmware's
   gain knobs (`va_client` `mic_gain`, codec PGA) are tuned against these
