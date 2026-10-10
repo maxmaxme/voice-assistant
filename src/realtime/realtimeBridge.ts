@@ -19,7 +19,12 @@ import { FollowUpController } from './followUpController.ts';
 import type { WakeArbiter } from './wakeArbiter.ts';
 import { resolvePrompt } from '../agent/prompts/registry.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
-import type { RealtimeDeviceConfig, NoiseReduction } from '../settings/realtimeConfig.ts';
+import type {
+  RealtimeDeviceConfig,
+  NoiseReduction,
+  TranscriptionModel,
+  TurnDetection,
+} from '../settings/realtimeConfig.ts';
 
 const log = createLogger('realtime-bridge');
 
@@ -77,8 +82,12 @@ export interface BridgeDeps {
   language?: string;
   // Transcribe user audio for logs/memory (default on).
   transcription?: boolean;
+  // Model for that transcription pass (default whisper-1).
+  transcriptionModel?: TranscriptionModel;
   // Server-side input filter applied before VAD (default far_field).
   noiseReduction?: NoiseReduction;
+  // End-of-turn detection (default the tuned server_vad).
+  turnDetection?: TurnDetection;
 }
 
 export class RealtimeBridge {
@@ -233,7 +242,9 @@ export class RealtimeBridge {
       reasoningEffort: deps.reasoningEffort,
       language: deps.language,
       transcription: deps.transcription,
+      transcriptionModel: deps.transcriptionModel,
       noiseReduction: deps.noiseReduction,
+      turnDetection: deps.turnDetection,
     });
   }
 

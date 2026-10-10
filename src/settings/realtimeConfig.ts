@@ -10,6 +10,16 @@ import type { SettingsStore } from './types.ts';
  *  mics. */
 export type NoiseReduction = 'far_field' | 'near_field' | 'off';
 
+/** How the Realtime session decides the user finished speaking. `server_vad`
+ *  closes the turn after a fixed run of silence; the `semantic_*` modes use
+ *  OpenAI's semantic VAD, which judges from the words whether the user is done
+ *  (so a mid-sentence pause doesn't split the turn). The suffix is semantic
+ *  VAD's eagerness: low waits longest (max 8s), high replies fastest (max 2s). */
+export type TurnDetection = 'server_vad' | 'semantic_low' | 'semantic_medium' | 'semantic_high';
+
+/** Model for the optional transcription pass over the user's audio. */
+export type TranscriptionModel = 'whisper-1' | 'gpt-4o-mini-transcribe' | 'gpt-4o-transcribe';
+
 export interface RealtimeConfig {
   enabled: boolean;
   outputPacingMs: number;
@@ -22,7 +32,9 @@ export interface RealtimeConfig {
    *  and Whisper auto-detect. */
   language: string;
   transcription: boolean;
+  transcriptionModel: TranscriptionModel;
   noiseReduction: NoiseReduction;
+  turnDetection: TurnDetection;
 }
 
 export const REALTIME_KEYS = {
@@ -35,7 +47,9 @@ export const REALTIME_KEYS = {
   wakeChime: 'realtime.wakeChime',
   language: 'realtime.language',
   transcription: 'realtime.transcription',
+  transcriptionModel: 'realtime.transcriptionModel',
   noiseReduction: 'realtime.noiseReduction',
+  turnDetection: 'realtime.turnDetection',
 } as const;
 
 const DEFAULTS: RealtimeConfig = {
@@ -66,9 +80,15 @@ const DEFAULTS: RealtimeConfig = {
   // Realtime model does its own STT regardless, so this is pure extra spend per
   // turn. Off by default; turn it on when debugging what the speaker heard.
   transcription: false,
+  // whisper-1 is the long-standing default; the gpt-4o transcribe models
+  // hallucinate less on short / silence-heavy turns.
+  transcriptionModel: 'whisper-1',
   // Across-the-room mics with weak SNR — filtering before VAD buys fewer false
   // turns and better recognition. 'near_field' suits a headset/close mic.
   noiseReduction: 'far_field',
+  // The tuned silence-based VAD; semantic VAD is opt-in until it has proven
+  // itself on the across-the-room speakers.
+  turnDetection: 'server_vad',
 };
 
 function num(value: string | undefined, fallback: number): number {
@@ -90,6 +110,31 @@ function noiseReduction(value: string | undefined): NoiseReduction {
       return v;
     default:
       return DEFAULTS.noiseReduction;
+  }
+}
+
+function turnDetection(value: string | undefined): TurnDetection {
+  const v = (value ?? '').trim();
+  switch (v) {
+    case 'server_vad':
+    case 'semantic_low':
+    case 'semantic_medium':
+    case 'semantic_high':
+      return v;
+    default:
+      return DEFAULTS.turnDetection;
+  }
+}
+
+function transcriptionModel(value: string | undefined): TranscriptionModel {
+  const v = (value ?? '').trim();
+  switch (v) {
+    case 'whisper-1':
+    case 'gpt-4o-mini-transcribe':
+    case 'gpt-4o-transcribe':
+      return v;
+    default:
+      return DEFAULTS.transcriptionModel;
   }
 }
 
@@ -118,6 +163,8 @@ export function resolveRealtimeConfig(store: SettingsStore): RealtimeConfig {
     wakeChime: flagDefaultOn(store.get(REALTIME_KEYS.wakeChime)),
     language: (store.get(REALTIME_KEYS.language) ?? '').trim().toLowerCase(),
     transcription: flagDefaultOff(store.get(REALTIME_KEYS.transcription)),
+    transcriptionModel: transcriptionModel(store.get(REALTIME_KEYS.transcriptionModel)),
     noiseReduction: noiseReduction(store.get(REALTIME_KEYS.noiseReduction)),
+    turnDetection: turnDetection(store.get(REALTIME_KEYS.turnDetection)),
   };
 }

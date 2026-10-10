@@ -23,7 +23,9 @@ describe('resolveRealtimeConfig', () => {
       wakeChime: true,
       language: '',
       transcription: false,
+      transcriptionModel: 'whisper-1',
       noiseReduction: 'far_field',
+      turnDetection: 'server_vad',
     });
   });
 
@@ -37,7 +39,9 @@ describe('resolveRealtimeConfig', () => {
     store.set(REALTIME_KEYS.wakeChime, '0');
     store.set(REALTIME_KEYS.language, ' RU ');
     store.set(REALTIME_KEYS.transcription, '1');
+    store.set(REALTIME_KEYS.transcriptionModel, 'gpt-4o-mini-transcribe');
     store.set(REALTIME_KEYS.noiseReduction, 'off');
+    store.set(REALTIME_KEYS.turnDetection, 'semantic_low');
     expect(resolveRealtimeConfig(store)).toEqual({
       enabled: true,
       outputPacingMs: 40,
@@ -48,7 +52,9 @@ describe('resolveRealtimeConfig', () => {
       wakeChime: false,
       language: 'ru',
       transcription: true,
+      transcriptionModel: 'gpt-4o-mini-transcribe',
       noiseReduction: 'off',
+      turnDetection: 'semantic_low',
     });
   });
 
@@ -57,8 +63,12 @@ describe('resolveRealtimeConfig', () => {
     store.set(REALTIME_KEYS.idleResetMs, 'bogus');
     store.set(REALTIME_KEYS.followUpMs, 'bogus');
     store.set(REALTIME_KEYS.noiseReduction, 'bogus');
+    store.set(REALTIME_KEYS.turnDetection, 'semantic_vad');
+    store.set(REALTIME_KEYS.transcriptionModel, 'gpt-5-transcribe');
     const cfg = resolveRealtimeConfig(store);
     expect(cfg.noiseReduction).toBe('far_field');
+    expect(cfg.turnDetection).toBe('server_vad');
+    expect(cfg.transcriptionModel).toBe('whisper-1');
     expect(cfg.outputPacingMs).toBe(20);
     expect(cfg.idleResetMs).toBe(90_000);
     expect(cfg.followUpMs).toBe(8_000);

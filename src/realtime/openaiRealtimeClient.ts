@@ -8,9 +8,51 @@ import type {
 } from 'openai/resources/realtime/realtime';
 import { createLogger } from '../utils/logger.ts';
 import type { RealtimeTool } from './toolAdapter.ts';
-import type { NoiseReduction } from '../settings/realtimeConfig.ts';
+import type {
+  NoiseReduction,
+  TranscriptionModel,
+  TurnDetection,
+} from '../settings/realtimeConfig.ts';
 
 const log = createLogger('openai-realtime');
+
+type TurnDetectionConfig = NonNullable<
+  NonNullable<NonNullable<RealtimeSessionCreateRequest['audio']>['input']>['turn_detection']
+>;
+
+function turnDetectionConfig(mode: TurnDetection | undefined): TurnDetectionConfig {
+  switch (mode) {
+    // Semantic VAD decides end-of-turn from what was said, not from silence —
+    // it has no threshold/silence knobs, only how eager it is to reply.
+    case 'semantic_low':
+      return { type: 'semantic_vad', eagerness: 'low' };
+    case 'semantic_medium':
+      return { type: 'semantic_vad', eagerness: 'medium' };
+    case 'semantic_high':
+      return { type: 'semantic_vad', eagerness: 'high' };
+    default:
+      return {
+        type: 'server_vad',
+        // VAD activation threshold (0..1 on the VAD model's own output —
+        // NOT dBFS; there is no documented mapping to a level). Default 0.5
+        // assumes a close mic. Measured on a Voice PE dump: four
+        // repetitions of one phrase landed in a SINGLE 16-second turn —
+        // the quiet ones (-25..-35 dBFS RMS) never registered as speech, so
+        // their end never registered either, and the reply came only once
+        // the user raised their voice to -15. 0.3 is a step toward "hears
+        // quieter", to be tuned by experiment: lower if turns still fail to
+        // close, raise if room noise starts opening turns by itself.
+        // Default silence_duration_ms is 500 — short enough that a
+        // natural pause mid-sentence ("Turn off… the living-room light")
+        // splits the turn in two. Whisper then hallucinates random
+        // text from the silence-only second chunk (we've seen Korean
+        // onomatopoeia "뿅!" appear). 900 ms holds the turn open
+        // long enough for normal pauses while still feeling responsive.
+        silence_duration_ms: 900,
+        threshold: 0.3,
+      };
+  }
+}
 
 export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
@@ -27,8 +69,12 @@ export interface RealtimeClientOptions {
   /** Transcribe the user's audio for logs/memory. Omitted = on (the DB-backed
    *  setting that feeds this defaults it off). */
   transcription?: boolean;
+  /** Model for that transcription pass. Omitted = whisper-1. */
+  transcriptionModel?: TranscriptionModel;
   /** Server-side input filter applied before VAD. Omitted = far_field. */
   noiseReduction?: NoiseReduction;
+  /** End-of-turn detection. Omitted = the tuned server_vad. */
+  turnDetection?: TurnDetection;
 }
 
 export class OpenAiRealtimeClient {
@@ -140,26 +186,7 @@ export class OpenAiRealtimeClient {
             this.opts.noiseReduction === 'off'
               ? undefined
               : { type: this.opts.noiseReduction ?? 'far_field' },
-          turn_detection: {
-            type: 'server_vad',
-            // VAD activation threshold (0..1 on the VAD model's own output —
-            // NOT dBFS; there is no documented mapping to a level). Default 0.5
-            // assumes a close mic. Measured on a Voice PE dump: four
-            // repetitions of one phrase landed in a SINGLE 16-second turn —
-            // the quiet ones (-25..-35 dBFS RMS) never registered as speech, so
-            // their end never registered either, and the reply came only once
-            // the user raised their voice to -15. 0.3 is a step toward "hears
-            // quieter", to be tuned by experiment: lower if turns still fail to
-            // close, raise if room noise starts opening turns by itself.
-            // Default silence_duration_ms is 500 — short enough that a
-            // natural pause mid-sentence ("Turn off… the living-room light")
-            // splits the turn in two. Whisper then hallucinates random
-            // text from the silence-only second chunk (we've seen Korean
-            // onomatopoeia "뿅!" appear). 900 ms holds the turn open
-            // long enough for normal pauses while still feeling responsive.
-            silence_duration_ms: 900,
-            threshold: 0.3,
-          },
+          turn_detection: turnDetectionConfig(this.opts.turnDetection),
           // Ask the server to transcribe user audio so we can log what was
           // actually heard — very useful when debugging "the AI did something
           // weird", but a separate paid pass on top of the model's own STT, so
@@ -170,7 +197,7 @@ export class OpenAiRealtimeClient {
             this.opts.transcription === false
               ? undefined
               : {
-                  model: 'whisper-1',
+                  model: this.opts.transcriptionModel ?? 'whisper-1',
                   ...(this.opts.language ? { language: this.opts.language } : {}),
                 },
         },

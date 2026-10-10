@@ -1,6 +1,13 @@
 import { setSetting, deleteSetting } from '../utils/db/settings'
 import { DbNotReadyError } from '../utils/db/client'
-import { REALTIME_KEYS, NOISE_REDUCTIONS, canonicalizeLanguage, canonicalizeNumber } from '../utils/realtime'
+import {
+  REALTIME_KEYS,
+  NOISE_REDUCTIONS,
+  TURN_DETECTIONS,
+  TRANSCRIPTION_MODELS,
+  canonicalizeLanguage,
+  canonicalizeNumber,
+} from '../utils/realtime'
 
 interface PutBody {
   enabled?: boolean
@@ -13,7 +20,9 @@ interface PutBody {
   wakeChime?: boolean
   language?: string
   transcription?: boolean
+  transcriptionModel?: string
   noiseReduction?: string
+  turnDetection?: string
 }
 
 export default defineEventHandler(async (event) => {
@@ -46,6 +55,16 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: `Noise reduction must be one of ${NOISE_REDUCTIONS.join(', ')}` })
   }
 
+  const turn = body.turnDetection ?? ''
+  if (turn !== '' && !TURN_DETECTIONS.includes(turn)) {
+    throw createError({ statusCode: 400, statusMessage: `Turn detection must be one of ${TURN_DETECTIONS.join(', ')}` })
+  }
+
+  const transcriptionModel = body.transcriptionModel ?? ''
+  if (transcriptionModel !== '' && !TRANSCRIPTION_MODELS.includes(transcriptionModel)) {
+    throw createError({ statusCode: 400, statusMessage: `Transcription model must be one of ${TRANSCRIPTION_MODELS.join(', ')}` })
+  }
+
   const writeOrClear = (key: string, value: string | null): void => {
     if (value === null) deleteSetting(key)
     else setSetting(key, value)
@@ -67,6 +86,12 @@ export default defineEventHandler(async (event) => {
     else deleteSetting(REALTIME_KEYS.transcription)
     // far_field is the built-in default — clear the key instead of storing it.
     writeOrClear(REALTIME_KEYS.noiseReduction, noise === '' || noise === 'far_field' ? null : noise)
+    // Built-in defaults (server_vad / whisper-1) clear the key instead of storing it.
+    writeOrClear(REALTIME_KEYS.turnDetection, turn === '' || turn === 'server_vad' ? null : turn)
+    writeOrClear(
+      REALTIME_KEYS.transcriptionModel,
+      transcriptionModel === '' || transcriptionModel === 'whisper-1' ? null : transcriptionModel,
+    )
   }
   catch (e) {
     if (e instanceof DbNotReadyError) {

@@ -317,6 +317,32 @@ describe('OpenAiRealtimeClient.connect session configuration', () => {
     });
   });
 
+  it('uses the configured transcription model', async () => {
+    const client = makeClient({
+      transcription: true,
+      transcriptionModel: 'gpt-4o-mini-transcribe',
+    });
+    await connectClient(client);
+
+    const session = sentSession(fakeSockets.at(-1)!);
+    expect(sessionAudioInput(session).transcription).toEqual({
+      model: 'gpt-4o-mini-transcribe',
+    });
+  });
+
+  it('switches to semantic VAD with the configured eagerness', async () => {
+    const client = makeClient({ turnDetection: 'semantic_low' });
+    await connectClient(client);
+
+    const session = sentSession(fakeSockets.at(-1)!);
+    // No threshold/silence knobs leak in from the server_vad tuning — the API
+    // rejects them on semantic_vad.
+    expect(sessionAudioInput(session).turn_detection).toEqual({
+      type: 'semantic_vad',
+      eagerness: 'low',
+    });
+  });
+
   it('drops transcription entirely when it is turned off', async () => {
     const client = makeClient({ transcription: false, language: 'ru' });
     await connectClient(client);

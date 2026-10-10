@@ -12,11 +12,19 @@ export const REALTIME_KEYS = {
   wakeChime: 'realtime.wakeChime',
   language: 'realtime.language',
   transcription: 'realtime.transcription',
+  transcriptionModel: 'realtime.transcriptionModel',
   noiseReduction: 'realtime.noiseReduction',
+  turnDetection: 'realtime.turnDetection',
 } as const
 
-/** KEEP in sync with NOISE_REDUCTIONS in src/settings/realtimeConfig.ts. */
+/** KEEP in sync with NoiseReduction in src/settings/realtimeConfig.ts. */
 export const NOISE_REDUCTIONS: readonly string[] = ['far_field', 'near_field', 'off']
+
+/** KEEP in sync with TurnDetection in src/settings/realtimeConfig.ts. */
+export const TURN_DETECTIONS: readonly string[] = ['server_vad', 'semantic_low', 'semantic_medium', 'semantic_high']
+
+/** KEEP in sync with TranscriptionModel in src/settings/realtimeConfig.ts. */
+export const TRANSCRIPTION_MODELS: readonly string[] = ['whisper-1', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe']
 
 export interface RealtimeForm {
   enabled: boolean
@@ -30,7 +38,9 @@ export interface RealtimeForm {
   /** ISO 639-1 code, '' = auto-detect. */
   language: string
   transcription: boolean
+  transcriptionModel: string
   noiseReduction: string
+  turnDetection: string
 }
 
 export function readRealtime(all: Record<string, string>): RealtimeForm {
@@ -47,7 +57,9 @@ export function readRealtime(all: Record<string, string>): RealtimeForm {
     language: all[REALTIME_KEYS.language] ?? '',
     // Default off: only a stored '1' turns transcription on.
     transcription: all[REALTIME_KEYS.transcription] === '1',
+    transcriptionModel: all[REALTIME_KEYS.transcriptionModel] ?? 'whisper-1',
     noiseReduction: all[REALTIME_KEYS.noiseReduction] ?? 'far_field',
+    turnDetection: all[REALTIME_KEYS.turnDetection] ?? 'server_vad',
   }
 }
 
