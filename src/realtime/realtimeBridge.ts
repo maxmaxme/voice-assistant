@@ -106,6 +106,16 @@ export class RealtimeBridge {
   // The last phase actually sent to the device. Diverges from currentPhase
   // only between a `start` and the first speech_started — see setPhase.
   private devicePhase: Phase | null = null;
+  // The device's id for the current turn (from its last `start`, proto 2).
+  // Echoed on every turn-scoped message so the device can drop late messages
+  // from a turn it already aborted. Undefined until a proto-2 `start` arrives
+  // (proto-1 firmware) — messages then go out unstamped.
+  private deviceTurn: number | undefined;
+  // Bumped whenever the current turn ends out from under in-flight async work:
+  // a device `start` (new turn / barge-in), an `interrupt` (abort), an upstream
+  // close (session gone). Work that awaits (the tool batch) captures it first
+  // and bails if it moved, instead of acting on a turn that no longer exists.
+  private turnGen = 0;
   // Follow-up state machine (empty-follow-up retry, deferred request_follow_up
   // window, watchdog) — see FollowUpController for the full rationale.
   private followUps: FollowUpController;
@@ -265,6 +275,7 @@ export class RealtimeBridge {
         'openai closed — will lazy-reconnect on next device audio',
       );
       this.openaiState = 'disconnected';
+      this.turnGen++;
       // The session (and the response its audio belonged to) is gone — drop
       // any paced tail + deferred idle so they don't fire against a dead turn.
       this.pacer.flush();
@@ -447,6 +458,10 @@ export class RealtimeBridge {
       const msg = parseDeviceMessage(data.toString());
       log.debug({ msg }, 'device control msg');
       if (msg.type === 'start') {
+        // Adopt the device's turn id first so every reply to this start —
+        // including the arbitration loser's idle below — carries it.
+        this.deviceTurn = msg.turn;
+        this.turnGen++;
         // Co-located wake arbitration: if several speakers heard the same
         // "okay nabu", only the first to `start` opens a turn; the rest are
         // sent back to idle and their mic audio is dropped, so the user gets
@@ -502,6 +517,7 @@ export class RealtimeBridge {
         // OpenAI session leaking open forever. We go to idle, not listening:
         // setPhase('listening') used to live here and popped the mic open
         // after a Stop, which let OpenAI emit a phantom follow-up response.
+        this.turnGen++;
         this.followUps.cancelWindowRequest();
         this.openai.cancelResponse();
         this.dropResponseAudio = true;
@@ -757,6 +773,11 @@ export class RealtimeBridge {
         // handler. Past the ceiling we request the follow-up with whatever
         // outputs landed; a late tool still submits its result item, it just
         // won't trigger another response.
+        // The user can abort or barge in while the tools run — the response
+        // already completed, so there's no `cancelled` status to see. Requesting
+        // the follow-up then would answer a turn the device has closed ("done!"
+        // after a Stop, or the old answer over a new question).
+        const gen = this.turnGen;
         let timedOut = false;
         const results = await Promise.race([
           Promise.allSettled(pending),
@@ -778,6 +799,13 @@ export class RealtimeBridge {
           if (r.status === 'rejected') {
             log.warn({ err: r.reason }, 'tool call promise rejected — continuing batch');
           }
+        }
+        if (gen !== this.turnGen) {
+          log.info(
+            { responseId, sessionId: this.sessionId },
+            'turn ended while its tool batch ran — skipping follow-up response',
+          );
+          break;
         }
         log.info(
           { responseId, sessionId: this.sessionId },
@@ -863,8 +891,13 @@ export class RealtimeBridge {
     }
   }
 
+  /** The single device send path. Turn-scoped messages get the current
+   *  device turn id stamped here, so no call site can forget it. */
   private sendDevice(msg: ServerMessage): void {
-    this.deviceWs.send(encodeServerMessage(msg));
+    const scoped =
+      this.deviceTurn !== undefined &&
+      (msg.type === 'phase' || msg.type === 'error' || msg.type === 'follow_up');
+    this.deviceWs.send(encodeServerMessage(scoped ? { ...msg, turn: this.deviceTurn } : msg));
   }
 
   /** Send the handshake ack + current device config. Single builder so `hello`

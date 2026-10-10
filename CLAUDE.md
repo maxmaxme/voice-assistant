@@ -502,7 +502,16 @@ Key files:
   loudly on mismatch — plus `audioOut` + `wakeChime`,
   the admin's wake-beep preference the device gates its local wake sound
   on), `phase`, `error`, `pong`, `follow_up`; device→server `start`,
-  `interrupt`, `ping`. A server `phase: listening` means **speech heard**
+  `interrupt`, `ping`. **Turn ids (proto 2):** `start {turn}` carries a
+  device-chosen id, and the bridge stamps it on every turn-scoped message
+  (`phase` / `follow_up` / `error`) centrally in `sendDevice` (hello and
+  anything before the first proto-2 `start` stay unstamped — proto-1
+  firmware just never sees the field). The device aborts turns locally and
+  drops late messages tagged with a turn it already closed, so the bridge
+  never has to win a race against a Stop. The bridge's own async work guards
+  on `turnGen` (bumped on `start` / `interrupt` / upstream close): a tool
+  batch that finishes after the turn ended skips its follow-up
+  `response.create` instead of answering a turn the user cancelled. A server `phase: listening` means **speech heard**
   (sent on OpenAI's `speech_started`), never an ack of `start`: the
   firmware disarms its 7 s no-speech watchdog on it, so `start` moves the
   bridge to listening quietly (`setPhase(..., { quiet: true })`). Binary frames are raw PCM16 in both directions. `follow_up {ms, chime?}` is sent right before

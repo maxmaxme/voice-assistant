@@ -11,6 +11,16 @@ describe('protocol', () => {
     expect(msg).toEqual({ type: 'start' });
   });
 
+  it('parses a start carrying the device turn id (proto 2)', () => {
+    expect(parseDeviceMessage('{"type":"start","turn":7}')).toEqual({ type: 'start', turn: 7 });
+  });
+
+  it('rejects a start with a malformed turn id', () => {
+    expect(() => parseDeviceMessage('{"type":"start","turn":-1}')).toThrow();
+    expect(() => parseDeviceMessage('{"type":"start","turn":1.5}')).toThrow();
+    expect(() => parseDeviceMessage('{"type":"start","turn":"7"}')).toThrow();
+  });
+
   it('parses an interrupt message', () => {
     const msg = parseDeviceMessage('{"type":"interrupt"}');
     expect(msg).toEqual({ type: 'interrupt' });
