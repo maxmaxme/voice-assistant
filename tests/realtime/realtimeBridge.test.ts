@@ -349,17 +349,37 @@ describe('RealtimeBridge device control protocol', () => {
     expect(() => deviceWs.emit('message', Buffer.from('not json'), false)).not.toThrow();
   });
 
-  it('enters listening as soon as the device sends start (wake word)', async () => {
+  it('does not echo listening on start — only speech_started tells the device', async () => {
     bridge = new RealtimeBridge(deviceWs as never, makeDeps());
     await bridge.start();
+    const client = currentClient();
     deviceWs.send.mockClear(); // drop hello + initial idle
 
-    // The device sends `start` the moment the wake word fires — before any
-    // audio, well before OpenAI's server VAD emits speech_started. The bridge
-    // must reflect "listening" immediately, not lag until speech is detected.
+    // The device sends `start` the moment the wake word fires and goes to
+    // listening on its own. To the firmware a server `listening` means "speech
+    // heard" and disarms its 7 s no-speech watchdog, so echoing it on `start`
+    // would keep a false wake's mic open until the 30 s ceiling.
     deviceControl({ type: 'start' });
+    expect(phasesSent()).toEqual([]);
 
+    // Real speech: now the device hears listening — once.
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_started' });
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_started' });
     expect(phasesSent()).toEqual(['listening']);
+  });
+
+  it('still clears the idle-reset timer on a quiet start', async () => {
+    vi.useFakeTimers();
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps());
+    await bridge.start();
+    const client = currentClient();
+    deviceWs.emit('message', audioFrame(), true);
+    await vi.advanceTimersByTimeAsync(0); // upstream connects
+
+    // A turn that is still listening must not be torn down by idle reset.
+    deviceControl({ type: 'start' });
+    await vi.advanceTimersByTimeAsync(IDLE_RESET_MS + 1);
+    expect(client.close).not.toHaveBeenCalled();
   });
 
   it('treats a barge-in wake (single start mid-reply) as a fresh listening turn', async () => {
@@ -372,9 +392,12 @@ describe('RealtimeBridge device control protocol', () => {
 
     // Barge-in: the device sends a single `start` (it no longer pairs it with a
     // separate interrupt). `start` alone must cut the residual reply and move
-    // straight to listening — no idle blip in between.
+    // straight to listening — no idle blip in between, and (like any start) no
+    // listening echo until speech is actually heard.
     deviceControl({ type: 'start' });
+    expect(phasesSent()).toEqual([]);
 
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_started' });
     expect(phasesSent()).toEqual(['listening']);
   });
 });
@@ -613,10 +636,10 @@ describe('RealtimeBridge barge-in / interruption', () => {
     deviceWs.send.mockClear();
 
     // A single `start` (no separate interrupt) must cancel the in-flight reply
-    // upstream and move to listening.
+    // upstream and move to listening (quietly — the device is already there).
     deviceControl({ type: 'start' });
     expect(client.cancelResponse).toHaveBeenCalledTimes(1);
-    expect(phasesSent()).toEqual(['listening']);
+    expect(phasesSent()).toEqual([]);
 
     // Tail deltas of the cancelled reply must not reach the device.
     await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });

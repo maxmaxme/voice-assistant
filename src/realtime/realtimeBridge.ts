@@ -103,6 +103,9 @@ export class RealtimeBridge {
   // next winning `start`, so a duplicate wake can't leak audio to OpenAI.
   private suppressAudio = false;
   private currentPhase: Phase = 'idle';
+  // The last phase actually sent to the device. Diverges from currentPhase
+  // only between a `start` and the first speech_started — see setPhase.
+  private devicePhase: Phase | null = null;
   // Follow-up state machine (empty-follow-up retry, deferred request_follow_up
   // window, watchdog) — see FollowUpController for the full rationale.
   private followUps: FollowUpController;
@@ -466,10 +469,13 @@ export class RealtimeBridge {
         // its tail audio (the new turn's response.created re-arms forwarding).
         // On a fresh wake there's nothing to cancel — cancelResponse is a
         // no-op on a lazily-disconnected upstream and benign when connected
-        // with no active response (response_cancel_not_active). Going to listening
-        // mirrors the device's local LED and clears the idle-reset timer so an
-        // active turn can't be torn down mid-listen; speech_started later
-        // re-asserts listening (deduped to a no-op).
+        // with no active response (response_cancel_not_active). Going to
+        // listening clears the idle-reset timer so an active turn can't be torn
+        // down mid-listen — but quietly: the device already went to listening
+        // on its own, and to the firmware a server `listening` means "speech
+        // heard", which disarms its 7 s no-speech watchdog. Echoing it here
+        // disarmed that watchdog on every turn, so a false wake held the mic
+        // open until the 30 s ceiling. speech_started tells the device.
         // A wake word during a follow-up window means the user re-engaged
         // (just via wake word rather than the open follow-up mic), so retire
         // the watchdog — otherwise it would later log a bogus "user did not
@@ -486,7 +492,7 @@ export class RealtimeBridge {
         // response.done inherit them would fire a follow-up response.create
         // for a batch the user barged through.
         this.pendingToolCalls = [];
-        this.setPhase('listening');
+        this.setPhase('listening', { quiet: true });
       } else if (msg.type === 'interrupt') {
         // Device is aborting the current turn and returning to idle — a Stop
         // wake word, or the no-speech watchdog. (Barge-in does NOT come here;
@@ -885,12 +891,19 @@ export class RealtimeBridge {
    * messages are suppressed so the device doesn't flicker. Pass
    * `force: true` for the initial hello to make sure the device sees the
    * starting state even if we haven't transitioned yet. */
-  private setPhase(next: Phase, opts: { force?: boolean } = {}): void {
-    if (!opts.force && this.currentPhase === next) {
+  /** `quiet` moves the bridge's own phase without telling the device; a later
+   *  call for the same phase then still reaches it (devicePhase lags). */
+  private setPhase(next: Phase, opts: { force?: boolean; quiet?: boolean } = {}): void {
+    const changed = this.currentPhase !== next;
+    const tellDevice = !opts.quiet && (opts.force || changed || this.devicePhase !== next);
+    if (!opts.force && !changed && !tellDevice) {
       return;
     }
     this.currentPhase = next;
-    this.sendDevice({ type: 'phase', value: next });
+    if (tellDevice) {
+      this.sendDevice({ type: 'phase', value: next });
+      this.devicePhase = next;
+    }
     if (next === 'idle') {
       this.micDump.flush();
       this.armIdleResetTimer();

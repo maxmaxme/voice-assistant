@@ -502,7 +502,10 @@ Key files:
   loudly on mismatch — plus `audioOut` + `wakeChime`,
   the admin's wake-beep preference the device gates its local wake sound
   on), `phase`, `error`, `pong`, `follow_up`; device→server `start`,
-  `interrupt`, `ping`. Binary frames are raw PCM16 in both directions. `follow_up {ms, chime?}` is sent right before
+  `interrupt`, `ping`. A server `phase: listening` means **speech heard**
+  (sent on OpenAI's `speech_started`), never an ack of `start`: the
+  firmware disarms its 7 s no-speech watchdog on it, so `start` moves the
+  bridge to listening quietly (`setPhase(..., { quiet: true })`). Binary frames are raw PCM16 in both directions. `follow_up {ms, chime?}` is sent right before
   the end-of-turn `idle`, but only after a **spoken** reply: the device
   latches it and reopens the mic once the reply drains. Two flavours: the
   ambient after-every-reply window (`ms` = `realtime.followUpMs`, silent)
