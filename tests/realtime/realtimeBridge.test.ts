@@ -182,7 +182,7 @@ describe('RealtimeBridge hello handshake', () => {
     await bridge.start();
 
     const hello = serverMessages().find((m) => m.type === 'hello');
-    expect(hello).toMatchObject({ proto: 1 });
+    expect(hello).toMatchObject({ proto: 2 });
   });
 });
 
@@ -476,13 +476,13 @@ describe('RealtimeBridge hello', () => {
   it('sends the wake-chime preference in hello (default on)', async () => {
     bridge = new RealtimeBridge(deviceWs as never, makeDeps());
     await bridge.start();
-    expect(hello()).toEqual({ type: 'hello', proto: 1, audioOut: 'pcm', wakeChime: true });
+    expect(hello()).toEqual({ type: 'hello', proto: 2, audioOut: 'pcm', wakeChime: true });
   });
 
   it('reflects wakeChime=false in hello', async () => {
     bridge = new RealtimeBridge(deviceWs as never, makeDeps({ wakeChime: false }));
     await bridge.start();
-    expect(hello()).toEqual({ type: 'hello', proto: 1, audioOut: 'pcm', wakeChime: false });
+    expect(hello()).toEqual({ type: 'hello', proto: 2, audioOut: 'pcm', wakeChime: false });
   });
 
   it('applyDeviceConfig re-sends hello with the new value (live push, no restart)', async () => {
@@ -491,7 +491,7 @@ describe('RealtimeBridge hello', () => {
     deviceWs.send.mockClear();
     bridge.applyDeviceConfig({ wakeChime: false });
     expect(serverMessages()).toEqual([
-      { type: 'hello', proto: 1, audioOut: 'pcm', wakeChime: false },
+      { type: 'hello', proto: 2, audioOut: 'pcm', wakeChime: false },
     ]);
   });
 
@@ -884,6 +884,57 @@ describe('RealtimeBridge tool dispatch', () => {
     expect(client.requestResponse).not.toHaveBeenCalled();
   });
 
+  // A tool batch whose response already COMPLETED has no `cancelled` status to
+  // see, so the abort has to be noticed after the await: otherwise the user
+  // says "stop" while HA works and still hears "done!" (or, on a barge-in, the
+  // old answer over the new question).
+  function deferredTool(): (value: string) => void {
+    let resolve!: (value: string) => void;
+    runTool.mockReturnValueOnce(new Promise<string>((r) => (resolve = r)));
+    return (v) => resolve(v);
+  }
+
+  it('skips the follow-up response when the device aborts while the tool batch runs', async () => {
+    const finishTool = deferredTool();
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' }); // → thinking
+    await callTool('c1', 'HassTurnOn', '{}');
+    await finishResponse('r1', ['HassTurnOn']); // completed; now awaiting the tool
+    deviceControl({ type: 'interrupt' });
+    finishTool('done');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(client.submitToolResult).toHaveBeenCalledWith('c1', 'done');
+    expect(client.requestResponse).not.toHaveBeenCalled();
+  });
+
+  it('skips the follow-up response when a barge-in start lands while the tool batch runs', async () => {
+    const finishTool = deferredTool();
+    await callTool('c1', 'HassTurnOn', '{}');
+    await finishResponse('r1', ['HassTurnOn']);
+    deviceControl({ type: 'start', turn: 2 });
+    finishTool('done');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(client.requestResponse).not.toHaveBeenCalled();
+  });
+
+  it('skips the follow-up response when the upstream closes while the tool batch runs', async () => {
+    const finishTool = deferredTool();
+    await callTool('c1', 'HassTurnOn', '{}');
+    await finishResponse('r1', ['HassTurnOn']);
+    openaiCloseListener(client)({ code: 1000, reason: 'session cap' });
+    finishTool('done');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(client.requestResponse).not.toHaveBeenCalled();
+  });
+
+  it('still requests the follow-up when nothing ended the turn during the batch', async () => {
+    const finishTool = deferredTool();
+    await callTool('c1', 'HassTurnOn', '{}');
+    await finishResponse('r1', ['HassTurnOn']);
+    finishTool('done');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+  });
+
   it('treats a wake word during a follow-up window as the user responding', async () => {
     // Model asked a question and opened the follow-up window.
     await callTool('c1', 'request_follow_up', '{}');
@@ -1223,5 +1274,86 @@ describe('RealtimeBridge built-in tool descriptions', () => {
     const byName = new Map(tools.map((t) => [t.name, t.description]));
     expect(byName.get('wait_for_user')).toBe(resolvePrompt('tools/wait-for-user'));
     expect(byName.get('request_follow_up')).toBe(resolvePrompt('tools/request-follow-up'));
+  });
+});
+
+describe('RealtimeBridge turn ids (proto 2)', () => {
+  let client: FakeOpenAiClient;
+
+  beforeEach(async () => {
+    bridge = new RealtimeBridge(deviceWs as never, makeDeps({ followUpMs: 8000 }));
+    await bridge.start();
+    client = currentClient();
+  });
+
+  async function spokenReply(id: string): Promise<void> {
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_started' });
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' });
+    await feedOpenAi(client, { type: 'response.created', response: { id } });
+    await feedOpenAi(client, { type: 'response.output_audio.delta', delta: audioDelta() });
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: { id, status: 'completed', output: [{ type: 'message' }] },
+    });
+  }
+
+  it('hello and the initial idle carry no turn — no turn exists yet', () => {
+    const [hello, idle] = serverMessages();
+    expect(hello).toMatchObject({ type: 'hello', proto: 2 });
+    expect(hello).not.toHaveProperty('turn');
+    expect(idle).toEqual({ type: 'phase', value: 'idle' });
+  });
+
+  it('stamps every turn-scoped message with the device turn id', async () => {
+    deviceWs.send.mockClear();
+    deviceControl({ type: 'start', turn: 7 });
+    await spokenReply('r1');
+    const scoped = serverMessages().filter((m) => m.type === 'phase' || m.type === 'follow_up');
+    expect(scoped.map((m) => (m.type === 'phase' ? m.value : m.type))).toEqual([
+      'listening',
+      'thinking',
+      'replying',
+      'follow_up',
+      'idle',
+    ]);
+    for (const m of scoped) {
+      expect(m.turn).toBe(7);
+    }
+  });
+
+  it('stamps errors with the turn too', async () => {
+    deviceControl({ type: 'start', turn: 3 });
+    deviceWs.send.mockClear();
+    await feedOpenAi(client, {
+      type: 'error',
+      error: { code: 'server_error', message: 'boom' },
+    });
+    expect(serverMessages()).toEqual([{ type: 'error', message: 'boom', turn: 3 }]);
+  });
+
+  it('follows the latest start: a barge-in re-stamps with the new id', async () => {
+    deviceControl({ type: 'start', turn: 1 });
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_started' });
+    deviceControl({ type: 'start', turn: 2 });
+    deviceWs.send.mockClear();
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' });
+    expect(serverMessages()).toEqual([{ type: 'phase', value: 'thinking', turn: 2 }]);
+  });
+
+  it('the idle answering an interrupt carries the aborted turn (so the device can drop it)', async () => {
+    deviceControl({ type: 'start', turn: 4 });
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_started' });
+    deviceWs.send.mockClear();
+    deviceControl({ type: 'interrupt' });
+    expect(serverMessages()).toEqual([{ type: 'phase', value: 'idle', turn: 4 }]);
+  });
+
+  it('proto-1 firmware (start without turn) gets unstamped messages', async () => {
+    deviceWs.send.mockClear();
+    deviceControl({ type: 'start' });
+    await spokenReply('r1');
+    for (const m of serverMessages()) {
+      expect(m).not.toHaveProperty('turn');
+    }
   });
 });
