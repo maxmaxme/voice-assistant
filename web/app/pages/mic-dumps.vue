@@ -5,8 +5,7 @@ useHead({ title: 'Mic dumps' })
 
 const { data, refresh, status } = await useFetch<MicDumpsResponse>('/api/mic-dumps')
 
-const fileUrl = (d: MicDump, download = false): string =>
-  `/api/mic-dumps/${encodeURIComponent(d.name)}${download ? '?download=1' : ''}`
+const fileUrl = (d: MicDump): string => `/api/mic-dumps/${encodeURIComponent(d.name)}`
 
 const fmtDuration = (ms: number): string => `${(ms / 1000).toFixed(1)} s`
 const fmtDb = (db: number): string => `${db.toFixed(1)} dBFS`
@@ -55,32 +54,17 @@ function verdict(d: MicDump): { label: string, color: 'success' | 'warning' | 'e
         v-for="d in data!.dumps"
         :key="d.name"
       >
-        <div class="flex items-start justify-between gap-4">
-          <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="font-semibold">{{ d.speaker }}</span>
-              <UBadge
-                v-if="verdict(d)"
-                :color="verdict(d)!.color"
-                variant="subtle"
-              >
-                {{ verdict(d)!.label }}
-              </UBadge>
-            </div>
-            <span class="text-xs text-[var(--ui-text-muted)]">{{ d.recordedAt }} · {{ fmtDuration(d.durationMs) }}</span>
-          </div>
-          <UButton
-            color="neutral"
-            variant="outline"
-            icon="i-lucide-download"
-            class="shrink-0"
-            :to="fileUrl(d, true)"
-            external
-            download
+        <div class="flex items-center gap-2">
+          <span class="font-semibold">{{ d.speaker }}</span>
+          <UBadge
+            v-if="verdict(d)"
+            :color="verdict(d)!.color"
+            variant="subtle"
           >
-            Download
-          </UButton>
+            {{ verdict(d)!.label }}
+          </UBadge>
         </div>
+        <span class="text-xs text-[var(--ui-text-muted)]">{{ d.recordedAt }} · {{ fmtDuration(d.durationMs) }}</span>
 
         <audio
           :src="fileUrl(d)"

@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { micDumpPath } from '../../utils/micDumps'
 
-// Serves one dump for the <audio> player (inline) or as a download
-// (`?download=1`). Honours a single byte Range — Safari won't play an <audio>
-// source that ignores Range. Dumps are ≤ ~2 MB, so reading whole is fine.
+// Serves one dump for the <audio> player — its own menu covers downloading, and
+// the inline filename names the saved file. Honours a single byte Range: Safari
+// won't play an <audio> source that ignores Range. Dumps are ≤ ~2 MB, so
+// reading whole is fine.
 export default defineEventHandler((event) => {
   const name = getRouterParam(event, 'name') ?? ''
   const path = micDumpPath(name)
@@ -19,12 +20,11 @@ export default defineEventHandler((event) => {
     throw createError({ statusCode: 404, statusMessage: 'Mic dump not found' })
   }
 
-  const download = getQuery(event).download !== undefined
   setResponseHeaders(event, {
     'Content-Type': 'audio/wav',
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'private, max-age=3600, immutable',
-    'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${name}"`,
+    'Content-Disposition': `inline; filename="${name}"`,
   })
 
   const range = /^bytes=(\d*)-(\d*)$/.exec(getRequestHeader(event, 'range') ?? '')
