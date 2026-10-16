@@ -11,6 +11,7 @@ export interface RealtimeResponse {
   transcriptionModel: string
   noiseReduction: string
   turnDetection: string
+  silentAck: boolean
 }
 
 export interface HttpResponse {

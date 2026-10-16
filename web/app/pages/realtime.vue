@@ -19,6 +19,7 @@ const form = reactive<RealtimeResponse>({
   transcriptionModel: 'whisper-1',
   noiseReduction: 'far_field',
   turnDetection: 'server_vad',
+  silentAck: false,
 })
 watchEffect(() => {
   if (!data.value) return
@@ -366,6 +367,13 @@ async function save() {
               description="Chime when the assistant has asked you a question and is waiting for the answer. The quiet listening after ordinary replies never chimes."
             >
               <USwitch v-model="form.followUpChime" />
+            </UFormField>
+
+            <UFormField
+              label="Confirm actions with a sound"
+              description="For simple commands (lights, switches, scenes, scripts) the assistant may answer with a short sound instead of words. Failures are always spoken."
+            >
+              <USwitch v-model="form.silentAck" />
             </UFormField>
           </div>
         </UCard>

@@ -26,6 +26,7 @@ describe('resolveRealtimeConfig', () => {
       transcriptionModel: 'whisper-1',
       noiseReduction: 'far_field',
       turnDetection: 'server_vad',
+      silentAck: false,
     });
   });
 
@@ -42,6 +43,7 @@ describe('resolveRealtimeConfig', () => {
     store.set(REALTIME_KEYS.transcriptionModel, 'gpt-4o-mini-transcribe');
     store.set(REALTIME_KEYS.noiseReduction, 'off');
     store.set(REALTIME_KEYS.turnDetection, 'semantic_low');
+    store.set(REALTIME_KEYS.silentAck, '1');
     expect(resolveRealtimeConfig(store)).toEqual({
       enabled: true,
       outputPacingMs: 40,
@@ -55,6 +57,7 @@ describe('resolveRealtimeConfig', () => {
       transcriptionModel: 'gpt-4o-mini-transcribe',
       noiseReduction: 'off',
       turnDetection: 'semantic_low',
+      silentAck: true,
     });
   });
 

@@ -35,6 +35,7 @@ export interface RealtimeConfig {
   transcriptionModel: TranscriptionModel;
   noiseReduction: NoiseReduction;
   turnDetection: TurnDetection;
+  silentAck: boolean;
 }
 
 export const REALTIME_KEYS = {
@@ -50,6 +51,7 @@ export const REALTIME_KEYS = {
   transcriptionModel: 'realtime.transcriptionModel',
   noiseReduction: 'realtime.noiseReduction',
   turnDetection: 'realtime.turnDetection',
+  silentAck: 'realtime.silentAck',
 } as const;
 
 const DEFAULTS: RealtimeConfig = {
@@ -89,6 +91,8 @@ const DEFAULTS: RealtimeConfig = {
   // The tuned silence-based VAD; semantic VAD is opt-in until it has proven
   // itself on the across-the-room speakers.
   turnDetection: 'server_vad',
+  // Earcon instead of a spoken confirmation for actions (acknowledge_silently).
+  silentAck: false,
 };
 
 function num(value: string | undefined, fallback: number): number {
@@ -166,5 +170,6 @@ export function resolveRealtimeConfig(store: SettingsStore): RealtimeConfig {
     transcriptionModel: transcriptionModel(store.get(REALTIME_KEYS.transcriptionModel)),
     noiseReduction: noiseReduction(store.get(REALTIME_KEYS.noiseReduction)),
     turnDetection: turnDetection(store.get(REALTIME_KEYS.turnDetection)),
+    silentAck: flagDefaultOff(store.get(REALTIME_KEYS.silentAck)),
   };
 }

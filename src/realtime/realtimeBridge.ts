@@ -15,6 +15,8 @@ import { LatencyTracker } from './metrics.ts';
 import { OutputPacer } from './outputPacer.ts';
 import { AudioDiagnostics } from './audioDiagnostics.ts';
 import { MicDump } from './micDump.ts';
+import { earconPcm24k, EARCON_KINDS, type EarconKind } from './audio/earcon.ts';
+import { isRecord } from '../utils/guards.ts';
 import { FollowUpController } from './followUpController.ts';
 import type { WakeArbiter } from './wakeArbiter.ts';
 import { resolvePrompt } from '../agent/prompts/registry.ts';
@@ -40,6 +42,11 @@ function truncatePreview(value: unknown): string {
     }
   }
   return s.length > 200 ? s.slice(0, 200) + '…' : s;
+}
+
+/** Whether a spoken reply ends in a question mark (closing quotes/brackets ok). */
+export function endsWithQuestion(text: string): boolean {
+  return /\?["'»”)\]\s]*$/u.test(text);
 }
 
 export interface BridgeDeps {
@@ -88,6 +95,8 @@ export interface BridgeDeps {
   noiseReduction?: NoiseReduction;
   // End-of-turn detection (default the tuned server_vad).
   turnDetection?: TurnDetection;
+  // Offer acknowledge_silently: a successful action ends with an earcon.
+  silentAck?: boolean;
 }
 
 export class RealtimeBridge {
@@ -191,7 +200,11 @@ export class RealtimeBridge {
   // `response.done` awaits this list and then fires ONE `response.create` —
   // submitting two response.create back-to-back is what produces
   // `conversation_already_has_active_response`.
-  private pendingToolCalls: Promise<void>[] = [];
+  // Resolves to whether the tool succeeded (read by the silent-ack check).
+  private pendingToolCalls: Promise<boolean>[] = [];
+  // Whether the last tool batch that requested a follow-up fully succeeded — an
+  // acknowledge_silently arriving in that follow-up may only bloop if it did.
+  private lastBatchOk = false;
 
   // Per-response audio delivery telemetry (OpenAI→bridge edge) — see
   // AudioDiagnostics for the full rationale.
@@ -244,6 +257,20 @@ export class RealtimeBridge {
         description: resolvePrompt('tools/request-follow-up'),
         parameters: { type: 'object', properties: {}, required: [] },
       },
+      ...(deps.silentAck
+        ? [
+            {
+              type: 'function' as const,
+              name: 'acknowledge_silently',
+              description: resolvePrompt('tools/acknowledge-silently'),
+              parameters: {
+                type: 'object',
+                properties: { kind: { type: 'string', enum: [...EARCON_KINDS] } },
+                required: ['kind'],
+              },
+            },
+          ]
+        : []),
       ...deps.tools,
     ];
     this.openai = new OpenAiRealtimeClient({
@@ -639,13 +666,22 @@ export class RealtimeBridge {
         const output = ev.response.output ?? [];
         // "Real" = a function call whose output will feed back into a
         // follow-up response. The built-in flow-control tools (wait_for_user,
-        // request_follow_up) deliberately do NOT trigger a follow-up, so
+        // request_follow_up, acknowledge_silently) deliberately do NOT trigger a follow-up, so
         // they must not keep the device in `thinking` and must not cause
         // us to fire response.create.
-        const BUILTIN_FLOW_CONTROL = new Set(['wait_for_user', 'request_follow_up']);
-        const hasRealToolCall = output.some(
-          (item) => item.type === 'function_call' && !BUILTIN_FLOW_CONTROL.has(item.name),
-        );
+        const BUILTIN_FLOW_CONTROL = new Set([
+          'wait_for_user',
+          'request_follow_up',
+          'acknowledge_silently',
+        ]);
+        const calls = output.filter((item) => item.type === 'function_call');
+        const hasRealToolCall = calls.some((c) => !BUILTIN_FLOW_CONTROL.has(c.name));
+        const ackArgs = calls.find((c) => c.name === 'acknowledge_silently')?.arguments;
+        // "Spoke" = the response carried a message item. This is the
+        // load-bearing gate for opening ANY follow-up window: never reopen the
+        // mic on a silent turn (a bailed-out request_follow_up, a tool-only
+        // response).
+        const spoke = output.some((item) => item.type === 'message');
         const pending = this.pendingToolCalls;
         this.pendingToolCalls = [];
         const responseId = ev.response.id ?? '?';
@@ -672,19 +708,35 @@ export class RealtimeBridge {
         const windowRequested = this.followUps.takeWindowRequest();
         if (!hasRealToolCall) {
           const status = ev.response.status;
-          // "Spoke" = the response carried a message item. This is the
-          // load-bearing gate for opening ANY follow-up window: never reopen the
-          // mic on a silent turn (a bailed-out request_follow_up, a tool-only
-          // response). Named once here and used by both follow-up branches.
-          const spoke = output.some((item) => item.type === 'message');
-          if (windowRequested && status !== 'cancelled') {
+          // acknowledge_silently in the post-tool follow-up (not alongside the
+          // action): same silent finish, if that batch succeeded.
+          if (
+            ackArgs !== undefined &&
+            this.deps.silentAck &&
+            status !== 'cancelled' &&
+            this.followUps.isPending() &&
+            this.lastBatchOk
+          ) {
+            this.finishSilently(ackArgs, spoke);
+            break;
+          }
+          // A reply ending in "?" is a question even if request_follow_up was forgotten.
+          const questionMark = output.some(
+            (item) =>
+              item.type === 'message' &&
+              item.role === 'assistant' &&
+              endsWithQuestion(item.content.at(-1)?.transcript ?? ''),
+          );
+          if ((windowRequested || questionMark) && status !== 'cancelled') {
             if (spoke) {
               // Model spoke its question — open the explicit-question window
               // (requestFollowUpMs, chimed per the admin toggle), independent of
               // the ambient followUpMs so a question is answerable even with
               // ambient off. Deferred past paced audio so the mic opens AFTER
               // the reply finishes playing, not while it's still draining here.
-              log.info('request_follow_up — opening chimed follow-up mic window');
+              log.info(
+                `${windowRequested ? 'request_follow_up' : 'reply ended in "?"'} — opening chimed follow-up mic window`,
+              );
               this.followUps.clearPending();
               this.pacer.afterDrain(() =>
                 this.sendFollowUp_(this.requestFollowUpMs, this.followUpChime, true),
@@ -781,7 +833,7 @@ export class RealtimeBridge {
         let timedOut = false;
         const results = await Promise.race([
           Promise.allSettled(pending),
-          new Promise<PromiseSettledResult<void>[]>((resolve) => {
+          new Promise<PromiseSettledResult<boolean>[]>((resolve) => {
             const t = setTimeout(() => {
               timedOut = true;
               resolve([]);
@@ -807,6 +859,14 @@ export class RealtimeBridge {
           );
           break;
         }
+        // The model asked for no spoken reply: honour it only if every tool
+        // succeeded — failures are always voiced. Earcon unless it already spoke.
+        const allOk = !timedOut && results.every((r) => r.status === 'fulfilled' && r.value);
+        if (ackArgs !== undefined && this.deps.silentAck && allOk) {
+          this.finishSilently(ackArgs, spoke);
+          break;
+        }
+        this.lastBatchOk = allOk;
         log.info(
           { responseId, sessionId: this.sessionId },
           'tool batch complete — requesting follow-up response',
@@ -843,7 +903,23 @@ export class RealtimeBridge {
     }
   }
 
-  private async handleToolCall(callId: string, name: string, argsJson: string): Promise<void> {
+  /** Silent ack: end the turn without a follow-up response — an earcon stands in
+   *  for speech unless the model already spoke. Only inside the live turn: a late
+   *  response.done after a barge-in must not touch the new one. */
+  private finishSilently(ackArgs: string, spoke: boolean): void {
+    this.followUps.clearPending();
+    if (this.currentPhase !== 'thinking' && this.currentPhase !== 'replying') {
+      return;
+    }
+    log.info({ sessionId: this.sessionId, spoke }, 'acknowledge_silently — no follow-up');
+    if (!spoke) {
+      this.setPhase('replying');
+      this.pacer.enqueue(earconPcm24k(ackKind(ackArgs)));
+    }
+    this.pacer.afterDrain(() => this.sendFollowUp_(0, false, false));
+  }
+
+  private async handleToolCall(callId: string, name: string, argsJson: string): Promise<boolean> {
     // Built-in wait_for_user: model decided the audio doesn't warrant a
     // spoken reply. Acknowledge the tool call so the conversation state
     // stays valid, but DO NOT request a new response — the device should
@@ -853,7 +929,7 @@ export class RealtimeBridge {
       log.info('wait_for_user — staying silent, no response triggered');
       this.openai.submitToolResult(callId, '{}');
       this.setPhase('idle');
-      return;
+      return true;
     }
     // Built-in request_follow_up: model asked a question and wants the user
     // to answer without saying a wake word. Don't open the device window yet —
@@ -862,7 +938,12 @@ export class RealtimeBridge {
     if (name === 'request_follow_up') {
       this.openai.submitToolResult(callId, '{}');
       this.followUps.requestWindow();
-      return;
+      return true;
+    }
+    // acknowledge_silently: response.done reads it off the output.
+    if (name === 'acknowledge_silently') {
+      this.openai.submitToolResult(callId, '{}');
+      return true;
     }
     const t0 = Date.now();
     let args: unknown;
@@ -880,6 +961,7 @@ export class RealtimeBridge {
         `${name}(${truncatePreview(args)}) → ${truncatedResult} (${durationMs}ms)`,
       );
       this.openai.submitToolResult(callId, result);
+      return !isToolError(result);
     } catch (err) {
       const durationMs = Date.now() - t0;
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -888,6 +970,7 @@ export class RealtimeBridge {
         `${name}(${truncatePreview(args)}) FAILED in ${durationMs}ms: ${errorMsg}`,
       );
       this.openai.submitToolResult(callId, JSON.stringify({ error: errorMsg }));
+      return false;
     }
   }
 
@@ -973,5 +1056,34 @@ export class RealtimeBridge {
     }
     clearTimeout(this.idleResetTimer);
     this.idleResetTimer = null;
+  }
+}
+
+/** Whether a tool result reports failure: runTool's `{"error": …}` shape, or an
+ *  HA intent response that errored or failed on some of its targets. */
+function isToolError(result: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(result);
+    if (!isRecord(parsed)) {
+      return false;
+    }
+    const failed = isRecord(parsed.data) ? parsed.data.failed : undefined;
+    return (
+      'error' in parsed ||
+      parsed.response_type === 'error' ||
+      (Array.isArray(failed) && failed.length > 0)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** acknowledge_silently's `kind` → earcon; anything unknown → neutral `done`. */
+function ackKind(argsJson: string): EarconKind {
+  try {
+    const parsed: unknown = JSON.parse(argsJson);
+    return EARCON_KINDS.find((k) => isRecord(parsed) && k === parsed.kind) ?? 'done';
+  } catch {
+    return 'done';
   }
 }

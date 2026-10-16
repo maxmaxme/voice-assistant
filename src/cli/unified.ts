@@ -245,6 +245,7 @@ export async function main(): Promise<void> {
           transcriptionModel: deps.realtime.transcriptionModel,
           noiseReduction: deps.realtime.noiseReduction,
           turnDetection: deps.realtime.turnDetection,
+          silentAck: deps.realtime.silentAck,
           instructions: appendLanguage(
             appendUserContext(buildSystemPromptFor('realtime', deps.haEnabled), profile.recall()),
             deps.realtime.language,
