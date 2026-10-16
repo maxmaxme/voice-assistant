@@ -1,144 +1,54 @@
-import { isNumberArray, isRecord } from '../utils/guards.ts';
+import { z } from 'zod';
 import type { OpenAiFunctionTool } from './toolBridge.ts';
 
 export const WEATHER_TOOL_NAME = 'get_weather';
 
-interface GeocodeResult {
-  results?: {
-    latitude: number;
-    longitude: number;
-    name: string;
-    country?: string;
-    admin1?: string;
-    timezone?: string;
-  }[];
-}
+// Optional upstream fields are lenient: a malformed one is dropped, not fatal.
+const lenient = <T extends z.ZodType>(schema: T) => schema.optional().catch(undefined);
+const numbers = z.array(z.number());
 
-interface ForecastResult {
-  daily: {
-    time: string[];
-    temperature_2m_min: number[];
-    temperature_2m_max: number[];
-    weather_code: number[];
-    precipitation_probability_max?: number[];
-    wind_speed_10m_max?: number[];
-  };
-  current?: {
-    /** Local ISO datetime, e.g. "2026-06-29T14:00". */
-    time: string;
-    temperature_2m: number;
-    weather_code: number;
-    wind_speed_10m: number;
-  };
-}
+const GeocodeSchema = z.object({
+  results: z
+    .array(
+      z.object({
+        latitude: z.number(),
+        longitude: z.number(),
+        name: z.string(),
+        country: lenient(z.string()),
+        admin1: lenient(z.string()),
+      }),
+    )
+    .optional(),
+});
 
-function parseGeocode(raw: unknown): GeocodeResult {
-  if (!isRecord(raw)) {
-    throw new Error('get_weather: geocoding response is not an object');
-  }
-  const results = raw.results;
-  if (results === undefined) {
-    return {};
-  }
-  if (!Array.isArray(results)) {
-    throw new Error('get_weather: geocoding `results` is not an array');
-  }
-  const parsed = results.map((r) => {
-    if (!isRecord(r)) {
-      throw new Error('get_weather: geocoding entry is not an object');
-    }
-    if (
-      typeof r.latitude !== 'number' ||
-      typeof r.longitude !== 'number' ||
-      typeof r.name !== 'string'
-    ) {
-      throw new Error('get_weather: geocoding entry missing latitude/longitude/name');
-    }
-    return {
-      latitude: r.latitude,
-      longitude: r.longitude,
-      name: r.name,
-      country: typeof r.country === 'string' ? r.country : undefined,
-      admin1: typeof r.admin1 === 'string' ? r.admin1 : undefined,
-      timezone: typeof r.timezone === 'string' ? r.timezone : undefined,
-    };
-  });
-  return { results: parsed };
-}
+const ForecastSchema = z.object({
+  daily: z.object({
+    time: z.array(z.string()),
+    temperature_2m_min: numbers,
+    temperature_2m_max: numbers,
+    weather_code: numbers,
+    precipitation_probability_max: lenient(numbers),
+    wind_speed_10m_max: lenient(numbers),
+  }),
+  current: lenient(
+    z.object({
+      time: z.string(), // local ISO datetime, e.g. "2026-06-29T14:00"
+      temperature_2m: z.number(),
+      weather_code: z.number(),
+      wind_speed_10m: z.number(),
+    }),
+  ),
+});
 
-function parseForecast(raw: unknown): ForecastResult {
-  if (!isRecord(raw)) {
-    throw new Error('get_weather: forecast response is not an object');
+function parseUpstream<T extends z.ZodType>(schema: T, raw: unknown, what: string): z.infer<T> {
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`get_weather: ${what} response invalid: ${parsed.error.issues[0]?.message}`);
   }
-  const daily = raw.daily;
-  if (!isRecord(daily)) {
-    throw new Error('get_weather: forecast `daily` missing');
-  }
-  const time = daily.time;
-  if (!Array.isArray(time) || !time.every((x) => typeof x === 'string')) {
-    throw new Error('get_weather: forecast `daily.time` invalid');
-  }
-  if (
-    !isNumberArray(daily.temperature_2m_min) ||
-    !isNumberArray(daily.temperature_2m_max) ||
-    !isNumberArray(daily.weather_code)
-  ) {
-    throw new Error('get_weather: forecast `daily` arrays invalid');
-  }
-  return {
-    daily: {
-      time,
-      temperature_2m_min: daily.temperature_2m_min,
-      temperature_2m_max: daily.temperature_2m_max,
-      weather_code: daily.weather_code,
-      precipitation_probability_max: isNumberArray(daily.precipitation_probability_max)
-        ? daily.precipitation_probability_max
-        : undefined,
-      wind_speed_10m_max: isNumberArray(daily.wind_speed_10m_max)
-        ? daily.wind_speed_10m_max
-        : undefined,
-    },
-    current:
-      isRecord(raw.current) &&
-      typeof raw.current.time === 'string' &&
-      typeof raw.current.temperature_2m === 'number' &&
-      typeof raw.current.weather_code === 'number' &&
-      typeof raw.current.wind_speed_10m === 'number'
-        ? {
-            time: raw.current.time,
-            temperature_2m: raw.current.temperature_2m,
-            weather_code: raw.current.weather_code,
-            wind_speed_10m: raw.current.wind_speed_10m,
-          }
-        : undefined,
-  };
+  return parsed.data;
 }
 
 export type WeatherUnits = 'metric' | 'imperial';
-
-export interface WeatherToolResult {
-  location: string;
-  date: string;
-  summary: string;
-  tempMin: number;
-  tempMax: number;
-  /** '°C' (metric) or '°F' (imperial). */
-  tempUnit: string;
-  precipitationProbabilityPct: number | null;
-  windMax: number | null;
-  /** 'km/h' (metric) or 'mph' (imperial). */
-  windUnit: string;
-  /** Current conditions — present only when `date` is today in the place's
-   *  timezone (use it for "weather right now" questions). Temp/wind use the
-   *  same `tempUnit` / `windUnit` as the daily fields. */
-  current?: {
-    temp: number;
-    summary: string;
-    wind: number;
-    /** Local time the reading is for, e.g. "2026-06-29T14:00". */
-    time: string;
-  };
-}
 
 export function buildWeatherTool(): OpenAiFunctionTool {
   return {
@@ -216,7 +126,7 @@ const WEATHER_CODE_SUMMARY: Record<number, string> = {
 export async function executeWeatherTool(
   args: Record<string, unknown>,
   deps: { fetch?: typeof fetch; units?: WeatherUnits; defaultLocation?: string } = {},
-): Promise<WeatherToolResult> {
+) {
   const fetchImpl = deps.fetch ?? fetch;
   // Bound each upstream call: undici's default timeout is minutes, and a hung
   // Open-Meteo would stall the whole agent turn (a dead speaker on the voice
@@ -239,7 +149,7 @@ export async function executeWeatherTool(
   // then fall back to the other language so the model doesn't have to retry.
   const isCyrillic = /[Ѐ-ӿ]/.test(location);
   const langOrder = isCyrillic ? ['ru', 'en'] : ['en', 'ru'];
-  let place: NonNullable<GeocodeResult['results']>[number] | undefined;
+  let place: NonNullable<z.infer<typeof GeocodeSchema>['results']>[number] | undefined;
   for (const lang of langOrder) {
     const geoUrl =
       `https://geocoding-api.open-meteo.com/v1/search?count=1&format=json&language=${lang}&name=` +
@@ -248,8 +158,7 @@ export async function executeWeatherTool(
     if (!geoRes.ok) {
       throw new Error(`get_weather: geocoding HTTP ${geoRes.status}`);
     }
-    const geo: GeocodeResult = parseGeocode(await geoRes.json());
-    place = geo.results?.[0];
+    place = parseUpstream(GeocodeSchema, await geoRes.json(), 'geocoding').results?.[0];
     if (place) {
       break;
     }
@@ -281,15 +190,18 @@ export async function executeWeatherTool(
   if (!wxRes.ok) {
     throw new Error(`get_weather: forecast HTTP ${wxRes.status}`);
   }
-  const wx: ForecastResult = parseForecast(await wxRes.json());
+  const wx = parseUpstream(ForecastSchema, await wxRes.json(), 'forecast');
   const d = wx.daily;
-  if (!d || !Array.isArray(d.time) || d.time.length === 0) {
+  if (d.time.length === 0) {
     throw new Error(`get_weather: no forecast for ${date} at ${place.name}`);
   }
 
   const code = d.weather_code[0];
   const locationLabel = [place.name, place.admin1, place.country].filter(Boolean).join(', ');
-  const result: WeatherToolResult = {
+  // Attach current conditions only when the requested day is the place's
+  // current local day — otherwise "now" is irrelevant to a future-date forecast.
+  const cur = wx.current;
+  return {
     location: locationLabel,
     date,
     summary: WEATHER_CODE_SUMMARY[code] ?? `code ${code}`,
@@ -299,19 +211,14 @@ export async function executeWeatherTool(
     precipitationProbabilityPct: d.precipitation_probability_max?.[0] ?? null,
     windMax: d.wind_speed_10m_max?.[0] ?? null,
     windUnit: imperial ? 'mph' : 'km/h',
+    current:
+      cur && cur.time.slice(0, 10) === date
+        ? {
+            temp: cur.temperature_2m,
+            summary: WEATHER_CODE_SUMMARY[cur.weather_code] ?? `code ${cur.weather_code}`,
+            wind: cur.wind_speed_10m,
+            time: cur.time,
+          }
+        : undefined,
   };
-
-  // Attach current conditions only when the requested day is the place's
-  // current local day — otherwise "now" is irrelevant to a future-date forecast.
-  const cur = wx.current;
-  if (cur && cur.time.slice(0, 10) === date) {
-    result.current = {
-      temp: cur.temperature_2m,
-      summary: WEATHER_CODE_SUMMARY[cur.weather_code] ?? `code ${cur.weather_code}`,
-      wind: cur.wind_speed_10m,
-      time: cur.time,
-    };
-  }
-
-  return result;
 }

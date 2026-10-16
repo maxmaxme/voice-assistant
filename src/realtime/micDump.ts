@@ -67,10 +67,6 @@ export class MicDump {
     this.speaker = slug(name) || this.speaker;
   }
 
-  get enabled(): boolean {
-    return this.dir !== undefined;
-  }
-
   push(pcm16: Buffer): void {
     if (this.dir === undefined || this.bytes >= MAX_BYTES) {
       return;

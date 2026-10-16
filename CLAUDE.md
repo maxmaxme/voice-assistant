@@ -494,8 +494,9 @@ Key files:
 - `src/realtime/audio/format.ts`, `src/realtime/audio/resample.ts` —
   PCM16 helpers and 16↔24 kHz linear resampling. Device sends mono
   16 kHz PCM16; Realtime expects 24 kHz.
-- `src/realtime/toolAdapter.ts` — converts the MCP tool list (from
-  `HaMcpClient`) into the Realtime API's `tools` schema.
+- `src/realtime/toolAdapter.ts` — `toRealtimeTools` strips `strict` off the
+  Responses-API function tools (HA via `mcpToolsToOpenAi`, plus the local
+  registry) to give the Realtime API's `tools` schema.
 - `src/realtime/protocol.ts` — JSON wire protocol with the device:
   server→device `hello` (handshake ack; carries `proto` — the wire-protocol
   version (`PROTO_VERSION`), which the firmware checks tolerantly and warns
@@ -547,9 +548,6 @@ Key files:
   measured on a real speaker instead of guessed by ear — the firmware's
   gain knobs (`va_client` `mic_gain`, codec PGA) are tuned against these
   files.
-- `src/realtime/metrics.ts` — `LatencyTracker` for the
-  `bridge_start → openai_connected → first_audio_in → first_audio_out`
-  markers. Logged on session end.
 - `src/realtime/wakeArbiter.ts` — co-located wake-word arbitration.
   One `WakeArbiter` is created in `wsServer` and shared across all
   bridges (each device has its own bridge and can't see the others). On

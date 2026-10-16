@@ -4,8 +4,8 @@ import { initializeCommonDependencies, buildSystemPromptFor, type CommonDeps } f
 import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runners/telegram.ts';
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
 import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
-import { mcpToolsToRealtime, localToolsToRealtime } from '../realtime/toolAdapter.ts';
-import { prepareHaTools } from '../agent/toolBridge.ts';
+import { toRealtimeTools } from '../realtime/toolAdapter.ts';
+import { mcpToolsToOpenAi } from '../agent/toolBridge.ts';
 import { buildLocalToolset } from '../agent/localTools.ts';
 import { makeScopedProfile } from '../memory/scope.ts';
 import { hashToken } from '../memory/identities.ts';
@@ -250,10 +250,10 @@ export async function main(): Promise<void> {
             appendUserContext(buildSystemPromptFor('realtime', deps.haEnabled), profile.recall()),
             deps.realtime.language,
           ),
-          tools: [
-            ...mcpToolsToRealtime(prepareHaTools(await listMcpTools())),
-            ...localToolsToRealtime(localToolset.tools),
-          ],
+          tools: toRealtimeTools([
+            ...mcpToolsToOpenAi(await listMcpTools()),
+            ...localToolset.tools,
+          ]),
           runTool: buildRealtimeToolRunner({
             localToolset,
             mcp: deps.mcp,

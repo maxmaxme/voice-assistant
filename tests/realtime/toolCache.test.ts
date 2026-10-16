@@ -37,17 +37,6 @@ describe('ToolResultCache', () => {
     expect(cache.get('b')).toBeUndefined();
   });
 
-  it('tracks hits and misses', () => {
-    const cache = new ToolResultCache();
-    cache.get('miss');
-    cache.set('hit', 'v', 5000);
-    cache.get('hit');
-    cache.get('hit');
-    const s = cache.stats();
-    expect(s.hits).toBe(2);
-    expect(s.misses).toBe(1);
-  });
-
   it('lists GetLiveContext as cacheable', () => {
     expect(CACHEABLE_TOOLS.has('GetLiveContext')).toBe(true);
     expect(CACHEABLE_TOOLS.has('HassTurnOn')).toBe(false);

@@ -205,7 +205,7 @@ describe('OpenAiAgent', () => {
     // The retry must resend instructions (fresh chain).
     expect(calls[1]!.instructions).toContain('sys');
     // Session is committed to the new id.
-    expect(session.isFresh()).toBe(false);
+    expect(session.begin()).toBe('resp_fresh');
   });
 
   it('404 recovery with a pending ask retries as a plain user turn (no orphaned tool outputs)', async () => {
@@ -294,7 +294,7 @@ describe('OpenAiAgent', () => {
       telegram: noopTelegram,
     });
     await expect(agent.respond('hi')).rejects.toThrow(/boom/);
-    expect(session.isFresh()).toBe(true);
+    expect(session.begin()).toBeUndefined();
   });
 
   it('malformed tool-argument JSON short-circuits with an ERROR output instead of executing with {}', async () => {

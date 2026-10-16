@@ -20,7 +20,6 @@ afterEach(() => {
 describe('MicDump', () => {
   it('is off without a dir and writes nothing', () => {
     const dump = new MicDump('s1', undefined);
-    expect(dump.enabled).toBe(false);
     dump.push(Buffer.alloc(320));
     dump.flush();
   });

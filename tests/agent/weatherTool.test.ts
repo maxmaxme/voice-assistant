@@ -283,4 +283,34 @@ describe('weatherTool', () => {
       ),
     ).rejects.toThrow(/forecast HTTP 503/);
   });
+
+  it('drops malformed optional upstream fields but rejects malformed required ones', async () => {
+    const daily = {
+      time: ['2026-05-27'],
+      temperature_2m_min: [14.2],
+      temperature_2m_max: [27.8],
+      weather_code: [3],
+      precipitation_probability_max: [null],
+    };
+    const run = (forecast: unknown) =>
+      executeWeatherTool(
+        { location: 'X', date: '2026-05-27' },
+        {
+          fetch: (async (url: string) =>
+            url.includes('geocoding-api')
+              ? jsonResponse({ results: [{ latitude: 0, longitude: 0, name: 'X', country: 7 }] })
+              : jsonResponse(forecast)) as unknown as typeof fetch,
+        },
+      );
+
+    const r = await run({ daily, current: { time: '2026-05-27T10:00' } });
+    expect(r.location).toBe('X');
+    expect(r.precipitationProbabilityPct).toBeNull();
+    expect(r.windMax).toBeNull();
+    expect(r.current).toBeUndefined();
+
+    await expect(run({ daily: { ...daily, weather_code: ['3'] } })).rejects.toThrow(
+      /forecast response invalid/,
+    );
+  });
 });

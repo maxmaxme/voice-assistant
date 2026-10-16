@@ -169,11 +169,6 @@ export class Session {
     }
   }
 
-  /** True when no chain is active (initial state or post-idle). */
-  isFresh(): boolean {
-    return this.lastResponseId === undefined || this.isStale();
-  }
-
   private isStale(): boolean {
     if (this.lastTouch === 0) {
       return false;
