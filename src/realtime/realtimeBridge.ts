@@ -11,7 +11,6 @@ import {
   type Phase,
   type ServerMessage,
 } from './protocol.ts';
-import { LatencyTracker } from './metrics.ts';
 import { OutputPacer } from './outputPacer.ts';
 import { AudioDiagnostics } from './audioDiagnostics.ts';
 import { MicDump } from './micDump.ts';
@@ -101,7 +100,6 @@ export interface BridgeDeps {
 
 export class RealtimeBridge {
   private openai: OpenAiRealtimeClient;
-  private metrics = new LatencyTracker();
   private sessionId = Math.random().toString(36).slice(2, 10);
   private deviceWs: WebSocket;
   private deps: BridgeDeps;
@@ -289,8 +287,6 @@ export class RealtimeBridge {
   }
 
   async start(): Promise<void> {
-    this.metrics.mark('bridge_start');
-
     // Register the event + close listeners ONCE on the openai client.
     // Listener arrays inside OpenAiRealtimeClient persist across reconnects,
     // so a single subscription here keeps working when the underlying ws
@@ -334,7 +330,6 @@ export class RealtimeBridge {
       this.followUps.clearWatchdog();
       this.clearIdleResetTimer();
       this.pacer.flush();
-      this.metrics.log(this.sessionId);
       this.openai.close();
     });
 
@@ -383,7 +378,6 @@ export class RealtimeBridge {
           this.audioBuffer = [];
           return;
         }
-        this.metrics.mark('openai_connected');
         const tookMs = Date.now() - t0;
         log.info(
           { sessionId: this.sessionId, tookMs, buffered: this.audioBuffer.length },
@@ -445,7 +439,6 @@ export class RealtimeBridge {
       if (this.suppressAudio) {
         return;
       }
-      this.metrics.mark('first_audio_in');
       // Device sends PCM16 16kHz; OpenAI Realtime expects PCM16 24kHz.
       let pcm16k: Buffer;
       if (Buffer.isBuffer(data)) {
@@ -587,7 +580,6 @@ export class RealtimeBridge {
         // Server VAD detected end-of-speech. Eagerly enter "thinking"
         // before response.created so the LED reflects intent without a
         // gap. We stay in this phase through any tool-call cycles.
-        this.metrics.mark('thinking_started');
         this.setPhase('thinking');
         break;
       case 'conversation.item.input_audio_transcription.completed': {
@@ -623,7 +615,6 @@ export class RealtimeBridge {
         if (this.dropResponseAudio) {
           break;
         }
-        this.metrics.mark('first_audio_out');
         if (typeof ev.delta === 'string') {
           const pcm24k = base64ToPcm16(ev.delta);
           // Diagnostics measure the OpenAI→bridge edge, so record the delta as

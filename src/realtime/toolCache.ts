@@ -22,21 +22,16 @@ const log = createLogger('tool-cache');
  */
 export class ToolResultCache {
   private entries = new Map<string, { value: string; expiresAt: number }>();
-  private hits = 0;
-  private misses = 0;
 
   get(key: string): string | undefined {
     const entry = this.entries.get(key);
     if (entry === undefined) {
-      this.misses++;
       return undefined;
     }
     if (entry.expiresAt <= Date.now()) {
       this.entries.delete(key);
-      this.misses++;
       return undefined;
     }
-    this.hits++;
     return entry.value;
   }
 
@@ -50,10 +45,6 @@ export class ToolResultCache {
       log.debug({ reason, size: this.entries.size }, 'cache cleared');
       this.entries.clear();
     }
-  }
-
-  stats(): { hits: number; misses: number; size: number } {
-    return { hits: this.hits, misses: this.misses, size: this.entries.size };
   }
 }
 

@@ -1,39 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { mcpToolsToRealtime } from '../../src/realtime/toolAdapter.ts';
+import { toRealtimeTools } from '../../src/realtime/toolAdapter.ts';
 
-describe('mcpToolsToRealtime', () => {
-  it('converts MCP tool to Realtime tool definition', () => {
-    const mcp = [
-      {
-        name: 'HassTurnOn',
-        description: 'Turn on an entity',
-        inputSchema: {
-          type: 'object',
-          properties: { entity_id: { type: 'string' } },
-          required: ['entity_id'],
-        },
-      },
-    ];
-    const out = mcpToolsToRealtime(mcp);
-    expect(out).toEqual([
-      {
-        type: 'function',
-        name: 'HassTurnOn',
-        description: 'Turn on an entity',
-        parameters: {
-          type: 'object',
-          properties: { entity_id: { type: 'string' } },
-          required: ['entity_id'],
-        },
-      },
+describe('toRealtimeTools', () => {
+  it('keeps the function-tool shape and drops `strict`, which Realtime does not take', () => {
+    const parameters = {
+      type: 'object',
+      properties: { entity_id: { type: 'string' } },
+      required: ['entity_id'],
+    };
+    const out = toRealtimeTools([
+      { type: 'function', name: 'HassTurnOn', description: 'Turn on', parameters, strict: false },
     ]);
-  });
-
-  it('skips tools with missing schema', () => {
-    interface PartialTool {
-      name: string;
-    }
-    const out = mcpToolsToRealtime([{ name: 'broken' } as PartialTool]);
-    expect(out).toEqual([]);
+    expect(out).toStrictEqual([
+      { type: 'function', name: 'HassTurnOn', description: 'Turn on', parameters },
+    ]);
   });
 });
