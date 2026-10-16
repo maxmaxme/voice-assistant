@@ -37,6 +37,7 @@ vi.mock('../../src/realtime/openaiRealtimeClient.ts', () => ({
 // Imported after the mock is registered (vi.mock is hoisted regardless).
 import { RealtimeBridge, type BridgeDeps } from '../../src/realtime/realtimeBridge.ts';
 import { resolvePrompt } from '../../src/agent/prompts/registry.ts';
+import { earconPcm24k } from '../../src/realtime/audio/earcon.ts';
 
 class FakeDeviceWs extends EventEmitter {
   send = vi.fn();
@@ -1355,5 +1356,160 @@ describe('RealtimeBridge turn ids (proto 2)', () => {
     for (const m of serverMessages()) {
       expect(m).not.toHaveProperty('turn');
     }
+  });
+});
+
+describe('RealtimeBridge silent ack + question window', () => {
+  let client: FakeOpenAiClient;
+  const runTool = vi.fn<(name: string, args: unknown) => Promise<string>>();
+
+  async function start(overrides: Partial<BridgeDeps> = {}): Promise<void> {
+    runTool.mockReset().mockResolvedValue('ok');
+    bridge = new RealtimeBridge(
+      deviceWs as never,
+      makeDeps({
+        runTool,
+        followUpMs: 8000,
+        requestFollowUpMs: 10000,
+        followUpChime: true,
+        silentAck: true,
+        ...overrides,
+      }),
+    );
+    await bridge.start();
+    client = currentClient();
+    deviceWs.send.mockClear();
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' }); // → thinking
+  }
+
+  // Runs the tool calls, then completes the response carrying them (+ speech).
+  async function respond(calls: Array<[string, string]>, message?: object): Promise<void> {
+    for (const [i, [name, args]] of calls.entries()) {
+      await feedOpenAi(client, {
+        type: 'response.function_call_arguments.done',
+        call_id: `c${i}`,
+        name,
+        arguments: args,
+      });
+    }
+    const output = calls.map(([name, args]) => ({ type: 'function_call', name, arguments: args }));
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: { id: 'r1', output: message ? [message, ...output] : output },
+    });
+  }
+  const ack = (kind: string): [string, string] => [
+    'acknowledge_silently',
+    JSON.stringify({ kind }),
+  ];
+  const sentAudio = (): unknown[] =>
+    deviceWs.send.mock.calls.map((c) => c[0]).filter((a) => Buffer.isBuffer(a));
+
+  it.each(['on', 'off', 'done'] as const)(
+    'plays the %s earcon instead of speaking',
+    async (kind) => {
+      await start();
+      await respond([['HassTurnOn', '{}'], ack(kind)]);
+      expect(client.requestResponse).not.toHaveBeenCalled();
+      expect(sentAudio()).toEqual([earconPcm24k(kind)]);
+      expect(phasesSent().at(-1)).toBe('idle');
+      expect(serverMessages().some((m) => m.type === 'follow_up')).toBe(false);
+    },
+  );
+
+  it('still speaks when a tool failed', async () => {
+    await start();
+    runTool.mockResolvedValueOnce(JSON.stringify({ error: 'Entity not found' }));
+    await respond([['HassTurnOn', '{}'], ack('on')]);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+    expect(sentAudio()).toEqual([]);
+  });
+
+  it('still speaks when an HA intent partly failed', async () => {
+    await start();
+    runTool.mockResolvedValueOnce(
+      JSON.stringify({ response_type: 'action_done', data: { success: [{}], failed: [{}] } }),
+    );
+    await respond([['HassTurnOff', '{}'], ack('off')]);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+    expect(sentAudio()).toEqual([]);
+  });
+
+  it('plays the earcon when the ack comes alone in the post-tool follow-up', async () => {
+    await start();
+    await respond([['HassTurnOn', '{}']]);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+    await respond([ack('on')]);
+    expect(sentAudio()).toEqual([earconPcm24k('on')]);
+    expect(phasesSent().at(-1)).toBe('idle');
+  });
+
+  it('does not bloop a follow-up ack after a failed batch', async () => {
+    await start();
+    runTool.mockResolvedValueOnce(JSON.stringify({ error: 'nope' }));
+    await respond([['HassTurnOn', '{}']]);
+    await respond([ack('on')]);
+    expect(sentAudio()).toEqual([]);
+  });
+
+  it('clears the pending follow-up so a later empty response is not retried', async () => {
+    await start();
+    await respond([['GetLiveContext', '{}']]); // arms the follow-up
+    await respond([['HassTurnOn', '{}'], ack('on')]);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+    await feedOpenAi(client, { type: 'input_audio_buffer.speech_stopped' });
+    await feedOpenAi(client, { type: 'response.done', response: { id: 'r2', output: [] } });
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a new turn alone when a late ack response lands after a barge-in', async () => {
+    await start();
+    for (const [i, [name, args]] of [['HassTurnOn', '{}'], ack('on')].entries()) {
+      await feedOpenAi(client, {
+        type: 'response.function_call_arguments.done',
+        call_id: `c${i}`,
+        name,
+        arguments: args,
+      });
+    }
+    deviceControl({ type: 'start', turn: 2 }); // barge-in before response.done arrives
+    deviceWs.send.mockClear();
+    await feedOpenAi(client, {
+      type: 'response.done',
+      response: {
+        id: 'r1',
+        status: 'completed',
+        output: [
+          { type: 'function_call', name: 'HassTurnOn', arguments: '{}' },
+          { type: 'function_call', name: 'acknowledge_silently', arguments: '{"kind":"on"}' },
+        ],
+      },
+    });
+    expect(sentAudio()).toEqual([]);
+    expect(phasesSent()).toEqual([]);
+  });
+
+  it('plays no earcon when the model already spoke', async () => {
+    await start();
+    await respond([['HassTurnOn', '{}'], ack('on')], { type: 'message' });
+    expect(client.requestResponse).not.toHaveBeenCalled();
+    expect(sentAudio()).toEqual([]);
+  });
+
+  it('is not offered (and ignored) when the setting is off', async () => {
+    await start({ silentAck: false });
+    const names = (client.opts as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
+    expect(names).not.toContain('acknowledge_silently');
+    await respond([['HassTurnOn', '{}'], ack('on')]);
+    expect(client.requestResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['В какой комнате?', { type: 'follow_up', ms: 10000, chime: true }],
+    ['Готово.', { type: 'follow_up', ms: 8000, chime: false }],
+  ])('reply %j opens the matching window', async (transcript, expected) => {
+    await start();
+    await respond([], { type: 'message', role: 'assistant', content: [{ transcript }] });
+    expect(serverMessages()).toContainEqual(expected);
   });
 });

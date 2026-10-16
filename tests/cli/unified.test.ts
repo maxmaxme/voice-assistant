@@ -79,6 +79,7 @@ function makeDeps(): CommonDeps {
       transcription: false,
       transcriptionModel: 'whisper-1',
       wakeChime: true,
+      silentAck: false,
     },
     http: { text: true, audio: true, assist: true },
     tools: {

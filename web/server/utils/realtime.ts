@@ -15,6 +15,7 @@ export const REALTIME_KEYS = {
   transcriptionModel: 'realtime.transcriptionModel',
   noiseReduction: 'realtime.noiseReduction',
   turnDetection: 'realtime.turnDetection',
+  silentAck: 'realtime.silentAck',
 } as const
 
 /** KEEP in sync with NoiseReduction in src/settings/realtimeConfig.ts. */
@@ -41,6 +42,7 @@ export interface RealtimeForm {
   transcriptionModel: string
   noiseReduction: string
   turnDetection: string
+  silentAck: boolean
 }
 
 export function readRealtime(all: Record<string, string>): RealtimeForm {
@@ -60,6 +62,7 @@ export function readRealtime(all: Record<string, string>): RealtimeForm {
     transcriptionModel: all[REALTIME_KEYS.transcriptionModel] ?? 'whisper-1',
     noiseReduction: all[REALTIME_KEYS.noiseReduction] ?? 'far_field',
     turnDetection: all[REALTIME_KEYS.turnDetection] ?? 'server_vad',
+    silentAck: all[REALTIME_KEYS.silentAck] === '1',
   }
 }
 

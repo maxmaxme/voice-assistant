@@ -23,6 +23,7 @@ interface PutBody {
   transcriptionModel?: string
   noiseReduction?: string
   turnDetection?: string
+  silentAck?: boolean
 }
 
 export default defineEventHandler(async (event) => {
@@ -80,6 +81,7 @@ export default defineEventHandler(async (event) => {
     // Wake beep defaults to on — persist '0' only to turn it off, else clear.
     if (body.wakeChime === false) setSetting(REALTIME_KEYS.wakeChime, '0')
     else deleteSetting(REALTIME_KEYS.wakeChime)
+    writeOrClear(REALTIME_KEYS.silentAck, body.silentAck === true ? '1' : null)
     writeOrClear(REALTIME_KEYS.language, language)
     // Transcription defaults to off — persist '1' only to turn it on, else clear.
     if (body.transcription === true) setSetting(REALTIME_KEYS.transcription, '1')
