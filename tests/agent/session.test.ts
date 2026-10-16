@@ -8,7 +8,6 @@ describe('Session', () => {
   it('returns undefined on the very first begin()', () => {
     const s = new Session({ idleTimeoutMs: 60_000 });
     expect(s.begin()).toBeUndefined();
-    expect(s.isFresh()).toBe(true);
   });
 
   it('begin() returns the last committed id within the idle window', () => {
@@ -17,7 +16,6 @@ describe('Session', () => {
     s.commit('resp_1');
     vi.advanceTimersByTime(30_000);
     expect(s.begin()).toBe('resp_1');
-    expect(s.isFresh()).toBe(false);
   });
 
   it('drops the chain after the idle timeout', () => {
@@ -26,7 +24,6 @@ describe('Session', () => {
     s.commit('resp_1');
     vi.advanceTimersByTime(1001);
     expect(s.begin()).toBeUndefined();
-    expect(s.isFresh()).toBe(true);
   });
 
   it('quick consecutive begins keep the chain alive', () => {

@@ -88,13 +88,6 @@ export interface ListScheduledItem {
   last_fired_at_local: string | null;
 }
 
-export interface CancelScheduledResult {
-  ok: boolean;
-}
-
-export type ScheduledActionToolResult =
-  ScheduleActionResult | ListScheduledItem[] | CancelScheduledResult;
-
 function buildSchedule(kind: unknown, expr: unknown): { schedule: Schedule; nextFireAt: number } {
   const exprStr = String(expr ?? '').trim();
   if (!exprStr) {
@@ -153,7 +146,7 @@ export function executeScheduledActionTool(
   name: string,
   args: Record<string, unknown>,
   ctx: ScheduledActionToolContext,
-): ScheduledActionToolResult {
+) {
   switch (name) {
     case 'schedule_action': {
       const goal = String(args.goal ?? '').trim();
