@@ -5,8 +5,10 @@ import {
   ErrorCode,
   GetPromptRequestSchema,
   ListPromptsRequestSchema,
+  ListResourcesRequestSchema,
   ListToolsRequestSchema,
   McpError,
+  ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { OpenAiFunctionTool } from '../agent/toolBridge.ts';
 import { bearerToken } from '../realtime/auth.ts';
@@ -26,7 +28,14 @@ export interface SpeakerContext {
    *  memory + language) and the descriptions of the device-flow tools the
    *  front-end implements itself. */
   prompts: Record<string, string>;
+  /** The speaker-relevant realtime settings (web panel's Realtime page + the
+   *  OpenAI integration's realtime model/voice/effort), served as the
+   *  `voice://realtime-config` JSON resource so the front-end runs the session
+   *  the way the panel says. */
+  realtimeConfig: Record<string, unknown>;
 }
+
+export const REALTIME_CONFIG_URI = 'voice://realtime-config';
 
 export interface VoiceMcpDeps {
   /** Speaker bearer token → principal (the `voice` identities), or null. */
@@ -52,7 +61,7 @@ export async function handleVoiceMcp(req: Request, deps: VoiceMcpDeps): Promise<
 
   const server = new Server(
     { name: 'voice-assistant', version: '1.0.0' },
-    { capabilities: { tools: {}, prompts: {} } },
+    { capabilities: { tools: {}, prompts: {}, resources: {} } },
   );
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: speaker.tools.map((t) => ({
@@ -77,6 +86,26 @@ export async function handleVoiceMcp(req: Request, deps: VoiceMcpDeps): Promise<
       throw new McpError(ErrorCode.InvalidParams, `unknown prompt: ${request.params.name}`);
     }
     return { messages: [{ role: 'user' as const, content: { type: 'text' as const, text } }] };
+  });
+
+  server.setRequestHandler(ListResourcesRequestSchema, () => ({
+    resources: [
+      { uri: REALTIME_CONFIG_URI, name: 'realtime-config', mimeType: 'application/json' },
+    ],
+  }));
+  server.setRequestHandler(ReadResourceRequestSchema, (request) => {
+    if (request.params.uri !== REALTIME_CONFIG_URI) {
+      throw new McpError(ErrorCode.InvalidParams, `unknown resource: ${request.params.uri}`);
+    }
+    return {
+      contents: [
+        {
+          uri: REALTIME_CONFIG_URI,
+          mimeType: 'application/json',
+          text: JSON.stringify(speaker.realtimeConfig),
+        },
+      ],
+    };
   });
 
   const transport = new WebStandardStreamableHTTPServerTransport({

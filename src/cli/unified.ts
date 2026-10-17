@@ -112,6 +112,27 @@ export function speakerContexts(deps: CommonDeps): (userId: number) => Promise<S
   };
 }
 
+/** The realtime settings an external voice front-end needs, read fresh from
+ *  the DB so a panel edit reaches the next speaker connection without a
+ *  restart. Ambient follow-up, pacing, idle reset and silent ack are left out:
+ *  the bridge implements them, pipecat-voice doesn't. */
+export function voiceRealtimeConfig(deps: CommonDeps): Record<string, unknown> {
+  const rt = resolveRealtimeConfig(deps.memory.settings);
+  return {
+    model: deps.openai.realtime.model,
+    voice: deps.openai.realtime.voice,
+    reasoningEffort: deps.openai.realtime.reasoningEffort,
+    language: rt.language,
+    turnDetection: rt.turnDetection,
+    noiseReduction: rt.noiseReduction,
+    transcription: rt.transcription,
+    transcriptionModel: rt.transcriptionModel,
+    requestFollowUpMs: rt.requestFollowUpMs,
+    followUpChime: rt.followUpChime,
+    wakeChime: rt.wakeChime,
+  };
+}
+
 /** Dispatch logic, exported for tests. Does NOT call initializeCommonDependencies
  * — the caller passes deps so tests can use mocks. */
 export async function dispatch(
@@ -219,6 +240,7 @@ export async function dispatch(
                   'tools/wait-for-user': resolvePrompt('tools/wait-for-user'),
                   'tools/request-follow-up': resolvePrompt('tools/request-follow-up'),
                 },
+                realtimeConfig: voiceRealtimeConfig(deps),
               };
             },
           }),
