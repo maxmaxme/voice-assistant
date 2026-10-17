@@ -623,4 +623,17 @@ describe('/mcp', () => {
     }
     expect(voiceMcp).toHaveBeenCalledTimes(3);
   });
+
+  it('puts failed /mcp auths on the per-IP budget', async () => {
+    const voiceMcp = vi.fn(async () => Response.json({ error: 'Unauthorized' }, { status: 401 }));
+    const app = buildHttpApp({ ...deps, voiceMcp });
+    const statuses: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      statuses.push(
+        (await app.fetch(new Request('http://localhost/mcp', { method: 'POST' }))).status,
+      );
+    }
+    expect(statuses.slice(0, 10).every((s) => s === 401)).toBe(true);
+    expect(statuses.at(-1)).toBe(429);
+  });
 });

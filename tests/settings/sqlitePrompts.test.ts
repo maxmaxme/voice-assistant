@@ -11,6 +11,20 @@ describe('SqlitePrompts', () => {
   });
   afterEach(() => h.sqlite.close());
 
+  it('pruneUncustomized drops orphan defaults but keeps known and edited prompts', () => {
+    store.seedWithDefault('base-system', 'bundled');
+    store.seedWithDefault('ha-suffix/gone', 'old bundled text');
+    store.seedWithDefault('ha-suffix/edited', 'old bundled text');
+    store.set('ha-suffix/edited', 'my own rule');
+    expect(store.pruneUncustomized(new Set(['base-system']))).toEqual(['ha-suffix/gone']);
+    expect(
+      store
+        .list()
+        .map((r) => r.name)
+        .sort(),
+    ).toEqual(['base-system', 'ha-suffix/edited']);
+  });
+
   it('returns undefined for an unset prompt', () => {
     expect(store.get('base-system')).toBeUndefined();
   });

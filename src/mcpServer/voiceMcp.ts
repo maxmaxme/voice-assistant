@@ -20,8 +20,9 @@ const log = createLogger('voice-mcp');
  *  realtime bridge hands OpenAI, so an external voice front-end (pipecat-voice)
  *  talks to the household through one place. */
 export interface SpeakerContext {
-  /** HA tools (with our ha-suffix rules) + the local registry, scoped to the speaker. */
-  tools: OpenAiFunctionTool[];
+  /** HA tools (with our ha-suffix rules) + the local registry, scoped to the
+   *  speaker. Called only for `tools/list`. */
+  tools: () => Promise<OpenAiFunctionTool[]>;
   /** Routed local-vs-HA execution; failures come back as `{"error": …}` JSON. */
   runTool: (name: string, args: unknown) => Promise<string>;
   /** Prompt text by name: `voice-system` (instructions with the speaker's
@@ -54,17 +55,18 @@ export async function handleVoiceMcp(req: Request, deps: VoiceMcpDeps): Promise<
   const token = bearerToken(req.headers.get('authorization') ?? undefined);
   const auth = token ? deps.authorize(token) : null;
   if (!auth) {
-    log.warn('unauthorized voice MCP request');
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const speaker = await deps.speakerContext(auth.userId);
+  // Built on first use, so initialize / notifications / GET never pay for it.
+  let context: Promise<SpeakerContext> | undefined;
+  const speaker = (): Promise<SpeakerContext> => (context ??= deps.speakerContext(auth.userId));
 
   const server = new Server(
     { name: 'voice-assistant', version: '1.0.0' },
     { capabilities: { tools: {}, prompts: {}, resources: {} } },
   );
-  server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: speaker.tools.map((t) => ({
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: (await (await speaker()).tools()).map((t) => ({
       name: t.name,
       description: t.description,
       inputSchema: { ...t.parameters, type: 'object' },
@@ -73,15 +75,15 @@ export async function handleVoiceMcp(req: Request, deps: VoiceMcpDeps): Promise<
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     const started = Date.now();
-    const text = await speaker.runTool(name, args ?? {});
+    const text = await (await speaker()).runTool(name, args ?? {});
     log.info({ userId: auth.userId, name, ms: Date.now() - started }, `${name} via voice MCP`);
     return { content: [{ type: 'text' as const, text }] };
   });
-  server.setRequestHandler(ListPromptsRequestSchema, () => ({
-    prompts: Object.keys(speaker.prompts).map((name) => ({ name })),
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: Object.keys((await speaker()).prompts).map((name) => ({ name })),
   }));
-  server.setRequestHandler(GetPromptRequestSchema, (request) => {
-    const text = speaker.prompts[request.params.name];
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const text = (await speaker()).prompts[request.params.name];
     if (text === undefined) {
       throw new McpError(ErrorCode.InvalidParams, `unknown prompt: ${request.params.name}`);
     }
@@ -93,7 +95,7 @@ export async function handleVoiceMcp(req: Request, deps: VoiceMcpDeps): Promise<
       { uri: REALTIME_CONFIG_URI, name: 'realtime-config', mimeType: 'application/json' },
     ],
   }));
-  server.setRequestHandler(ReadResourceRequestSchema, (request) => {
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     if (request.params.uri !== REALTIME_CONFIG_URI) {
       throw new McpError(ErrorCode.InvalidParams, `unknown resource: ${request.params.uri}`);
     }
@@ -102,7 +104,7 @@ export async function handleVoiceMcp(req: Request, deps: VoiceMcpDeps): Promise<
         {
           uri: REALTIME_CONFIG_URI,
           mimeType: 'application/json',
-          text: JSON.stringify(speaker.realtimeConfig),
+          text: JSON.stringify((await speaker()).realtimeConfig),
         },
       ],
     };

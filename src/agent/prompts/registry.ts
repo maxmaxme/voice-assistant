@@ -53,6 +53,7 @@ export function initPromptRegistry(promptStore: SqlitePrompts): void {
   for (const [name, content] of BUNDLED) {
     promptStore.seedWithDefault(name, content);
   }
+  promptStore.pruneUncustomized(new Set(BUNDLED.keys()));
 }
 
 /** Drop the DB binding — tests use this so a closed test DB isn't read by a

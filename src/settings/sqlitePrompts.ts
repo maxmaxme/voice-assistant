@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { Db } from '../memory/db.ts';
 import { prompts } from '../memory/schema.ts';
 
@@ -78,6 +78,23 @@ export class SqlitePrompts {
       .values({ name, content: '', defaultContent: content, updatedAt: now })
       .onConflictDoUpdate({ target: prompts.name, set: { defaultContent: content } })
       .run();
+  }
+
+  /** Delete the uncustomized rows (empty `content`) whose name isn't in `keep`
+   *  — prompts whose bundled file was removed, which would otherwise linger in
+   *  the panel with stale text nothing reads. A customized orphan stays: it's
+   *  the user's own text. Returns the deleted names. */
+  pruneUncustomized(keep: ReadonlySet<string>): string[] {
+    const orphans = this.list()
+      .filter((row) => !row.content && !keep.has(row.name))
+      .map((row) => row.name);
+    for (const name of orphans) {
+      this.db
+        .delete(prompts)
+        .where(and(eq(prompts.name, name), eq(prompts.content, '')))
+        .run();
+    }
+    return orphans;
   }
 
   /** Clear `content` to the "not customized" sentinel so the prompt reads (and

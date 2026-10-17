@@ -7,7 +7,7 @@ function deps(overrides: Partial<VoiceMcpDeps> = {}): VoiceMcpDeps {
   return {
     authorize: (token) => (token === 'speaker-token' ? { userId: 7 } : null),
     speakerContext: async () => ({
-      tools: [
+      tools: async () => [
         {
           type: 'function',
           name: 'HassTurnOn',
@@ -76,6 +76,26 @@ describe('handleVoiceMcp', () => {
       requestFollowUpMs: 4000,
     });
     await expect(client.readResource({ uri: 'voice://nope' })).rejects.toThrow(/unknown resource/);
+  });
+
+  it('serves prompts and config without listing tools', async () => {
+    const failingTools = deps();
+    const base = failingTools.speakerContext;
+    failingTools.speakerContext = async (userId) => ({
+      ...(await base(userId)),
+      tools: () => Promise.reject(new Error('HA down')),
+    });
+    const client = await connect(failingTools);
+    expect((await client.getPrompt({ name: 'voice-system' })).messages).toHaveLength(1);
+    expect((await client.readResource({ uri: 'voice://realtime-config' })).contents).toHaveLength(
+      1,
+    );
+  });
+
+  it('builds the speaker context only for requests that need it', async () => {
+    const speakerContext = vi.fn(deps().speakerContext);
+    await connect(deps({ speakerContext })); // initialize + initialized notification
+    expect(speakerContext).not.toHaveBeenCalled();
   });
 
   it('scopes the context to the authorized speaker', async () => {
