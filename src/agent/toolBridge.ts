@@ -35,7 +35,6 @@ const HA_SUFFIX_TOOLS: ReadonlySet<string> = new Set([
   'HassTurnOn',
   'HassTurnOff',
   'HassClimateSetTemperature',
-  'ac_control',
   'HassListAddItem',
   'HassListRemoveItem',
   'GetLiveContext',
