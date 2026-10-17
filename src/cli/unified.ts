@@ -5,7 +5,9 @@ import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runne
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
 import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
 import { toRealtimeTools } from '../realtime/toolAdapter.ts';
-import { mcpToolsToOpenAi } from '../agent/toolBridge.ts';
+import { mcpToolsToOpenAi, type OpenAiFunctionTool } from '../agent/toolBridge.ts';
+import { resolvePrompt } from '../agent/prompts/registry.ts';
+import { handleVoiceMcp } from '../mcpServer/voiceMcp.ts';
 import { buildLocalToolset } from '../agent/localTools.ts';
 import { makeScopedProfile } from '../memory/scope.ts';
 import { hashToken } from '../memory/identities.ts';
@@ -52,6 +54,62 @@ export function authorizeSpeaker(
   }
   identities.touch('voice', hash);
   return { userId: res.userId };
+}
+
+/** One speaker principal's view of the household: its tools (HA + the local
+ *  registry), their routed runner, and its realtime instructions. */
+export interface SpeakerSetup {
+  tools: OpenAiFunctionTool[];
+  runTool: (name: string, args: unknown) => Promise<string>;
+  instructions: string;
+}
+
+/** Builds per-speaker setups — shared by the in-process realtime bridge and
+ *  the voice MCP endpoint, so both front-ends see the same tools, memory and
+ *  prompt. Each call to this factory owns its caches. */
+export function speakerContexts(deps: CommonDeps): (userId: number) => Promise<SpeakerSetup> {
+  // Process-wide cache shared across every speaker of this front-end (they
+  // all hit the same HA — there's no per-user state to isolate). Re-created on
+  // process restart so a server bounce flushes stale device snapshots.
+  const toolCache = new ToolResultCache();
+  const TOOL_CACHE_TTL_MS = 5_000;
+  // The HA tool list barely changes; memoize it so a slow/wedged HA can't
+  // delay every speaker handshake with a live listTools round-trip. A fresh
+  // process start still fetches fresh (the memo starts empty).
+  const TOOL_LIST_TTL_MS = 60_000;
+  const listMcpTools = memoWithTtl(() => deps.mcp.listTools(), TOOL_LIST_TTL_MS);
+  return async (userId) => {
+    // The token already resolved the device to its owning principal, so the
+    // speaker reads household ∪ its own personal memory, and scheduled-action
+    // tools are owner-aware. A speaker has no Telegram, so scheduling from it
+    // is refused by the tool — correct until speaker-side delivery exists.
+    const profile = makeScopedProfile(deps.memory.profileStore, { userId });
+    const localToolset = buildLocalToolset({
+      profile,
+      scheduledActions: deps.memory.scheduledActions,
+      identities: deps.memory.identities,
+      ownerUserId: userId,
+      telegram: { senderFor: deps.senderFor },
+      enableMemory: deps.tools.memory,
+      enableReminders: deps.tools.reminders,
+      enableWeather: deps.tools.weather.enabled,
+      weatherUnits: deps.tools.weather.units,
+      weatherDefaultLocation: deps.tools.weather.defaultLocation,
+    });
+    return {
+      tools: [...mcpToolsToOpenAi(await listMcpTools()), ...localToolset.tools],
+      runTool: buildRealtimeToolRunner({
+        localToolset,
+        mcp: deps.mcp,
+        cache: toolCache,
+        cacheTtlMs: TOOL_CACHE_TTL_MS,
+      }),
+      instructions: appendLanguage(
+        appendUserContext(buildSystemPromptFor('realtime', deps.haEnabled), profile.recall()),
+        deps.realtime.language,
+      ),
+    };
+  };
 }
 
 /** Dispatch logic, exported for tests. Does NOT call initializeCommonDependencies
@@ -134,6 +192,7 @@ export async function dispatch(
       return entry.session;
     };
     const port = deps.config.http.port;
+    const speakerContext = speakerContexts(deps);
     tasks.push(
       runners.http({
         agent,
@@ -144,6 +203,25 @@ export async function dispatch(
         endpoints: deps.http,
         identities: deps.memory.identities,
         profileStore: deps.memory.profileStore,
+        // Voice MCP for external voice front-ends (pipecat-voice): the speaker's
+        // tools + prompt behind its own device token. Always mounted — the
+        // `voice` identities are the gate, exactly like the realtime WS.
+        voiceMcp: (req) =>
+          handleVoiceMcp(req, {
+            authorize: (token) => authorizeSpeaker(deps.memory.identities, token),
+            speakerContext: async (userId) => {
+              const speaker = await speakerContext(userId);
+              return {
+                tools: speaker.tools,
+                runTool: speaker.runTool,
+                prompts: {
+                  'voice-system': speaker.instructions,
+                  'tools/wait-for-user': resolvePrompt('tools/wait-for-user'),
+                  'tools/request-follow-up': resolvePrompt('tools/request-follow-up'),
+                },
+              };
+            },
+          }),
         onListen: hooks.onHttpListen,
       }),
     );
@@ -185,17 +263,7 @@ export async function main(): Promise<void> {
   // page). Devices authenticate per-connection against the registered `voice`
   // identities — no shared env token. Port stays env (infra).
   if (deps.realtime.enabled) {
-    // Process-wide cache shared across all bridges (each WS connection
-    // spawns a fresh RealtimeBridge but they all hit the same HA — there's
-    // no per-user state to isolate). Re-created on process restart so a
-    // server bounce flushes stale device snapshots.
-    const toolCache = new ToolResultCache();
-    const TOOL_CACHE_TTL_MS = 5_000;
-    // The HA tool list barely changes; memoize it so a slow/wedged HA can't
-    // delay every speaker handshake with a live listTools round-trip. A fresh
-    // process start still fetches fresh (the memo starts empty).
-    const TOOL_LIST_TTL_MS = 60_000;
-    const listMcpTools = memoWithTtl(() => deps.mcp.listTools(), TOOL_LIST_TTL_MS);
+    const speakerContext = speakerContexts(deps);
     realtimeServer = await startRealtimeServer({
       port: deps.config.realtime.port,
       authorize: (token) => authorizeSpeaker(deps.memory.identities, token),
@@ -207,24 +275,7 @@ export async function main(): Promise<void> {
         read: () => realtimeDeviceConfig(resolveRealtimeConfig(deps.memory.settings)),
       },
       buildBridgeDeps: async (auth) => {
-        // The handshake already resolved the device to its owning principal, so
-        // the speaker reads household ∪ its own personal memory, and
-        // scheduled-action tools are owner-aware. A speaker has no Telegram, so
-        // scheduling from it is refused by the tool — correct until speaker-side
-        // delivery exists.
-        const profile = makeScopedProfile(deps.memory.profileStore, { userId: auth.userId });
-        const localToolset = buildLocalToolset({
-          profile,
-          scheduledActions: deps.memory.scheduledActions,
-          identities: deps.memory.identities,
-          ownerUserId: auth.userId,
-          telegram: { senderFor: deps.senderFor },
-          enableMemory: deps.tools.memory,
-          enableReminders: deps.tools.reminders,
-          enableWeather: deps.tools.weather.enabled,
-          weatherUnits: deps.tools.weather.units,
-          weatherDefaultLocation: deps.tools.weather.defaultLocation,
-        });
+        const speaker = await speakerContext(auth.userId);
         return {
           speakerName: deps.memory.identities.userName(auth.userId) ?? undefined,
           apiKey: deps.openai.apiKey,
@@ -246,20 +297,9 @@ export async function main(): Promise<void> {
           noiseReduction: deps.realtime.noiseReduction,
           turnDetection: deps.realtime.turnDetection,
           silentAck: deps.realtime.silentAck,
-          instructions: appendLanguage(
-            appendUserContext(buildSystemPromptFor('realtime', deps.haEnabled), profile.recall()),
-            deps.realtime.language,
-          ),
-          tools: toRealtimeTools([
-            ...mcpToolsToOpenAi(await listMcpTools()),
-            ...localToolset.tools,
-          ]),
-          runTool: buildRealtimeToolRunner({
-            localToolset,
-            mcp: deps.mcp,
-            cache: toolCache,
-            cacheTtlMs: TOOL_CACHE_TTL_MS,
-          }),
+          instructions: speaker.instructions,
+          tools: toRealtimeTools(speaker.tools),
+          runTool: speaker.runTool,
         };
       },
     });

@@ -605,3 +605,22 @@ describe('POST /text?stream=1', () => {
     expect(await res.json()).toEqual({ response: 'ok' });
   });
 });
+
+describe('/mcp', () => {
+  it('is not mounted without a voice MCP handler', async () => {
+    const res = await buildHttpApp(deps).fetch(
+      new Request('http://localhost/mcp', { method: 'POST' }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('forwards any method to the voice MCP handler without http-token auth', async () => {
+    const voiceMcp = vi.fn(async (req: Request) => new Response(`${req.method} handled`));
+    const app = buildHttpApp({ ...deps, voiceMcp });
+    for (const method of ['POST', 'GET', 'DELETE']) {
+      const res = await app.fetch(new Request('http://localhost/mcp', { method }));
+      expect(await res.text()).toBe(`${method} handled`);
+    }
+    expect(voiceMcp).toHaveBeenCalledTimes(3);
+  });
+});

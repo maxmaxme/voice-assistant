@@ -37,6 +37,10 @@ export interface HttpRunnerDeps {
   endpoints: HttpConfig;
   identities: IdentitiesAdapter;
   profileStore: SqliteProfileMemory;
+  /** Voice MCP handler (`/mcp`, any method) — the speaker's tools and prompt
+   *  for an external voice front-end. Authenticates on its own (speaker
+   *  device tokens), so it bypasses the http-token check. Omit to not mount. */
+  voiceMcp?: (req: Request) => Promise<Response>;
   /** Receives a closer for the listener once it's up. The runner promise never
    *  resolves by design, so this seam is the only way shutdown (unified.ts) can
    *  stop accepting connections before the process exits. */
@@ -479,6 +483,11 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
     });
   }
 
+  if (deps.voiceMcp) {
+    const voiceMcp = deps.voiceMcp;
+    app.all('/mcp', (event: H3Event) => voiceMcp(event.req));
+  }
+
   app.get('/health', () => {
     return { status: 'ok' };
   });
@@ -494,6 +503,7 @@ export async function runHttpMode(deps: HttpRunnerDeps): Promise<void> {
     endpoints.text && 'POST /text',
     endpoints.audio && 'POST /audio',
     endpoints.assist && 'POST /assist',
+    deps.voiceMcp && '/mcp',
     'GET /health',
   ].filter(Boolean);
   log.info({ port, endpoints }, `listening on http://localhost:${port}`);

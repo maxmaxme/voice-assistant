@@ -438,6 +438,7 @@ on agent flavour and response shape:
   Any non-HA client that wants HA-style sessions can use this endpoint
   too.
 - `GET /health` — `{status: "ok"}`.
+- `/mcp` (any method, **always mounted**) — the **voice MCP** (`src/mcpServer/voiceMcp.ts`): a stateless Streamable-HTTP MCP server for external voice front-ends (pipecat-voice). Auth is the **speaker's device token** (`voice` identity via `authorizeSpeaker`), not an `http` token, so it bypasses `checkAuthAndRate`; the `voice` identities are the gate, like the realtime WS. Per request it builds the speaker's setup with `speakerContexts` (`unified.ts`) — the same factory the realtime bridge uses — and serves: `tools/list` (HA tools with ha-suffix rules + the local registry, scoped to the speaker's principal), `tools/call` (the realtime tool runner: routed + `GetLiveContext` cache, errors as `{"error": …}`), and prompts `voice-system` (realtime instructions + speaker memory + language), `tools/wait-for-user`, `tools/request-follow-up` (descriptions for the device-flow tools the front-end implements itself).
 
 The plain vs assist split is enforced by two separate `OpenAiAgent`
 instances passed into the runner — they differ in `enableAsk` and in
