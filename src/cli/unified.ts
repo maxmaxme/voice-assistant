@@ -59,15 +59,33 @@ export function authorizeSpeaker(
 /** One speaker principal's view of the household: its tools (HA + the local
  *  registry), their routed runner, and its realtime instructions. */
 export interface SpeakerSetup {
-  tools: OpenAiFunctionTool[];
+  /** Lazy: the only part that needs Home Assistant, so auth, prompts and config
+   *  never wait on it. HA down or slow → the local tools alone. */
+  listTools: () => Promise<OpenAiFunctionTool[]>;
   runTool: (name: string, args: unknown) => Promise<string>;
   instructions: string;
 }
 
+// A wedged HA must not hold a speaker's setup: past this, go without HA tools.
+const HA_TOOL_LIST_TIMEOUT_MS = 5_000;
+
+const speakerFactories = new WeakMap<CommonDeps, (userId: number) => Promise<SpeakerSetup>>();
+
 /** Builds per-speaker setups — shared by the in-process realtime bridge and
  *  the voice MCP endpoint, so both front-ends see the same tools, memory and
- *  prompt. Each call to this factory owns its caches. */
+ *  prompt. One factory (and so one set of caches) per deps: an HA action
+ *  through one front-end invalidates the `GetLiveContext` snapshot for both. */
 export function speakerContexts(deps: CommonDeps): (userId: number) => Promise<SpeakerSetup> {
+  const existing = speakerFactories.get(deps);
+  if (existing) {
+    return existing;
+  }
+  const factory = buildSpeakerContexts(deps);
+  speakerFactories.set(deps, factory);
+  return factory;
+}
+
+function buildSpeakerContexts(deps: CommonDeps): (userId: number) => Promise<SpeakerSetup> {
   // Process-wide cache shared across every speaker of this front-end (they
   // all hit the same HA — there's no per-user state to isolate). Re-created on
   // process restart so a server bounce flushes stale device snapshots.
@@ -97,16 +115,30 @@ export function speakerContexts(deps: CommonDeps): (userId: number) => Promise<S
       weatherDefaultLocation: deps.tools.weather.defaultLocation,
     });
     return {
-      tools: [...mcpToolsToOpenAi(await listMcpTools()), ...localToolset.tools],
+      listTools: async () => {
+        const fetching = listMcpTools();
+        try {
+          if ((await raceWithTimeout(fetching, HA_TOOL_LIST_TIMEOUT_MS)) === 'timeout') {
+            log.warn('HA tool list timed out — speaker gets local tools only');
+            return localToolset.tools;
+          }
+          return [...mcpToolsToOpenAi(await fetching), ...localToolset.tools];
+        } catch (err) {
+          log.warn({ err }, 'HA tools unavailable — speaker gets local tools only');
+          return localToolset.tools;
+        }
+      },
       runTool: buildRealtimeToolRunner({
         localToolset,
         mcp: deps.mcp,
         cache: toolCache,
         cacheTtlMs: TOOL_CACHE_TTL_MS,
       }),
+      // Language read fresh, like voiceRealtimeConfig, so the prompt and the
+      // transcription agree after a panel change without a restart.
       instructions: appendLanguage(
         appendUserContext(buildSystemPromptFor('realtime', deps.haEnabled), profile.recall()),
-        deps.realtime.language,
+        resolveRealtimeConfig(deps.memory.settings).language,
       ),
     };
   };
@@ -234,7 +266,7 @@ export async function dispatch(
             speakerContext: async (userId) => {
               const speaker = await speakerContext(userId);
               return {
-                tools: speaker.tools,
+                tools: speaker.listTools,
                 runTool: speaker.runTool,
                 prompts: {
                   'voice-system': speaker.instructions,
@@ -321,7 +353,7 @@ export async function main(): Promise<void> {
           turnDetection: deps.realtime.turnDetection,
           silentAck: deps.realtime.silentAck,
           instructions: speaker.instructions,
-          tools: toRealtimeTools(speaker.tools),
+          tools: toRealtimeTools(await speaker.listTools()),
           runTool: speaker.runTool,
         };
       },

@@ -485,7 +485,22 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
 
   if (deps.voiceMcp) {
     const voiceMcp = deps.voiceMcp;
-    app.all('/mcp', (event: H3Event) => voiceMcp(event.req));
+    app.all('/mcp', async (event: H3Event) => {
+      const res = await voiceMcp(event.req);
+      if (res.status !== 401) {
+        return res;
+      }
+      // Same per-IP failed-auth budget as the http-token endpoints.
+      const ip = clientIp(event);
+      log.warn({ ip }, `unauthorized /mcp request from ${ip}`);
+      const failState = authFailLimiter.check(`fail:${ip}`);
+      if (!failState.allowed) {
+        event.res.status = 429;
+        event.res.headers.set('retry-after', String(failState.retryAfterSec));
+        return { error: 'Too many authentication failures' };
+      }
+      return res;
+    });
   }
 
   app.get('/health', () => {
