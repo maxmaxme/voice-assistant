@@ -17,6 +17,7 @@ function deps(overrides: Partial<VoiceMcpDeps> = {}): VoiceMcpDeps {
       ],
       runTool: async (name, args) => JSON.stringify({ ran: name, args }),
       prompts: { 'voice-system': 'You are the speaker in the kitchen.' },
+      realtimeConfig: { noiseReduction: 'off', requestFollowUpMs: 4000 },
     }),
     ...overrides,
   };
@@ -62,6 +63,19 @@ describe('handleVoiceMcp', () => {
       text: 'You are the speaker in the kitchen.',
     });
     await expect(client.getPrompt({ name: 'nope' })).rejects.toThrow(/unknown prompt/);
+  });
+
+  it('serves the realtime config as a JSON resource', async () => {
+    const client = await connect(deps());
+    expect((await client.listResources()).resources).toEqual([
+      { uri: 'voice://realtime-config', name: 'realtime-config', mimeType: 'application/json' },
+    ]);
+    const [content] = (await client.readResource({ uri: 'voice://realtime-config' })).contents;
+    expect(content && 'text' in content ? JSON.parse(content.text) : null).toEqual({
+      noiseReduction: 'off',
+      requestFollowUpMs: 4000,
+    });
+    await expect(client.readResource({ uri: 'voice://nope' })).rejects.toThrow(/unknown resource/);
   });
 
   it('scopes the context to the authorized speaker', async () => {
