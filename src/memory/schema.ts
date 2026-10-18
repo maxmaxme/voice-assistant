@@ -25,6 +25,8 @@ export const users = sqliteTable('users', {
   name: text('name').notNull(),
   createdAt: integer('created_at').notNull(),
   isAdmin: integer('is_admin').notNull().default(0),
+  // Suspended principals keep their rows but fail auth on every channel.
+  isSuspended: integer('is_suspended').notNull().default(0),
 });
 
 export const identities = sqliteTable(

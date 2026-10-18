@@ -188,8 +188,10 @@ person OR a speaker — is uniform; there is no `member`/`shared` role.**
 - **`profile` table** has an `owner` column with composite PK `(owner, key)`.
   `owner` is `'household'` or `'user:<id>'` (rows with no explicit owner
   default to `household`).
-- **`users(id, name, created_at, is_admin)`** — principals (people and
-  speakers). There is no `role` column — every principal is uniform.
+- **`users(id, name, created_at, is_admin, is_suspended)`** — principals (people
+  and speakers). There is no `role` column — every principal is uniform.
+  `is_suspended = 1` makes `resolve()` return null for all the user's identities,
+  so they fail auth on every channel until restored (rows and memory are kept).
 - **`identities(id, channel, identity, user_id, created_at, last_used_at, UNIQUE(channel, identity))`**
   — `channel ∈ {telegram, http, voice}`. `identity` is a Telegram chatId
   (raw) or the **sha256 hash** of an HTTP/voice bearer token. Raw tokens are
@@ -275,7 +277,7 @@ longer used at all** — every channel authenticates against DB identities.
 **Management CLI:** `npm run users -- <cmd>` (`cli/users.ts`): `add-user`,
 `attach-telegram`, `attach-voice`, `mint-http`, `set-admin`. `mint-http` prints
 the token once and stores only its hash. The **web panel's Users page** does the
-same CRUD (create/rename/admin-toggle users; add/edit/delete devices; mint &
+same CRUD (create/rename/admin-toggle/suspend users; add/edit/delete devices; mint &
 re-mint http tokens — same sha256 hashing as the CLI). Both write the same
 `users`/`identities` rows, which auth reads **live** (per request), so edits
 take effect immediately — no restart.

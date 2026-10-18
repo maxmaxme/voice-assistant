@@ -57,6 +57,13 @@
       "when": 1785962647233,
       "tag": "0007_lush_hammerhead",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792360950466,
+      "tag": "0008_greedy_stick",
+      "breakpoints": true
     }
   ]
 }

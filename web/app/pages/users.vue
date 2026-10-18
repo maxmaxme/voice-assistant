@@ -63,6 +63,23 @@ async function submitUser() {
   }
 }
 
+// Reversible, so no confirm dialog. Auth reads the flag live — no restart.
+const suspendingUser = ref<number>()
+async function toggleSuspended(u: User) {
+  suspendingUser.value = u.id
+  try {
+    await $fetch(`/api/users/${u.id}`, { method: 'PUT', body: { name: u.name, isAdmin: u.isAdmin, isSuspended: !u.isSuspended } })
+    toast.add({ title: u.isSuspended ? 'User restored' : 'User suspended', color: 'success' })
+    await refresh()
+  }
+  catch (e: unknown) {
+    toast.add({ title: 'Failed', description: errMessage(e), color: 'error' })
+  }
+  finally {
+    suspendingUser.value = undefined
+  }
+}
+
 const deleteUserTarget = ref<User>()
 const deletingUser = ref(false)
 async function confirmDeleteUser() {
@@ -259,6 +276,13 @@ async function copyToken() {
               >
                 admin
               </UBadge>
+              <UBadge
+                v-if="u.isSuspended"
+                color="info"
+                variant="subtle"
+              >
+                suspended
+              </UBadge>
               <span class="text-xs text-[var(--ui-text-muted)]">#{{ u.id }} · since {{ fmtDate(u.createdAt) }}</span>
             </div>
           </div>
@@ -270,6 +294,15 @@ async function copyToken() {
               @click="openEditUser(u)"
             >
               Edit
+            </UButton>
+            <UButton
+              color="neutral"
+              variant="outline"
+              :icon="u.isSuspended ? 'i-lucide-rotate-ccw' : 'i-lucide-pause'"
+              :loading="suspendingUser === u.id"
+              @click="toggleSuspended(u)"
+            >
+              {{ u.isSuspended ? 'Restore' : 'Suspend' }}
             </UButton>
             <UButton
               color="error"

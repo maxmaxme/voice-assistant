@@ -43,6 +43,16 @@ describe('IdentitiesStore', () => {
     expect(s.resolve('telegram', 'nope')).toBeNull();
   });
 
+  it('does not resolve identities of a suspended user until restored', () => {
+    const { sqlite, s } = withDb();
+    const u = s.addUser('Max');
+    s.attachIdentity('telegram', '1', u);
+    sqlite.prepare(`UPDATE users SET is_suspended = 1 WHERE id = ?`).run(u);
+    expect(s.resolve('telegram', '1')).toBeNull();
+    sqlite.prepare(`UPDATE users SET is_suspended = 0 WHERE id = ?`).run(u);
+    expect(s.resolve('telegram', '1')).toEqual({ userId: u });
+  });
+
   it('isEmpty reflects whether any identity exists', () => {
     const s = store();
     expect(s.isEmpty()).toBe(true);
