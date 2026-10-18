@@ -3,6 +3,7 @@ import { updateUser, dbErrorToHttp } from '../../utils/db/users'
 interface PutBody {
   name?: string
   isAdmin?: boolean
+  isSuspended?: boolean
 }
 
 export default defineEventHandler(async (event) => {
@@ -16,7 +17,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Name is required.' })
   }
   try {
-    if (!updateUser(id, name, Boolean(body?.isAdmin))) {
+    if (!updateUser(id, name, Boolean(body?.isAdmin), typeof body?.isSuspended === 'boolean' ? body.isSuspended : undefined)) {
       throw createError({ statusCode: 404, statusMessage: 'User not found' })
     }
   }

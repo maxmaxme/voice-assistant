@@ -87,6 +87,7 @@ export interface User {
   id: number
   name: string
   isAdmin: boolean
+  isSuspended: boolean
   createdAt: number
   devices: Device[]
 }

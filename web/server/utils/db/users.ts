@@ -21,6 +21,7 @@ export interface UserRow {
   id: number
   name: string
   isAdmin: boolean
+  isSuspended: boolean
   createdAt: number
   devices: DeviceRow[]
 }
@@ -78,8 +79,8 @@ export function listUsers(): UserRow[] {
     return []
   }
   const users = getDb()
-    .prepare(`SELECT id, name, is_admin AS isAdmin, created_at AS createdAt FROM users ORDER BY id`)
-    .all() as { id: number, name: string, isAdmin: number, createdAt: number }[]
+    .prepare(`SELECT id, name, is_admin AS isAdmin, is_suspended AS isSuspended, created_at AS createdAt FROM users ORDER BY id`)
+    .all() as { id: number, name: string, isAdmin: number, isSuspended: number, createdAt: number }[]
 
   const devices = tableExists('identities')
     ? (getDb()
@@ -102,6 +103,7 @@ export function listUsers(): UserRow[] {
     id: u.id,
     name: u.name,
     isAdmin: u.isAdmin === 1,
+    isSuspended: u.isSuspended === 1,
     createdAt: u.createdAt,
     devices: byUser.get(u.id) ?? [],
   }))
@@ -117,13 +119,15 @@ export function createUser(name: string, isAdmin: boolean): number {
   return Number(r.lastInsertRowid)
 }
 
-export function updateUser(id: number, name: string, isAdmin: boolean): boolean {
+/** An undefined isSuspended leaves the suspended flag untouched. A suspended user's
+ *  devices stop authenticating on the next request (auth reads it live). */
+export function updateUser(id: number, name: string, isAdmin: boolean, isSuspended?: boolean): boolean {
   if (!tableExists('users')) {
     throw new DbNotReadyError('users')
   }
   return getDb()
-    .prepare(`UPDATE users SET name = ?, is_admin = ? WHERE id = ?`)
-    .run(name, isAdmin ? 1 : 0, id).changes > 0
+    .prepare(`UPDATE users SET name = ?, is_admin = ?, is_suspended = COALESCE(?, is_suspended) WHERE id = ?`)
+    .run(name, isAdmin ? 1 : 0, isSuspended === undefined ? null : isSuspended ? 1 : 0, id).changes > 0
 }
 
 /** Delete a user and all its devices in one transaction, child rows first —

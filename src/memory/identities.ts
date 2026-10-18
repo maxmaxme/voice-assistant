@@ -16,11 +16,20 @@ export class IdentitiesStore implements IdentitiesAdapter {
     this.db = db;
   }
 
+  /** Null for unknown identities and for identities of a suspended user — every
+   *  channel's auth goes through here, so suspending locks the user out everywhere. */
   resolve(channel: Channel, identity: string): IdentityResolution | null {
     const row = this.db
       .select({ userId: identities.userId })
       .from(identities)
-      .where(and(eq(identities.channel, channel), eq(identities.identity, identity)))
+      .innerJoin(users, eq(users.id, identities.userId))
+      .where(
+        and(
+          eq(identities.channel, channel),
+          eq(identities.identity, identity),
+          eq(users.isSuspended, 0),
+        ),
+      )
       .get();
     return row ? { userId: row.userId } : null;
   }
