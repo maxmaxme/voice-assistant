@@ -6,7 +6,7 @@
     ":semanticCommits",
     ":timezone(Europe/Madrid)"
   ],
-  "schedule": ["* 6-10 * * 1"],
+  "schedule": ["* 6-10 * * *"],
   "prHourlyLimit": 4,
   "minimumReleaseAge": "3 days",
   "prConcurrentLimit": 8,
