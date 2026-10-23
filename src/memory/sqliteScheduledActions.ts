@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte } from 'drizzle-orm';
+import { and, asc, eq, inArray, lte, or } from 'drizzle-orm';
 import type { Db } from './db.ts';
 import { scheduledActions } from './schema.ts';
 import type { Schedule } from '../scheduling/types.ts';
@@ -19,6 +19,9 @@ const toScheduledAction = (r: Row): ScheduledAction => ({
   createdAt: r.createdAt,
   ownerUserId: r.ownerUserId,
 });
+
+const ownedOrCreatedBy = (userId: number) =>
+  or(eq(scheduledActions.ownerUserId, userId), eq(scheduledActions.createdByUserId, userId));
 
 export class SqliteScheduledActions implements ScheduledActionsAdapter {
   private readonly db: Db;
@@ -41,6 +44,7 @@ export class SqliteScheduledActions implements ScheduledActionsAdapter {
         nextFireAt: input.nextFireAt,
         createdAt: now,
         ownerUserId: input.ownerUserId,
+        createdByUserId: input.createdByUserId ?? null,
       })
       .returning()
       .get();
@@ -51,7 +55,7 @@ export class SqliteScheduledActions implements ScheduledActionsAdapter {
     return this.db
       .select()
       .from(scheduledActions)
-      .where(and(eq(scheduledActions.status, 'active'), eq(scheduledActions.ownerUserId, userId)))
+      .where(and(eq(scheduledActions.status, 'active'), ownedOrCreatedBy(userId)))
       .orderBy(asc(scheduledActions.nextFireAt))
       .all()
       .map(toScheduledAction);
@@ -98,7 +102,7 @@ export class SqliteScheduledActions implements ScheduledActionsAdapter {
       .where(
         and(
           eq(scheduledActions.id, id),
-          eq(scheduledActions.ownerUserId, userId),
+          ownedOrCreatedBy(userId),
           eq(scheduledActions.status, 'active'),
         ),
       )

@@ -17,6 +17,15 @@ NEVER guess the date/time — you are not given the current time in this prompt.
 absolute time ("tomorrow at 9am", "in 5 minutes", "tonight"), call `get_current_time` to read the real current time,
 then compute `schedule_expr` from that.
 
+**After midnight, "tomorrow" usually means the day that just started.** If the local time is before 05:00 and the user
+says "tomorrow" (or "today" while still up from the evening), they mean the coming daytime — today's calendar date, not
+date + 1. Use today's date, and in your confirmation name the day explicitly (weekday + date, e.g. "Friday the 23rd at
+15:00") so a wrong guess is caught on the spot.
+
+**Moving a reminder** (the user corrects the time right after you set it): `cancel_scheduled` the old id first and only
+then schedule the new one. If the cancel returns `ok: false`, say the old reminder is still active — never leave
+duplicates silently.
+
 ## Delivery at fire time — write `goal` as the content, NOT "send to Telegram"
 
 Whatever the fire-time assistant replies is **automatically delivered to the person who scheduled it** over Telegram.
