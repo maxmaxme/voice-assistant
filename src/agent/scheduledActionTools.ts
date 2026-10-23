@@ -171,7 +171,13 @@ export function executeScheduledActionTool(
         },
       );
       const { schedule, nextFireAt } = buildSchedule(args.schedule_kind, args.schedule_expr);
-      const created = adapter.add({ goal, schedule, nextFireAt, ownerUserId });
+      const created = adapter.add({
+        goal,
+        schedule,
+        nextFireAt,
+        ownerUserId,
+        createdByUserId: ctx.ownerUserId,
+      });
       return {
         id: created.id,
         goal: created.goal,

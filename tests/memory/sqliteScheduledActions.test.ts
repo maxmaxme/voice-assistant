@@ -89,6 +89,22 @@ describe('SqliteScheduledActions', () => {
     expect(s.get(theirs.id)?.status).toBe('cancelled');
   });
 
+  it('the creator (e.g. a speaker reminding a person) can list and cancel it', () => {
+    // Speaker 5 sets a reminder owned by user 2, then reschedules it.
+    const r = add({
+      goal: 'g',
+      schedule: { kind: 'once', at: 100 },
+      nextFireAt: 100,
+      ownerUserId: 2,
+      createdByUserId: 5,
+    });
+    expect(s.listActiveForOwner(5).map((x) => x.id)).toEqual([r.id]);
+    expect(s.listActiveForOwner(2).map((x) => x.id)).toEqual([r.id]);
+    expect(s.cancel(r.id, 3)).toBe(false);
+    expect(s.cancel(r.id, 5)).toBe(true);
+    expect(s.get(r.id)?.status).toBe('cancelled');
+  });
+
   it('listDue filters by next_fire_at <= now and status=active (all owners)', () => {
     add({ goal: 'past', schedule: { kind: 'once', at: 100 }, nextFireAt: 100, ownerUserId: 1 });
     add({ goal: 'other', schedule: { kind: 'once', at: 200 }, nextFireAt: 200, ownerUserId: 2 });

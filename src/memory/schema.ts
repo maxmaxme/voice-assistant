@@ -66,6 +66,9 @@ export const scheduledActions = sqliteTable(
     lastFiredAt: integer('last_fired_at'),
     createdAt: integer('created_at').notNull(),
     ownerUserId: integer('owner_user_id').notNull().default(1),
+    // Who scheduled it, when that differs from the owner (the shared speaker
+    // reminding a person) — lets the creator list/cancel what it just set.
+    createdByUserId: integer('created_by_user_id'),
   },
   (t) => [
     // Bare `status` (not `${t.status}`) so the generated DDL matches the prod

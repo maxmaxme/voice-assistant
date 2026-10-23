@@ -1,0 +1,1 @@
+ALTER TABLE `scheduled_actions` ADD `created_by_user_id` integer;

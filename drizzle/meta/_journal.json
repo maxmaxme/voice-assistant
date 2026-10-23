@@ -64,6 +64,13 @@
       "when": 1792360950466,
       "tag": "0008_greedy_stick",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1792786554719,
+      "tag": "0009_living_sphinx",
+      "breakpoints": true
     }
   ]
 }

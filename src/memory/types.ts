@@ -52,8 +52,8 @@ export interface ScheduledAction {
   nextFireAt: number;
   lastFiredAt: number | null;
   createdAt: number;
-  /** The user who created this action. Reminders fire back to this user's
-   *  Telegram. Non-nullable since migration v10 (legacy rows backfilled). */
+  /** The recipient: reminders fire to this user's Telegram. Non-nullable since
+   *  migration v10 (legacy rows backfilled). */
   ownerUserId: number;
 }
 
@@ -62,11 +62,13 @@ export interface NewScheduledAction {
   schedule: Schedule;
   nextFireAt: number;
   ownerUserId: number;
+  /** The caller that scheduled it, if any (may differ from the owner). */
+  createdByUserId?: number | null;
 }
 
 export interface ScheduledActionsAdapter {
   add(input: NewScheduledAction): ScheduledAction;
-  /** Active actions owned by `userId` (for per-user list/cancel). */
+  /** Active actions owned or created by `userId` (for per-user list/cancel). */
   listActiveForOwner(userId: number): ScheduledAction[];
   listDue(now: number): ScheduledAction[];
   /** When `nextFireAt` is null, mark `status='done'` (one-shot complete).
@@ -78,7 +80,7 @@ export interface ScheduledActionsAdapter {
    *  advancing once-rows BEFORE firing. Cancelled and already-error rows
    *  are left alone. */
   markError(id: number): void;
-  /** Cancel an active action, but only if it is owned by `userId`. Returns
+  /** Cancel an active action, but only if it is owned or created by `userId`. Returns
    *  true iff a row was cancelled. */
   cancel(id: number, userId: number): boolean;
   get(id: number): ScheduledAction | null;
