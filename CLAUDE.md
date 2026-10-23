@@ -177,6 +177,8 @@ auto-discovered + seeded) and read it via `resolvePrompt`. Keep HA-specific
 behaviour in `ha-addendum.md` (not `base-system.md`), so it only loads when HA
 is on.
 
+Prompt `.md` files are **one line per paragraph / list item, never hard-wrapped**: the model sometimes reads them line by line, and a wrapped sentence gets cut. `.prettierrc` enforces it (`proseWrap: "never"` for `src/**/prompts/**/*.md`).
+
 ### Memory (`src/memory/`)
 
 Long-term profile. SQLite via **Drizzle ORM** (synchronous `drizzle-orm/better-sqlite3` driver) behind the `MemoryAdapter` interface; tables are declared in `schema.ts` and each store (`SqliteProfileMemory` etc.) takes a Drizzle `Db`. Schema migrations are drizzle-kit `.sql` files under `drizzle/`, applied on open by `applyMigrations()` in `db.ts`: a fresh DB runs the `0000_init` snapshot; the pre-Drizzle prod DB (which has a `schema_version` table at v12 but no drizzle journal) is handled by a **baseline shim** that seeds `__drizzle_migrations` so `migrate()` skips `0000_init` without re-creating existing tables. Add a migration by editing `schema.ts` then `npm run db:generate`. The connection sets `journal_mode = WAL` + `busy_timeout = 5000` (`memoryStore.ts`) so a brief external write lock (e.g. an out-of-repo sqlite-web admin) doesn't make the app throw.
