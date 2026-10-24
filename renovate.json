@@ -10,6 +10,12 @@
   "prHourlyLimit": 4,
   "minimumReleaseAge": "3 days",
   "prConcurrentLimit": 8,
+  "lockFileMaintenance": {
+    "description": "Daily lockfile refresh pulls transitive deps forward (what npm audit fix would do) and merges itself once CI is green",
+    "enabled": true,
+    "automerge": true,
+    "schedule": ["* 6-10 * * *"]
+  },
   "packageRules": [
     {
       "description": "Minor/patch/digest bumps ride one weekly PR and merge themselves once CI is green",
