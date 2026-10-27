@@ -26,8 +26,9 @@ export interface HttpRunnerDeps {
    *  `ask` tool and the voice-addendum prompt; response includes
    *  `continue_conversation` so HA can reopen the mic. */
   assistAgent: OpenAiAgent;
-  /** Per-conversation Session lookup, shared by `/assist` and `/text`. The
-   *  caller owns the key (endpoint-prefixed, and token-scoped on `/text`) and
+  /** Per-conversation Session lookup, shared by `/assist`, `/text` and `/audio`
+   *  with an id. The caller owns the key (endpoint-prefixed, and token-scoped
+   *  on `/text` / `/audio`) and
    *  the idle window after which the chain is dropped. */
   sessionFor: (key: string, idleMs: number) => Session;
   stt: AudioFileStt;
@@ -298,12 +299,19 @@ export function buildHttpApp(deps: HttpAppDeps): H3 {
             return { error: 'No speech detected' };
           }
 
-          const scope = resolveHttpScope(identities, event.req.headers.get('authorization'));
+          const authHeader = event.req.headers.get('authorization');
+          const scope = resolveHttpScope(identities, authHeader);
+          // The body is the audio itself, so the id rides in the query. Same
+          // key as `/text`: one conversation, whichever way each turn arrives.
+          const conversationId = event.url.searchParams.get('conversation_id');
           const reply = await agent.respond(transcript, {
-            // One-shot endpoint: a fresh session per request. Falling back to
-            // the agent's own Session would chain unrelated callers' turns
-            // (and their memory-profile instructions) into one conversation.
-            session: new Session(),
+            // Without an id: a fresh session per request, as Shortcuts expect.
+            // Falling back to the agent's own Session would chain unrelated
+            // callers' turns (and their memory-profile instructions) into one
+            // conversation.
+            session: conversationId
+              ? sessionFor(`text:${tokenKey(authHeader)}:${conversationId}`, TEXT_SESSION_IDLE_MS)
+              : new Session(),
             profile: makeScopedProfile(profileStore, scope),
             scope,
           });

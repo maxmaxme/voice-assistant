@@ -402,7 +402,9 @@ on agent flavour and response shape:
 
 - `POST /audio` — raw audio bytes (Content-Type derives the format).
   Transcribed via `OpenAiStt` then run through the **plain** agent.
-  Returns `{response, transcript}`. Used by Apple Shortcut.
+  Returns `{response, transcript}`. Used by Apple Shortcut. Optional
+  `?conversation_id=` in the query joins the `/text` chain for that id
+  (same session key); without it every request is a fresh session.
 - `POST /text` — `application/x-www-form-urlencoded` (`text` form field)
   or `application/json` (`{"text": "...", "conversation_id"?: "..."}`).
   Run through the **plain** agent, with a **server-side session** so

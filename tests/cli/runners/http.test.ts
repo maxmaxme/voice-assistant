@@ -95,8 +95,9 @@ function textRequest(token: string | null = TOKEN, conversationId?: string): Req
   });
 }
 
-function audioRequest(token: string | null = TOKEN): Request {
-  return new Request('http://localhost/audio', {
+function audioRequest(token: string | null = TOKEN, conversationId?: string): Request {
+  const query = conversationId === undefined ? '' : `?conversation_id=${conversationId}`;
+  return new Request(`http://localhost/audio${query}`, {
     method: 'POST',
     headers: {
       ...(token !== null ? { authorization: `Bearer ${token}` } : {}),
@@ -220,6 +221,19 @@ describe('HTTP per-request sessions', () => {
     expect(respondCalls).toHaveLength(2);
     expect(respondCalls[0]!.opts.session).toBeInstanceOf(Session);
     expect(respondCalls[0]!.opts.session).not.toBe(respondCalls[1]!.opts.session);
+  });
+
+  it('/audio with a conversation_id joins the same chain as /text', async () => {
+    const { sessionFor, keys } = fakeSessionFor();
+    const app = buildHttpApp({ ...deps, sessionFor });
+    await app.fetch(audioRequest(TOKEN, 'conv-a'));
+    await app.fetch(textRequest(TOKEN, 'conv-a'));
+    await app.fetch(audioRequest(OTHER_TOKEN, 'conv-a'));
+
+    const [first, second, third] = respondCalls;
+    expect(first!.opts.session).toBe(second!.opts.session);
+    expect(third!.opts.session).not.toBe(first!.opts.session);
+    expect(keys()[0]).toBe(keys()[1]);
   });
 });
 
