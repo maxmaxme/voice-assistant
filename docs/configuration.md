@@ -34,18 +34,18 @@ Enable it on the panel's **HA Voice** page; the server listens at `ws://<host>:3
 
 The HTTP server always runs (so `GET /health` is always up for the container healthcheck); each input endpoint mounts only when its panel toggle is on.
 
-| Endpoint       | Body                                                         | Returns                             |
-| -------------- | ------------------------------------------------------------ | ----------------------------------- |
-| `POST /text`   | form-urlencoded or JSON, `text` + optional `conversation_id` | `{response}`                        |
-| `POST /audio`  | raw audio bytes (Content-Type sets the format)               | `{response, transcript}`            |
-| `POST /assist` | JSON `{text, conversation_id?}` — HA Assist bridge           | `{response, continue_conversation}` |
-| `GET /health`  | —                                                            | `{status:"ok"}`                     |
+| Endpoint       | Body                                                                         | Returns                             |
+| -------------- | ---------------------------------------------------------------------------- | ----------------------------------- |
+| `POST /text`   | form-urlencoded or JSON, `text` + optional `conversation_id`                 | `{response}`                        |
+| `POST /audio`  | raw audio bytes (Content-Type sets the format), optional `?conversation_id=` | `{response, transcript}`            |
+| `POST /assist` | JSON `{text, conversation_id?}` — HA Assist bridge                           | `{response, continue_conversation}` |
+| `GET /health`  | —                                                                            | `{status:"ok"}`                     |
 
 All non-health endpoints require `Authorization: Bearer <token>`.
 
 `/mcp` (always mounted) is an MCP server (Streamable HTTP, stateless) for external voice front-ends such as [pipecat-voice](https://github.com/maxmaxme/pipecat-voice). It authenticates with a **speaker's device token** (a `voice` identity, not an HTTP token) and serves that speaker's view: the Home Assistant tools plus the built-in ones (memory, reminders, weather, time), and prompts — `voice-system` (the realtime instructions with the speaker's memory and language) and the descriptions of the `wait_for_user` / `request_follow_up` device-flow tools. The `voice://realtime-config` resource carries the Realtime page's settings (plus the OpenAI integration's realtime model/voice/effort), so the front-end follows the panel; edits apply on its next connection.
 
-`/text` keeps a server-side conversation per `conversation_id` (10 min idle), scoped to the calling token — so a follow-up like "yes, send it" lands in the same chain. Omit the field and the token gets one shared chain; send a new id to start a fresh topic.
+`/text` keeps a server-side conversation per `conversation_id` (10 min idle), scoped to the calling token — so a follow-up like "yes, send it" lands in the same chain. Omit the field and the token gets one shared chain; send a new id to start a fresh topic. `/audio` joins the same chain when given `?conversation_id=` in the query (the body is the audio); without it, every request is a fresh one-shot conversation.
 
 ### 💬 Telegram
 
