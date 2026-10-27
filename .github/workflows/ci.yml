@@ -26,7 +26,9 @@ jobs:
       - run: npm run lint
 
   # Unused files / exports / dependencies across the core and web/ (knip.json).
-  # web/ needs its own install so knip's Nuxt plugin can resolve it.
+  # web/ needs its own install so knip's Nuxt plugin can resolve it. No npm
+  # cache: its key spans both lockfiles, so every lockfile bump re-uploaded
+  # ~130 MB (~80 s), while both installs take ~15 s uncached.
   knip:
     runs-on: ubuntu-latest
     steps:
@@ -35,10 +37,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            web/package-lock.json
 
       - run: npm ci
 
