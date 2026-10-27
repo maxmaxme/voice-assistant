@@ -13,8 +13,7 @@ configured: no `.env` edits, no redeploys for config.
 | **Tools**        | `settings`              | Built-in tool gates (memory, reminders) + weather (units, location). |
 | **Prompts**      | `prompts`               | Every system / tool prompt, editable, with restore-to-default.       |
 | **Users**        | `users` + `identities`  | Principals and their devices: Telegram chats, HTTP tokens, voice device tokens. |
-| **HA Voice / HTTP API** | `settings`       | Realtime enable switch (+ pacing / idle) and the per-endpoint HTTP toggles. |
-| **Mic dumps**    | — (files)               | Read-only: the assistant's mic-dump WAVs — play, download, level stats (speech / noise floor / peak / clipping). Reads `mic-dumps/` next to the DB, or `MIC_DUMP_DIR`. |
+| **HA Voice / HTTP API** | `settings`       | Voice settings served to the voice front-end over `/mcp`, and the per-endpoint HTTP toggles. |
 
 **When changes take effect:**
 

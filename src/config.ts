@@ -13,9 +13,6 @@ const ConfigSchema = z.object({
   http: z.object({
     port: z.coerce.number().int().min(1).max(65535).default(3000),
   }),
-  realtime: z.object({
-    port: z.coerce.number().int().min(1).max(65535).default(3001),
-  }),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -24,11 +21,10 @@ const PATH_TO_ENV: Record<string, string> = {
   'memory.dbPath': 'MEMORY_DB_PATH',
   tz: 'TZ',
   'http.port': 'HTTP_SERVER_PORT',
-  'realtime.port': 'REALTIME_PORT',
 };
 
 /** Read process-level config from `env` (defaults to `process.env`). Everything
- *  else (integrations, realtime/http enable) is DB-backed and resolved
+ *  else (integrations, realtime/http settings) is DB-backed and resolved
  *  elsewhere — there is no env overlay. */
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const raw = {
@@ -38,9 +34,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     tz: env.TZ,
     http: {
       port: env.HTTP_SERVER_PORT,
-    },
-    realtime: {
-      port: env.REALTIME_PORT,
     },
   };
   const parsed = ConfigSchema.safeParse(raw);

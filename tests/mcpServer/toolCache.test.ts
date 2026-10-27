@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ToolResultCache, CACHEABLE_TOOLS } from '../../src/realtime/toolCache.ts';
+import { ToolResultCache, CACHEABLE_TOOLS } from '../../src/mcpServer/toolCache.ts';
 
 describe('ToolResultCache', () => {
   beforeEach(() => {

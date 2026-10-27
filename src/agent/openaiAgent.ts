@@ -127,7 +127,7 @@ export class OpenAiAgent implements Agent {
     //    the model (and schedule_action would throw on the null owner).
     const goalMode = this.mode === 'goal';
     // One registry for build + dispatch — the same `buildLocalToolset` the
-    // realtime bridge uses. Goal mode simply doesn't wire the adapters whose
+    // voice MCP uses. Goal mode simply doesn't wire the adapters whose
     // tools it must not expose; the registry omits them. `ask` stays separate:
     // it's terminal control flow, not an executable tool.
     const localToolset = buildLocalToolset({

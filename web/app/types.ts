@@ -1,8 +1,5 @@
 export interface RealtimeResponse {
-  enabled: boolean
-  outputPacingMs: string
   idleResetMs: string
-  followUpMs: string
   requestFollowUpMs: string
   followUpChime: boolean
   wakeChime: boolean
@@ -11,7 +8,6 @@ export interface RealtimeResponse {
   transcriptionModel: string
   noiseReduction: string
   turnDetection: string
-  silentAck: boolean
 }
 
 export interface HttpResponse {
@@ -94,25 +90,4 @@ export interface User {
 
 export interface UsersResponse {
   users: User[]
-}
-
-export interface MicDumpLevels {
-  peakDb: number
-  clippedPct: number
-  speechDb: number
-  noiseDb: number
-}
-
-export interface MicDump {
-  name: string
-  recordedAt: string
-  speaker: string
-  durationMs: number
-  bytes: number
-  levels: MicDumpLevels | null
-}
-
-export interface MicDumpsResponse {
-  available: boolean
-  dumps: MicDump[]
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bearerToken } from '../../src/realtime/auth.ts';
+import { bearerToken } from '../../src/mcpServer/bearerToken.ts';
 
 describe('bearerToken', () => {
   it('extracts the token from a Bearer header', () => {

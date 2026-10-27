@@ -8,7 +8,6 @@ import type { McpClient } from '../mcp/types.ts';
 import { resolveHaConfig } from '../integrations/homeAssistant.ts';
 import { resolveOpenAiConfig, type OpenAiConfig } from '../integrations/openai.ts';
 import { resolveTelegramConfig, type TelegramConfig } from '../integrations/telegram.ts';
-import { resolveRealtimeConfig, type RealtimeConfig } from '../settings/realtimeConfig.ts';
 import { resolveHttpConfig, type HttpConfig } from '../settings/httpConfig.ts';
 import { resolveTelegramEnabled } from '../settings/telegramRuntime.ts';
 import { resolveToolsConfig, type ToolsConfig } from '../settings/toolsConfig.ts';
@@ -79,8 +78,9 @@ async function connectMcpWithRetry(mcp: HaMcpClient): Promise<void> {
  *                    rules apply (spell out units, no markdown/URLs/etc).
  *                    `ask` on — `expectsFollowUp` is forwarded as
  *                    `continue_conversation` so HA reopens the mic.
- *  - `realtime`    — Direct WS to Voice PE via OpenAI Realtime. Output is
- *                    spoken DIRECTLY by the Realtime model; uses a lean
+ *  - `realtime`    — Voice PE speakers via the voice MCP (pipecat-voice on
+ *                    OpenAI Realtime). Output is spoken DIRECTLY by the
+ *                    Realtime model; uses a lean
  *                    audio-only addendum instead of the text-channel voice
  *                    rules.
  */
@@ -128,10 +128,10 @@ export interface CommonDeps {
   telegramReceiver(): TelegramReceiver;
   goalRunner: GoalRunner;
   /** Whether the Home Assistant integration is configured — gates HA-specific
-   *  system-prompt rules on the realtime path. */
+   *  system-prompt rules on the voice path. */
   haEnabled: boolean;
   /** Resolved OpenAI integration config (api key, models, realtime model/voice/
-   *  effort). The realtime *enable* switch is `realtime.enabled`, not here. */
+   *  effort). */
   openai: OpenAiConfig;
   /** Resolved Telegram integration config (bot token), or null when not
    *  installed/enabled. Credentials only — running the bot also needs
@@ -141,9 +141,6 @@ export interface CommonDeps {
    *  separate from the integration: the bot runs only when this is on AND a
    *  token is configured. */
   telegramEnabled: boolean;
-  /** Realtime (Voice PE) config from the DB (enable + pacing + idle). The
-   *  realtime server starts only when `realtime.enabled` (and a device token). */
-  realtime: RealtimeConfig;
   /** HTTP server config from the DB (enable). The `/text` `/audio` `/assist`
    *  server starts only when `http.enabled`. */
   http: HttpConfig;
@@ -154,7 +151,7 @@ export interface CommonDeps {
 /** Initialise everything shared across runners. Call once per process. */
 export async function initializeCommonDependencies(): Promise<CommonDeps> {
   // All config is env (process-level: db path, TZ, ports) or DB-backed feature
-  // config read by dedicated resolvers below (integrations, realtime, http).
+  // config read by dedicated resolvers below (integrations, http, tools).
   // There is no env-overlay any more — nothing is web-edited *into* env.
   const config = loadConfig();
   fs.mkdirSync(path.dirname(config.memory.dbPath), { recursive: true });
@@ -164,9 +161,7 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   // route all prompt reads through the DB for the rest of the process.
   initPromptRegistry(memory.prompts);
 
-  // Realtime + HTTP enable/config are DB-only, read like an integration — never
-  // from env. Device token + ports come from `config`.
-  const realtime = resolveRealtimeConfig(memory.settings);
+  // HTTP enable/config is DB-only, read like an integration — never from env.
   const http = resolveHttpConfig(memory.settings);
   const telegramEnabled = resolveTelegramEnabled(memory.settings);
   const tools = resolveToolsConfig(memory.settings);
@@ -297,7 +292,6 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     openai,
     telegram,
     telegramEnabled,
-    realtime,
     http,
     tools,
   };

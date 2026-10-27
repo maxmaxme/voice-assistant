@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildRealtimeToolRunner } from '../../src/realtime/toolRunner.ts';
-import { ToolResultCache } from '../../src/realtime/toolCache.ts';
+import { buildSpeakerToolRunner } from '../../src/mcpServer/toolRunner.ts';
+import { ToolResultCache } from '../../src/mcpServer/toolCache.ts';
 import { buildLocalToolset } from '../../src/agent/localTools.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
 
@@ -18,7 +18,7 @@ function fakeMcp(overrides: Partial<McpClient> = {}): McpClient {
 }
 
 function makeRunner(mcp: McpClient, cache = new ToolResultCache()) {
-  return buildRealtimeToolRunner({
+  return buildSpeakerToolRunner({
     localToolset: buildLocalToolset(),
     mcp,
     cache,
@@ -26,7 +26,7 @@ function makeRunner(mcp: McpClient, cache = new ToolResultCache()) {
   });
 }
 
-describe('buildRealtimeToolRunner', () => {
+describe('buildSpeakerToolRunner', () => {
   it('executes local-registry tools in-process', async () => {
     const mcp = fakeMcp();
     const run = makeRunner(mcp);

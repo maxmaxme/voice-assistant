@@ -1,6 +1,6 @@
 /** A key/value store for non-secret feature config (the `settings` table,
  *  edited via the web panel). Keys are dotted feature names (e.g.
- *  `realtime.enabled`, `tools.weather.units`) read by the dedicated resolvers
+ *  `realtime.language`, `tools.weather.units`) read by the dedicated resolvers
  *  in this directory — DB-only, never env-var names, never layered over
  *  `process.env`. Values apply on the next process start. */
 export interface SettingsStore {

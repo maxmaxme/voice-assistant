@@ -24,10 +24,12 @@ Talk to your house through a [Home Assistant Voice PE](https://www.home-assistan
 ```mermaid
 flowchart LR
     PE["🔊 Voice PE speaker"]
+    PV["🎙️ pipecat-voice<br/>OpenAI Realtime"
     HTTP["🌐 HTTP · :3000<br/>/text /audio /assist"]
     TG["💬 Telegram"]
 
-    PE -- "WS :3001 · OpenAI Realtime" --> CORE
+    PE -- "WS /voice" --> PV
+    PV -- "/mcp · tools, prompt, config" --> CORE
     HTTP --> CORE
     TG --> CORE
 

@@ -3,8 +3,6 @@ import 'dotenv/config';
 import { initializeCommonDependencies, buildSystemPromptFor, type CommonDeps } from './shared.ts';
 import { runTelegramMode, perChatSender, type TelegramRunnerDeps } from './runners/telegram.ts';
 import { runHttpMode, type HttpRunnerDeps } from './runners/http.ts';
-import { startRealtimeServer, type RealtimeServer } from '../realtime/index.ts';
-import { toRealtimeTools } from '../realtime/toolAdapter.ts';
 import { mcpToolsToOpenAi, type OpenAiFunctionTool } from '../agent/toolBridge.ts';
 import { resolvePrompt } from '../agent/prompts/registry.ts';
 import { handleVoiceMcp } from '../mcpServer/voiceMcp.ts';
@@ -13,14 +11,14 @@ import { makeScopedProfile } from '../memory/scope.ts';
 import { hashToken } from '../memory/identities.ts';
 import type { IdentitiesAdapter } from '../memory/types.ts';
 import { appendLanguage, appendUserContext } from '../agent/systemPrompt.ts';
-import { ToolResultCache } from '../realtime/toolCache.ts';
-import { buildRealtimeToolRunner } from '../realtime/toolRunner.ts';
+import { ToolResultCache } from '../mcpServer/toolCache.ts';
+import { buildSpeakerToolRunner } from '../mcpServer/toolRunner.ts';
 import { Session } from '../agent/session.ts';
 import { OpenAiStt } from '../audio/openaiStt.ts';
 import { BotVoiceTranscriber } from '../telegram/voiceTranscriber.ts';
 import { BotPhotoLoader } from '../telegram/photoLoader.ts';
 import { Scheduler } from '../scheduling/scheduler.ts';
-import { resolveRealtimeConfig, realtimeDeviceConfig } from '../settings/realtimeConfig.ts';
+import { resolveRealtimeConfig } from '../settings/realtimeConfig.ts';
 import { getServerTimezone } from '../utils/time.ts';
 import { raceWithTimeout } from '../utils/withTimeout.ts';
 import { memoWithTtl } from '../utils/ttlMemo.ts';
@@ -71,10 +69,9 @@ const HA_TOOL_LIST_TIMEOUT_MS = 5_000;
 
 const speakerFactories = new WeakMap<CommonDeps, (userId: number) => Promise<SpeakerSetup>>();
 
-/** Builds per-speaker setups — shared by the in-process realtime bridge and
- *  the voice MCP endpoint, so both front-ends see the same tools, memory and
- *  prompt. One factory (and so one set of caches) per deps: an HA action
- *  through one front-end invalidates the `GetLiveContext` snapshot for both. */
+/** Builds per-speaker setups for the voice MCP endpoint. One factory (and so
+ *  one set of caches) per deps: the stateless MCP requests of one speaker share
+ *  the `GetLiveContext` snapshot, and an HA action invalidates it. */
 export function speakerContexts(deps: CommonDeps): (userId: number) => Promise<SpeakerSetup> {
   const existing = speakerFactories.get(deps);
   if (existing) {
@@ -128,7 +125,7 @@ function buildSpeakerContexts(deps: CommonDeps): (userId: number) => Promise<Spe
           return localToolset.tools;
         }
       },
-      runTool: buildRealtimeToolRunner({
+      runTool: buildSpeakerToolRunner({
         localToolset,
         mcp: deps.mcp,
         cache: toolCache,
@@ -259,7 +256,7 @@ export async function dispatch(
         profileStore: deps.memory.profileStore,
         // Voice MCP for external voice front-ends (pipecat-voice): the speaker's
         // tools + prompt behind its own device token. Always mounted — the
-        // `voice` identities are the gate, exactly like the realtime WS.
+        // `voice` identities are the gate.
         voiceMcp: (req) =>
           handleVoiceMcp(req, {
             authorize: (token) => authorizeSpeaker(deps.memory.identities, token),
@@ -298,68 +295,19 @@ export async function dispatch(
 export async function main(): Promise<void> {
   // Init first: it layers DB-backed settings over process.env, so TZ below
   // reflects web-edited values. web_search comes from the resolved OpenAI
-  // integration; each channel self-gates (telegram/http/realtime toggles).
+  // integration; each channel self-gates (telegram/http toggles).
   const deps = await initializeCommonDependencies();
 
   const channels = {
     telegram: deps.telegram !== null && deps.telegramEnabled,
     http: deps.http,
-    realtime: deps.realtime.enabled,
   };
   const httpStr = `text=${deps.http.text} audio=${deps.http.audio} assist=${deps.http.assist}`;
   const webSearchOn = deps.openai.webSearch;
   log.info(
     { channels, tz: getServerTimezone(), webSearch: webSearchOn },
-    `channels: telegram=${channels.telegram} http(${httpStr}) realtime=${channels.realtime} TZ=${getServerTimezone()}${webSearchOn ? ' WEB_SEARCH=on' : ''}`,
+    `channels: telegram=${channels.telegram} http(${httpStr}) TZ=${getServerTimezone()}${webSearchOn ? ' WEB_SEARCH=on' : ''}`,
   );
-
-  let realtimeServer: RealtimeServer | null = null;
-  // Realtime is opt-in via the DB-backed enable switch (web panel's Realtime
-  // page). Devices authenticate per-connection against the registered `voice`
-  // identities — no shared env token. Port stays env (infra).
-  if (deps.realtime.enabled) {
-    const speakerContext = speakerContexts(deps);
-    realtimeServer = await startRealtimeServer({
-      port: deps.config.realtime.port,
-      authorize: (token) => authorizeSpeaker(deps.memory.identities, token),
-      // Device-facing config (the hello payload) is delivered live: poll the DB
-      // and push changes to connected devices, so admin edits apply without a
-      // restart. Server-side realtime.* config still applies on restart.
-      watchDeviceConfig: {
-        intervalMs: 15_000,
-        read: () => realtimeDeviceConfig(resolveRealtimeConfig(deps.memory.settings)),
-      },
-      buildBridgeDeps: async (auth) => {
-        const speaker = await speakerContext(auth.userId);
-        return {
-          speakerName: deps.memory.identities.userName(auth.userId) ?? undefined,
-          apiKey: deps.openai.apiKey,
-          model: deps.openai.realtime.model,
-          voice: deps.openai.realtime.voice,
-          reasoningEffort: deps.openai.realtime.reasoningEffort,
-          idleResetMs: deps.realtime.idleResetMs,
-          outputPacingMs: deps.realtime.outputPacingMs,
-          followUpMs: deps.realtime.followUpMs,
-          requestFollowUpMs: deps.realtime.requestFollowUpMs,
-          followUpChime: deps.realtime.followUpChime,
-          // Read fresh (not the bootstrap value) so a device connecting after an
-          // admin change gets the current wake-beep setting in its hello; the
-          // watcher above then keeps already-connected devices in sync.
-          wakeChime: resolveRealtimeConfig(deps.memory.settings).wakeChime,
-          language: deps.realtime.language,
-          transcription: deps.realtime.transcription,
-          transcriptionModel: deps.realtime.transcriptionModel,
-          noiseReduction: deps.realtime.noiseReduction,
-          turnDetection: deps.realtime.turnDetection,
-          silentAck: deps.realtime.silentAck,
-          instructions: speaker.instructions,
-          tools: toRealtimeTools(await speaker.listTools()),
-          runTool: speaker.runTool,
-        };
-      },
-    });
-    log.info({ port: realtimeServer.port }, 'realtime server listening');
-  }
 
   let closeHttpServer: (() => Promise<void>) | null = null;
 
@@ -369,9 +317,6 @@ export async function main(): Promise<void> {
   const onShutdown = async (signal: string): Promise<void> => {
     log.info({ signal }, `received ${signal}, shutting down`);
     const teardown = (async () => {
-      if (realtimeServer) {
-        await realtimeServer.close().catch(() => {});
-      }
       if (closeHttpServer) {
         await closeHttpServer().catch(() => {});
       }
@@ -399,9 +344,6 @@ export async function main(): Promise<void> {
       },
     );
   } finally {
-    if (realtimeServer) {
-      await realtimeServer.close().catch(() => {});
-    }
     await deps.dispose();
   }
 }

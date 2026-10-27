@@ -7,7 +7,7 @@ import { createLogger } from '../utils/logger.ts';
 
 const log = createLogger('tool-runner');
 
-export interface RealtimeToolRunnerDeps {
+export interface SpeakerToolRunnerDeps {
   localToolset: LocalToolset;
   mcp: McpClient;
   cache: ToolResultCache;
@@ -15,14 +15,14 @@ export interface RealtimeToolRunnerDeps {
 }
 
 /**
- * The realtime bridge's `runTool` hook: the shared local-vs-MCP routing
+ * The voice MCP's `tools/call` runner: the shared local-vs-MCP routing
  * (executeRoutedTool — same as the Responses-API agent loop) with the
  * short-TTL HA result cache layered on the MCP side as a decorator.
  * Errors come back as `{"error": …}` JSON — the Realtime model's expected
  * failure shape — never as a throw.
  */
-export function buildRealtimeToolRunner(
-  deps: RealtimeToolRunnerDeps,
+export function buildSpeakerToolRunner(
+  deps: SpeakerToolRunnerDeps,
 ): (name: string, args: unknown) => Promise<string> {
   const { localToolset, mcp, cache, cacheTtlMs } = deps;
 

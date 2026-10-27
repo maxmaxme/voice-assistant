@@ -25,6 +25,28 @@ jobs:
 
       - run: npm run lint
 
+  # Unused files / exports / dependencies across the core and web/ (knip.json).
+  # web/ needs its own install so knip's Nuxt plugin can resolve it.
+  knip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - run: npm ci
+
+      - run: npm ci
+        working-directory: web
+
+      - run: npm run knip
+
   typecheck:
     runs-on: ubuntu-latest
     steps:

@@ -19,7 +19,7 @@ export interface ToolsConfig {
   };
 }
 
-export const TOOLS_KEYS = {
+const TOOLS_KEYS = {
   memory: 'tools.memory',
   reminders: 'tools.reminders',
   weather: 'tools.weather',
