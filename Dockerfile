@@ -18,7 +18,8 @@ WORKDIR /app
 # package's own "gypfile": false. Without this the build demands a Python +
 # C++ toolchain to produce a binary the tarball already contains.
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts
+# Clean the npm cache in the same layer, or it ships in the image (~35 MB).
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # App sources (TypeScript run directly via Node 24's native type stripping —
 # no tsc, no dist).
@@ -28,7 +29,9 @@ COPY tsconfig.json ./
 COPY drizzle ./drizzle
 
 # Persistent state lives on a host-mounted volume; create the mountpoint.
-RUN mkdir -p /app/data && chown -R node:node /app
+# chown only data/: the app writes nothing else, and `chown -R /app` would
+# rewrite every node_modules file into a second copy in a new layer.
+RUN mkdir -p /app/data && chown node:node /app/data
 
 USER node
 

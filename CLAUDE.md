@@ -500,14 +500,6 @@ or write semantics is a breaking change for every deployment.
 
 The MCP integration only sees entities that are **exposed to Assist**. The UI toggle in HA 2026.x silently desyncs entity-registry from `homeassistant.exposed_entities`. Use the WebSocket service `homeassistant/expose_entity` from `docs/home-assistant-setup.md`.
 
-## Project history & where things are decided
-
-- `docs/superpowers/specs/` — design docs
-- `docs/superpowers/plans/` — TDD-style implementation plans
-- `docs/superpowers/roadmap.md` — backlog. Iteration history reflects the
-  prior wake-word / FSM / local-mic generation; the current generation is
-  Voice PE + HA bridge + HTTP.
-
 ## Keep this file up to date
 
 This file is an onboarding shortcut for the next Claude (or human)
