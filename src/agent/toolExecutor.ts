@@ -12,9 +12,9 @@ export interface ToolExecution {
 
 /**
  * The single local-vs-MCP routing used by every channel (the Responses-API
- * agent loop and the realtime bridge). Never throws — failures come back as
+ * agent loop and the voice MCP). Never throws — failures come back as
  * `isError` so each channel applies its own error formatting (`ERROR:` +
- * recovery hint on the agent, `{"error": …}` JSON on realtime).
+ * recovery hint on the agent, `{"error": …}` JSON on the voice MCP).
  */
 export async function executeRoutedTool(
   localToolset: LocalToolset,

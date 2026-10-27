@@ -11,13 +11,12 @@ import {
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { OpenAiFunctionTool } from '../agent/toolBridge.ts';
-import { bearerToken } from '../realtime/auth.ts';
+import { bearerToken } from './bearerToken.ts';
 import { createLogger } from '../utils/logger.ts';
 
 const log = createLogger('voice-mcp');
 
-/** What one speaker principal gets: the same tools and prompt the in-process
- *  realtime bridge hands OpenAI, so an external voice front-end (pipecat-voice)
+/** What one speaker principal gets, so the voice front-end (pipecat-voice)
  *  talks to the household through one place. */
 export interface SpeakerContext {
   /** HA tools (with our ha-suffix rules) + the local registry, scoped to the
@@ -47,7 +46,7 @@ export interface VoiceMcpDeps {
 /**
  * Stateless MCP endpoint (Streamable HTTP, JSON responses) for voice
  * front-ends. Auth is the speaker's own device token, so tools and memory are
- * scoped exactly like the speaker's WS session on the realtime bridge. A fresh
+ * scoped to that speaker's principal. A fresh
  * server per request: there is no session state to keep, and the speaker
  * context (memory snapshot, web-edited prompts) is read fresh each time.
  */

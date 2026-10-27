@@ -12,7 +12,7 @@ export interface HttpConfig {
   assist: boolean;
 }
 
-export const HTTP_KEYS = {
+const HTTP_KEYS = {
   text: 'http.text',
   audio: 'http.audio',
   assist: 'http.assist',

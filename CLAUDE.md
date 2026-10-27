@@ -13,10 +13,10 @@ MCP client section.
 
 Inputs into the agent core, and who actually drives each one today:
 
-- **WS `/voice` (`:3001`) — the speaker.** Voice PE speakers connect
-  directly over a WebSocket and use OpenAI's **Realtime API** for
-  STT+LLM+TTS in one bidirectional session. HA is used only as an MCP
-  tool backend. See "Realtime bridge" below.
+- **`/mcp` (`:3000`) — the speaker.** Voice PE speakers stream to a
+  separate voice front-end (pipecat-voice, its own repo/container), which
+  runs the OpenAI **Realtime** session and gets the speaker's tools, prompt
+  and voice settings from this server's voice MCP. See "Voice config" below.
 - **HTTP `/text` + `/audio` (`:3000`) — iOS Shortcuts.** Text and
   audio-file inputs go through the Responses-API `OpenAiAgent`. iOS
   Shortcuts is the current consumer; this is the channel most likely to
@@ -69,7 +69,7 @@ config, all applied on the next start:
   healthcheck); each input endpoint mounts only when its toggle is on
   (`http.text` / `http.audio` on the HTTP API page, `http.assist` on the HA
   Assist page). A disabled endpoint 404s.
-- **Realtime** runs when the HA Voice Realtime page toggle is on (`realtime.enabled`).
+- **Voice MCP** (`/mcp`) is always mounted; the `voice` identities are its gate.
 
 CI builds the root `Dockerfile` and publishes
 `ghcr.io/maxmaxme/voice-assistant:latest` on every push to `main`.
@@ -89,7 +89,7 @@ no `dist/`, no `tsx`. Two consequences:
 
 **Adapter pattern for every external dependency.** Each external concern lives behind an interface in `*/types.ts`, with a concrete implementation in a sibling file. Replacing OpenAI with a local Whisper is one new adapter — never a code-wide refactor. Honour this when adding anything that talks to the outside world.
 
-**One process, self-gating channels.** `src/cli/unified.ts` is the single entry. `dispatch()` starts the `telegram` runner iff a token is configured AND `telegram.enabled`, and always starts the `http` runner (which mounts `/text` `/audio` `/assist` per-flag and always serves `/health`); the realtime server is started in `main()` iff `realtime.enabled`. No `AGENT_MODE` — each channel is independently toggled from the web panel. Adding a new channel = a runner under `src/cli/runners/` + its gate in `dispatch()`.
+**One process, self-gating channels.** `src/cli/unified.ts` is the single entry. `dispatch()` starts the `telegram` runner iff a token is configured AND `telegram.enabled`, and always starts the `http` runner (which mounts `/text` `/audio` `/assist` per-flag and always serves `/health`); `/mcp` is always mounted on the http server. No `AGENT_MODE` — each channel is independently toggled from the web panel. Adding a new channel = a runner under `src/cli/runners/` + its gate in `dispatch()`.
 
 **Git hooks via husky.** `pre-commit` runs `lint-staged` (prettier + eslint --fix on staged files only). `pre-push` runs `npm run typecheck && npm test`. Hooks install on `npm install` via the `prepare` script. Don't bypass with `--no-verify` to "make it work" — fix the underlying issue.
 
@@ -102,7 +102,7 @@ Two channels, one process.
 | File                          | What                                                                                                                                                               |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `src/cli/mcp-call.ts`         | One-shot MCP CLI: list tools or call one. Useful for verifying HA connectivity.                                                                                    |
-| `src/cli/unified.ts`          | **The entry point.** Starts each channel that is independently enabled (`telegram.enabled` + token / per-endpoint `http.*` / `realtime.enabled`).                  |
+| `src/cli/unified.ts`          | **The entry point.** Starts each channel that is independently enabled (`telegram.enabled` + token / per-endpoint `http.*`).                                       |
 | `src/cli/runners/telegram.ts` | Telegram bot loop: receiver → agent → sender.                                                                                                                      |
 | `src/cli/runners/http.ts`     | HTTP server using h3 (default port 3000, customizable via `HTTP_SERVER_PORT`). `POST /audio`, `POST /text`, `POST /assist`, `GET /health`. See HTTP section below. |
 
@@ -135,14 +135,14 @@ Uses the **OpenAI Responses API** (`client.responses.create`), not Chat Completi
 
 1. `Session.begin()` returns the previous `response_id` to chain from, or `undefined` if the session is fresh / went idle.
 2. On a fresh chain: send `instructions` (system prompt + memory profile) once. On a continuing chain: omit `instructions`.
-3. Build tool list: HA MCP tools + the local-tool registry + (for HTTP only) the `ask` tool. **Local tools (`get_current_time`, memory `remember`/`recall`/`forget`, scheduled actions, `send_to_telegram`, weather) come from one registry — `localTools.ts::buildLocalToolset`** — shared with the realtime bridge: it both lists the tools and executes them. A tool registers only when its adapter is wired (the per-channel policy knob — goal mode just doesn't pass `scheduledActions`/`telegram`) **and** its built-in toggle is on. Memory / reminders / weather are gated by the **Tools page** (`resolveToolsConfig`, `src/settings/toolsConfig.ts`; keys `tools.*`; **on by default**, a stored `'0'` disables) — threaded as `OpenAiAgentOptions.tools` → `buildLocalToolset` `enableMemory`/`enableReminders`/`enableWeather`. Weather also takes config from there (units metric/imperial → Open-Meteo params; default-location fallback). `send_to_telegram` stays tied to the Telegram channel. **`get_current_time` is always on (adapter-free, no toggle):** the prompt carries **no static clock** — instructions are sent once per chain, so a baked-in timestamp goes stale (yesterday's date after midnight on a long-lived Telegram chain). The agent reads "now" / resolves relative dates (today, tomorrow, "in 5 min") on demand via this tool; weather + schedule_action descriptions and `base-system.md` tell it to call it first. Adding a local tool = adding one registry entry; `ask` is the only local tool outside it (terminal control flow, handled in the agent loop).
+3. Build tool list: HA MCP tools + the local-tool registry + (for HTTP only) the `ask` tool. **Local tools (`get_current_time`, memory `remember`/`recall`/`forget`, scheduled actions, `send_to_telegram`, weather) come from one registry — `localTools.ts::buildLocalToolset`** — shared with the voice MCP: it both lists the tools and executes them. A tool registers only when its adapter is wired (the per-channel policy knob — goal mode just doesn't pass `scheduledActions`/`telegram`) **and** its built-in toggle is on. Memory / reminders / weather are gated by the **Tools page** (`resolveToolsConfig`, `src/settings/toolsConfig.ts`; keys `tools.*`; **on by default**, a stored `'0'` disables) — threaded as `OpenAiAgentOptions.tools` → `buildLocalToolset` `enableMemory`/`enableReminders`/`enableWeather`. Weather also takes config from there (units metric/imperial → Open-Meteo params; default-location fallback). `send_to_telegram` stays tied to the Telegram channel. **`get_current_time` is always on (adapter-free, no toggle):** the prompt carries **no static clock** — instructions are sent once per chain, so a baked-in timestamp goes stale (yesterday's date after midnight on a long-lived Telegram chain). The agent reads "now" / resolves relative dates (today, tomorrow, "in 5 min") on demand via this tool; weather + schedule_action descriptions and `base-system.md` tell it to call it first. Adding a local tool = adding one registry entry; `ask` is the only local tool outside it (terminal control flow, handled in the agent loop).
 4. Send `input` (user message on first call, `function_call_output` items on tool-loop iterations) with `previous_response_id` and `store: true`.
 5. Inspect `response.output` for `function_call` items; route by name:
    - `ask` is **terminal**: returns immediately with `expectsFollowUp: true`. The HTTP runner forwards that as `continue_conversation: true` in the JSON response; the HA bridge sets it on `ConversationResult`, and HA's Assist pipeline reopens the mic.
      - Disabled on Telegram (the model just asks in its reply text instead — avoids chain-lock if the user walks away).
      - If the model emits `ask` _in parallel_ with other tools, the other tools are executed and their outputs are stashed on the session; the next user turn replays them along with the user's answer.
      - `pendingAskCallId` has a TTL (`PENDING_ASK_TTL_MS = 30s`). If the user takes longer than that to reply, the next message is treated as a fresh request — the ask's call_id is closed with a placeholder output to keep the chain valid.
-   - Names in the local-tool registry execute in-process via `localToolset.execute` (memory and scheduled actions hit the SQLite adapters). The local-vs-MCP routing itself lives in `src/agent/toolExecutor.ts::executeRoutedTool`, shared with the realtime bridge (`src/realtime/toolRunner.ts`) — change routing/error normalization there, not per channel.
+   - Names in the local-tool registry execute in-process via `localToolset.execute` (memory and scheduled actions hit the SQLite adapters). The local-vs-MCP routing itself lives in `src/agent/toolExecutor.ts::executeRoutedTool`, shared with the voice MCP (`src/mcpServer/toolRunner.ts`) — change routing/error normalization there, not per channel.
    - `send_to_telegram(text, recipient?)` is recipient-aware: it resolves the target user (the `recipient` user id, or the current `scope.userId` when omitted) to a Telegram chat via `identities.identityFor('telegram', …)` and delivers there. No telegram linked → it throws an error listing valid recipients (`id=name`), which the model relays / re-asks. There is no fixed outbound chat.
    - Everything else goes to MCP.
 6. Loop, advancing `previousResponseId` to `response.id` each turn, until plain text comes back or `maxToolIterations` is hit.
@@ -236,7 +236,7 @@ owner (delete is exact-`(owner, key)`).
 **Per-request scope resolution.** `OpenAiAgent.respond()` takes an optional
 `profile: ScopedProfile` (falls back to a household view). The HTTP runner
 resolves the Bearer token → `{ userId }` (`resolveHttpScope`), the Telegram
-runner resolves the chatId (`resolveTelegramScope`), and the realtime WS
+runner resolves the chatId (`resolveTelegramScope`), and the voice MCP
 resolves the device token (`authorizeSpeaker` in `unified.ts`) — each passes the
 scoped profile in. So your Telegram chat, your HTTP token, and the speaker each
 read `household ∪ their own personal` and write personal by default; none sees
@@ -252,10 +252,9 @@ identities are created and managed entirely via the `users` CLI (below).
   token's sha256 hash has an `http` identity (`httpTokenAllowed`);
   unknown/missing → 401. Scope = the resolved identity's `personal` + household.
   `/assist` resolves to whatever token the caller presents.
-- **Realtime `/voice`** is DB-gated exactly like HTTP: the WS handshake's
-  Bearer token is sha256-hashed and looked up as a `voice` identity
-  (`authorizeSpeaker` → `wsServer.ts`); unknown/missing → handshake rejected
-  (`4401`). The resolved principal gives the **speaker its own personal memory**
+- **Voice MCP `/mcp`** is DB-gated exactly like HTTP: the Bearer token is
+  sha256-hashed and looked up as a `voice` identity (`authorizeSpeaker` →
+  `voiceMcp.ts`); unknown/missing → 401. The resolved principal gives the **speaker its own personal memory**
   (e.g. "you are in the living room" → the speaker's personal, biasing its tool
   choices). There is no shared env token and no household fallback — each
   speaker carries its own per-device token (registered via the web panel's
@@ -297,7 +296,7 @@ never hot-reloaded:
   (memory/reminders/weather toggles + weather units/location; **on by default**)
   → `resolveToolsConfig`. There is **no env-overlay** — nothing is web-edited
   _into_ `process.env`. Process-level config (`MEMORY_DB_PATH`, **`TZ`**,
-  `HTTP_SERVER_PORT`, `REALTIME_PORT`) is plain env via `loadConfig()`; `TZ` is
+  `HTTP_SERVER_PORT`) is plain env via `loadConfig()`; `TZ` is
   **required** (no UTC fallback). **No secrets in env**: OpenAI's api key, HA's
   url/token, and the Telegram bot token live in the `integrations` table;
   realtime device tokens are `voice` identities (hashes) in the `identities`
@@ -430,7 +429,7 @@ on agent flavour and response shape:
   Any non-HA client that wants HA-style sessions can use this endpoint
   too.
 - `GET /health` — `{status: "ok"}`.
-- `/mcp` (any method, **always mounted**) — the **voice MCP** (`src/mcpServer/voiceMcp.ts`): a stateless Streamable-HTTP MCP server for external voice front-ends (pipecat-voice). Auth is the **speaker's device token** (`voice` identity via `authorizeSpeaker`), not an `http` token, so it bypasses `checkAuthAndRate`; the `voice` identities are the gate, like the realtime WS (a 401 still counts against the same per-IP auth-fail budget and is logged with the IP). Per request it builds the speaker's setup on first use (initialize/notifications skip it) with `speakerContexts` (`unified.ts`) — one factory per deps, shared with the realtime bridge, so both front-ends share the `GetLiveContext` cache — and serves: `tools/list` (HA tools with ha-suffix rules + the local registry, scoped to the speaker's principal; the HA list is the only HA-dependent part — lazy, capped at 5 s, and on failure/timeout the speaker gets the local tools alone, so auth, prompts and config never wait on HA), `tools/call` (the realtime tool runner: routed + `GetLiveContext` cache, errors as `{"error": …}`), and prompts `voice-system` (realtime instructions + speaker memory + language), `tools/wait-for-user`, `tools/request-follow-up` (descriptions for the device-flow tools the front-end implements itself). Also the resource `voice://realtime-config` (JSON, `voiceRealtimeConfig` in `unified.ts`): the speaker-relevant realtime settings read **fresh** from the DB per request — OpenAI realtime model/voice/effort, language, turn detection, noise reduction, transcription (+ model), question-window ms + chime, idle reset ms, wake chime — so panel edits reach the next front-end connection without a restart.
+- `/mcp` (any method, **always mounted**) — the **voice MCP** (`src/mcpServer/voiceMcp.ts`): a stateless Streamable-HTTP MCP server for external voice front-ends (pipecat-voice). Auth is the **speaker's device token** (`voice` identity via `authorizeSpeaker`), not an `http` token, so it bypasses `checkAuthAndRate`; the `voice` identities are the gate, like HTTP (a 401 still counts against the same per-IP auth-fail budget and is logged with the IP). Per request it builds the speaker's setup on first use (initialize/notifications skip it) with `speakerContexts` (`unified.ts`) — one factory per deps, so a speaker's stateless requests share the `GetLiveContext` cache — and serves: `tools/list` (HA tools with ha-suffix rules + the local registry, scoped to the speaker's principal; the HA list is the only HA-dependent part — lazy, capped at 5 s, and on failure/timeout the speaker gets the local tools alone, so auth, prompts and config never wait on HA), `tools/call` (the speaker tool runner: routed + `GetLiveContext` cache, errors as `{"error": …}`), and prompts `voice-system` (realtime instructions + speaker memory + language), `tools/wait-for-user`, `tools/request-follow-up` (descriptions for the device-flow tools the front-end implements itself). Also the resource `voice://realtime-config` (JSON, `voiceRealtimeConfig` in `unified.ts`): the speaker-relevant realtime settings read **fresh** from the DB per request — OpenAI realtime model/voice/effort, language, turn detection, noise reduction, transcription (+ model), question-window ms + chime, idle reset ms, wake chime — so panel edits reach the next front-end connection without a restart.
 
 The plain vs assist split is enforced by two separate `OpenAiAgent`
 instances passed into the runner — they differ in `enableAsk` and in
@@ -449,145 +448,15 @@ rate-limit layers: per-IP for failed auths (10 / 5 min) and
 per-token (30 / min). `/audio` also has a concurrency semaphore (2) to bound
 Whisper spend on a Pi.
 
-### Realtime bridge (`src/realtime/`)
+### Voice config (`src/settings/realtimeConfig.ts`)
 
-The Voice PE direct-streaming path. A second server runs alongside the
-HTTP runner — **gated by the DB-backed realtime enable switch** (the web
-panel's HA Voice Realtime page; read via `resolveRealtimeConfig`, not env) — and exposes
-a WebSocket at `:3001/voice`. Devices authenticate per-connection against the
-`voice` identities (no shared env token). Each device opens one WS; the bridge
-brokers between the device, OpenAI's Realtime API, and the MCP client the agent
-core uses.
+The speaker's audio path (WS `/voice`, OpenAI Realtime session, wake/turn/follow-up protocol) lives in **pipecat-voice**, not here. This repo is its "brain" over the voice MCP (see `/mcp` above): tools, the `voice-system` prompt (`buildSystemPromptFor('realtime')` + speaker memory + language), and the `voice://realtime-config` resource.
 
-Key files:
-
-- `src/realtime/wsServer.ts` — HTTP+WS on `REALTIME_PORT` (default
-  `3001`). Bearer-token auth by `voice`-identity hash lookup
-  (`authorize` → `authorizeSpeaker`), single path `/voice`. Spawns one
-  `RealtimeBridge` per accepted connection, scoped to the resolved speaker.
-- `src/realtime/realtimeBridge.ts` — per-session orchestrator: device
-  WS ↔ OpenAI Realtime ↔ HA MCP. Owns the phase state machine
-  (`idle` / `listening` / `thinking` / `replying`), audio passthrough
-  (with resampling), tool-call dispatch, transcript logging, and
-  shutdown. Cancels empty-transcript turns before they hit the model
-  (the `empty-transcript-cancel` guard) to avoid spurious responses
-  on silence. Three self-contained pieces live in sibling modules:
-  `outputPacer.ts` (re-clocking reply audio to real time + after-drain
-  actions), `audioDiagnostics.ts` (delivery-rate telemetry, log-only),
-  `followUpController.ts` (the follow-up window/retry/watchdog flags).
-- `src/realtime/toolRunner.ts` — builds the bridge's `runTool` hook:
-  the shared `executeRoutedTool` routing (same as the agent loop) with
-  the short-TTL `toolCache.ts` layered on the MCP side as a decorator.
-  Errors come back as `{"error": …}` JSON, never as a throw.
-- `src/realtime/openaiRealtimeClient.ts` — thin wrapper around the
-  OpenAI Realtime WebSocket. Builds the `session.update` payload from
-  config (model, voice, modalities, tools, system prompt, input audio
-  transcription via `whisper-1`), forwards audio/text/tool events
-  upstream, surfaces typed events downstream.
-- `src/realtime/audio/format.ts`, `src/realtime/audio/resample.ts` —
-  PCM16 helpers and 16↔24 kHz linear resampling. Device sends mono
-  16 kHz PCM16; Realtime expects 24 kHz.
-- `src/realtime/toolAdapter.ts` — `toRealtimeTools` strips `strict` off the
-  Responses-API function tools (HA via `mcpToolsToOpenAi`, plus the local
-  registry) to give the Realtime API's `tools` schema.
-- `src/realtime/protocol.ts` — JSON wire protocol with the device:
-  server→device `hello` (handshake ack; carries `proto` — the wire-protocol
-  version (`PROTO_VERSION`), which the firmware checks tolerantly and warns
-  loudly on mismatch — plus `audioOut` + `wakeChime`,
-  the admin's wake-beep preference the device gates its local wake sound
-  on), `phase`, `error`, `pong`, `follow_up`; device→server `start`,
-  `interrupt`, `ping`. **Turn ids (proto 2):** `start {turn}` carries a
-  device-chosen id, and the bridge stamps it on every turn-scoped message
-  (`phase` / `follow_up` / `error`) centrally in `sendDevice` (hello and
-  anything before the first proto-2 `start` stay unstamped — proto-1
-  firmware just never sees the field). The device aborts turns locally and
-  drops late messages tagged with a turn it already closed, so the bridge
-  never has to win a race against a Stop. The bridge's own async work guards
-  on `turnGen` (bumped on `start` / `interrupt` / upstream close): a tool
-  batch that finishes after the turn ended skips its follow-up
-  `response.create` instead of answering a turn the user cancelled. A server `phase: listening` means **speech heard**
-  (sent on OpenAI's `speech_started`), never an ack of `start`: the
-  firmware disarms its 7 s no-speech watchdog on it, so `start` moves the
-  bridge to listening quietly (`setPhase(..., { quiet: true })`). Binary frames are raw PCM16 in both directions. `follow_up {ms, chime?}` is sent right before
-  the end-of-turn `idle`, but only after a **spoken** reply: the device
-  latches it and reopens the mic once the reply drains. Two flavours: the
-  ambient after-every-reply window (`ms` = `realtime.followUpMs`, silent)
-  and the explicit-question window (`ms` = `realtime.requestFollowUpMs`,
-  `chime:true` gated by `realtime.followUpChime`) — the latter fires
-  whenever the model calls the `request_follow_up` **tool** and is
-  independent of the ambient toggle (a question is answerable even with
-  ambient off). A silent `wait_for_user`, a barge-in interrupt, a
-  silent/tool-only response, or the initial idle send **no** `follow_up`,
-  so the mic stays closed. The server owns this decision; the device
-  never decides on its own. (`request_follow_up` is a model tool, not a
-  wire message — it maps to `follow_up {chime}`.)
-  A spoken reply whose transcript ends in "?" opens the same question
-  window. With
-  `realtime.silentAck` (default off) the model also gets
-  `acknowledge_silently {kind: on|off|done}`: called alongside an action, it
-  makes the bridge skip the spoken follow-up and play an earcon
-  (`audio/earcon.ts`, synthesized PCM over the normal reply path) — but only
-  if every tool in the batch succeeded; failures are always voiced.
-- `src/realtime/micDump.ts` — debug tap on the device→bridge mic
-  stream: buffers a turn's PCM16 and writes
-  `<date>_<time>-<speaker>.wav` (16 kHz mono, server timezone, speaker
-  name from `identities.userName`) to `MIC_DUMP_DIR`, keeping the newest
-  20 files. The web panel's **Mic dumps** page lists them with a player,
-  download and per-file levels (speech / noise floor / peak / clipping —
-  `web/server/utils/micDumps.ts`), reading `mic-dumps/` next to the DB (or
-  its own `MIC_DUMP_DIR`). To copy them off by hand use `scp -p` — plain
-  `scp` rewrites mtime. Off
-  unless that env var is set. This is how mic level / SNR / clipping is
-  measured on a real speaker instead of guessed by ear — the firmware's
-  gain knobs (`va_client` `mic_gain`, codec PGA) are tuned against these
-  files.
-- `src/realtime/wakeArbiter.ts` — co-located wake-word arbitration.
-  One `WakeArbiter` is created in `wsServer` and shared across all
-  bridges (each device has its own bridge and can't see the others). On
-  a device `start`, the bridge calls `arbiter.claim(this, now)`;
-  first-come-first-served within a short window (`WAKE_DEDUPE_WINDOW_MS`,
-  1.5 s) — the loser is sent `phase: idle` and its mic audio is dropped
-  (`suppressAudio`) so one spoken "okay nabu" in a room yields one answer,
-  not one per speaker. A short window (not a turn-long lock) dedupes the
-  single wake event without blocking a genuinely separate turn on another
-  device seconds later (multi-room). Backend-only — no protocol/firmware
-  change; both devices still play their local wake beep (killing the
-  double-beep would need a beep-after-confirm protocol change).
-
-Important behaviour:
-
-- **Tool calls go through the same `HaMcpClient`** that the
-  Responses-API agent uses — there's only one HA MCP client per
-  process.
-- **System prompt is shared with the assist channel**: built via
-  `buildSystemPromptFor('assist')` so the voice-flavour rules
-  (TTS-friendly output, brevity, no markdown) apply to the Realtime
-  session too.
-- **Logs mirror the agent core**: the bridge emits `user → <transcript>`,
-  `assistant → <transcript>`, and per-tool `name(args) → result (Nms)`
-  lines so transcripts look uniform across channels.
-- **Input audio transcription** uses `whisper-1` (or the model picked in
-  `realtime.transcriptionModel`) inside the Realtime
-  session (separate from the Realtime model's own internal STT) so
-  user transcripts are available for logging / memory. **Off by default**
-  (`realtime.transcription`) — it's a second paid STT pass whose only
-  consumer is diagnostics; turn it on in the panel when debugging what a
-  speaker actually heard.
-- **Spoken language** (`realtime.language`, ISO 639-1, blank = auto) is
-  applied twice: `appendLanguage` (`src/agent/systemPrompt.ts`) adds a
-  "The user speaks X" line to the realtime instructions — without it the
-  model hears a non-English household as accented English — and the same
-  code is passed as Whisper's `language` so a short/noisy turn can't be
-  transcribed into the wrong language.
-
-Config sources:
-
-| Setting                                                                                                                                                        | Source                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| enable + idle reset + output pacing + follow-up windows + follow-up chime + silent ack + language + transcription (+ model) + noise reduction + turn detection | **DB-only realtime config** (`resolveRealtimeConfig`, `src/settings/realtimeConfig.ts`) — read from the `settings` table under `realtime.*` keys via the web panel's HA Voice Realtime page (`/api/realtime`). NOT env. `realtime.followUpMs` (default 8000, 0 disables) = ambient window after any spoken reply; `realtime.requestFollowUpMs` (default 10000, 0 disables) = the explicit-question window, **independent** of followUpMs (a `request_follow_up` question reopens the mic even when ambient is off); `realtime.followUpChime` (default off) plays a chime on the question window (all three ride the `follow_up` event sent before the end-of-reply idle); `realtime.language` (default '', ISO 639-1) pins the spoken language in both the prompt and Whisper; `realtime.transcription` (default off) turns the Whisper logging pass on; `realtime.transcriptionModel` (`whisper-1` default / `gpt-4o-mini-transcribe` / `gpt-4o-transcribe`) picks the model for that pass; `realtime.noiseReduction` (`far_field` default / `near_field` / `off`) picks OpenAI's server-side input filter, applied before VAD; `realtime.turnDetection` (`server_vad` default — the tuned 900 ms / 0.3 silence VAD — or `semantic_low` / `semantic_medium` / `semantic_high` = OpenAI semantic VAD at that eagerness) picks end-of-turn detection; `realtime.silentAck` (default off) offers the model `acknowledge_silently` (earcon instead of a spoken confirmation, see above); `realtime.wakeChime` (default on) is the device's local wake-word beep, delivered in the `hello` handshake (the device has no HA/web control surface for it). **The `hello` payload (`RealtimeDeviceConfig` — device-facing keys, today just wakeChime) applies without a restart**: `wsServer` polls it every 15s (`watchDeviceConfig`), JSON-diffs it, and re-sends `hello` to connected devices on any change (new connections read it fresh in `buildBridgeDeps`). Add a device key to `RealtimeDeviceConfig` + the `hello` message + the firmware and the push is automatic — no per-key code. Server-side realtime.\* (follow-up windows, pacing, idle) never reach the device and stay restart-only. |
-| model / voice / effort                                                                                                                                         | **OpenAI integration** (`realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`) — provider-specific.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| device token                                                                                                                                                   | **`voice` identity** in the `identities` table (sha256 of the per-device token). The WS hash-looks-up the presented Bearer; unknown → `4401`. Registered via the Users page / `attach-voice`. No env token.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `REALTIME_PORT`                                                                                                                                                | env, default `3001`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+- **`realtime.*` settings** (`resolveRealtimeConfig`, DB-only, web panel's Realtime page): `language` (ISO 639-1, blank = auto; also appended to the prompt via `appendLanguage`), `requestFollowUpMs` (question window, 0 = off), `followUpChime`, `wakeChime`, `idleResetMs`, `transcription` (+ `transcriptionModel`), `noiseReduction` (`far_field` / `near_field` / `off`), `turnDetection` (`server_vad` / `semantic_low|medium|high`).
+- **model / voice / effort** come from the OpenAI integration (`realtimeModel`, `realtimeVoice`, `realtimeReasoningEffort`).
+- Everything is read **fresh per MCP request** (`voiceRealtimeConfig` in `unified.ts`), so panel edits reach a speaker on its next session — no restart.
+- `src/mcpServer/toolRunner.ts` is the speaker's `tools/call` runner: the shared `executeRoutedTool` routing with the short-TTL `toolCache.ts` (`GetLiveContext`) layered on the MCP side. Errors come back as `{"error": …}` JSON, never as a throw.
+- **device token** = a `voice` identity (sha256 of the per-device token), registered via the Users page / `attach-voice`.
 
 ### MCP client (`src/mcp/haMcpClient.ts`)
 

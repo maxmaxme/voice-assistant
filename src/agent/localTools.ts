@@ -9,7 +9,7 @@
  *    per-channel policy knob — e.g. goal mode simply doesn't wire
  *    `scheduledActions`/`telegram`.
  *
- * Both the Responses-API `OpenAiAgent` and the Realtime bridge build their
+ * Both the Responses-API `OpenAiAgent` and the voice MCP build their
  * tool list AND dispatch execution through `buildLocalToolset` — adding a
  * tool here makes it available everywhere the needed adapter is wired.
  * The only local tool outside the registry is `ask` (askTool.ts): it is

@@ -13,9 +13,8 @@ export interface OpenAiConfig {
   model: string;
   reasoningEffort: ChatReasoningEffort;
   webSearch: boolean;
-  /** Realtime model/voice/effort are provider-specific. The realtime *enable*
-   *  switch is universal and lives in the DB-only realtime settings
-   *  (`realtime.enabled`, `resolveRealtimeConfig`), not here. */
+  /** Realtime model/voice/effort are provider-specific; the rest of the voice
+   *  settings live in the DB-only realtime config (`resolveRealtimeConfig`). */
   realtime: {
     model: string;
     voice: string;

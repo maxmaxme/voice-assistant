@@ -12,7 +12,7 @@ Two sources, both applied on the next process start.
 | **Tools**               | Built-in tool gates (memory, reminders) + weather (units, default location)                                                                |
 | **Prompts**             | Every system / tool prompt, editable, restore-to-default                                                                                   |
 | **Users**               | Principals and their devices/identities (Telegram chats, HTTP & voice tokens)                                                              |
-| **HA Voice / HTTP API** | Realtime enable switch (+ pacing / idle) and per-endpoint HTTP toggles                                                                     |
+| **HA Voice / HTTP API** | Voice settings served over `/mcp` (language, follow-up, idle reset, …) and per-endpoint HTTP toggles                                       |
 
 **`.env`** — process/infra only, **no secrets**:
 
@@ -21,14 +21,13 @@ Two sources, both applied on the next process start.
 | `MEMORY_DB_PATH`   | SQLite file shared with the web panel  | `data/assistant.db` |
 | `TZ`               | IANA timezone for scheduling / display | system tz           |
 | `HTTP_SERVER_PORT` | HTTP server port                       | `3000`              |
-| `REALTIME_PORT`    | realtime WebSocket port                | `3001`              |
 | `LOG_LEVEL`        | `debug` / `info` / `warn` / …          | `info`              |
 
 ## 🔌 Channels
 
 ### 🔊 Voice PE (realtime)
 
-Enable it on the panel's **HA Voice** page; the server listens at `ws://<host>:3001/voice`. A speaker authenticates by presenting its own device token — hashed and matched against a `voice` identity; unknown tokens are rejected at the handshake. Each speaker is its own principal, so it gets its own personal memory (e.g. its room). Register one with `npm run users -- attach-voice` or the Users page.
+Speakers stream to a separate voice front-end ([pipecat-voice](https://github.com/maxmaxme/pipecat-voice)), which runs the OpenAI Realtime session and gets the speaker's tools, prompt and voice settings from this server's `/mcp`. It authenticates with the speaker's own device token — hashed and matched against a `voice` identity; unknown tokens get 401. Each speaker is its own principal, so it gets its own personal memory (e.g. its room). Register one with `npm run users -- attach-voice` or the Users page.
 
 ### 🌐 HTTP
 

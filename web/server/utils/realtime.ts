@@ -3,10 +3,7 @@
 // voice-assistant src/settings/realtimeConfig.ts.
 
 export const REALTIME_KEYS = {
-  enabled: 'realtime.enabled',
-  outputPacingMs: 'realtime.outputPacingMs',
   idleResetMs: 'realtime.idleResetMs',
-  followUpMs: 'realtime.followUpMs',
   requestFollowUpMs: 'realtime.requestFollowUpMs',
   followUpChime: 'realtime.followUpChime',
   wakeChime: 'realtime.wakeChime',
@@ -15,7 +12,6 @@ export const REALTIME_KEYS = {
   transcriptionModel: 'realtime.transcriptionModel',
   noiseReduction: 'realtime.noiseReduction',
   turnDetection: 'realtime.turnDetection',
-  silentAck: 'realtime.silentAck',
 } as const
 
 /** KEEP in sync with NoiseReduction in src/settings/realtimeConfig.ts. */
@@ -28,11 +24,8 @@ export const TURN_DETECTIONS: readonly string[] = ['server_vad', 'semantic_low',
 export const TRANSCRIPTION_MODELS: readonly string[] = ['whisper-1', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe']
 
 export interface RealtimeForm {
-  enabled: boolean
   /** Raw string ('' = use the built-in default), so the UI can leave it blank. */
-  outputPacingMs: string
   idleResetMs: string
-  followUpMs: string
   requestFollowUpMs: string
   followUpChime: boolean
   wakeChime: boolean
@@ -42,15 +35,11 @@ export interface RealtimeForm {
   transcriptionModel: string
   noiseReduction: string
   turnDetection: string
-  silentAck: boolean
 }
 
 export function readRealtime(all: Record<string, string>): RealtimeForm {
   return {
-    enabled: all[REALTIME_KEYS.enabled] === '1',
-    outputPacingMs: all[REALTIME_KEYS.outputPacingMs] ?? '',
     idleResetMs: all[REALTIME_KEYS.idleResetMs] ?? '',
-    followUpMs: all[REALTIME_KEYS.followUpMs] ?? '',
     requestFollowUpMs: all[REALTIME_KEYS.requestFollowUpMs] ?? '',
     // Default off: only a stored '1' turns the chime on.
     followUpChime: all[REALTIME_KEYS.followUpChime] === '1',
@@ -62,7 +51,6 @@ export function readRealtime(all: Record<string, string>): RealtimeForm {
     transcriptionModel: all[REALTIME_KEYS.transcriptionModel] ?? 'whisper-1',
     noiseReduction: all[REALTIME_KEYS.noiseReduction] ?? 'far_field',
     turnDetection: all[REALTIME_KEYS.turnDetection] ?? 'server_vad',
-    silentAck: all[REALTIME_KEYS.silentAck] === '1',
   }
 }
 

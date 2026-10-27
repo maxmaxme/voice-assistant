@@ -5,7 +5,7 @@ import type { SettingsStore } from './types.ts';
  *  from the integration that holds the bot token: installing/enabling the
  *  integration only makes credentials available — this toggle (web panel's
  *  Telegram page) is what actually runs the bot. Default off. */
-export const TELEGRAM_KEYS = {
+const TELEGRAM_KEYS = {
   enabled: 'telegram.enabled',
 } as const;
 

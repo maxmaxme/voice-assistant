@@ -10,11 +10,8 @@ import {
 } from '../utils/realtime'
 
 interface PutBody {
-  enabled?: boolean
   // A number-typed <input> serializes filled fields as numbers, blanks as ''.
-  outputPacingMs?: string | number
   idleResetMs?: string | number
-  followUpMs?: string | number
   requestFollowUpMs?: string | number
   followUpChime?: boolean
   wakeChime?: boolean
@@ -23,7 +20,6 @@ interface PutBody {
   transcriptionModel?: string
   noiseReduction?: string
   turnDetection?: string
-  silentAck?: boolean
 }
 
 export default defineEventHandler(async (event) => {
@@ -32,9 +28,7 @@ export default defineEventHandler(async (event) => {
   // Canonicalize each numeric field up front: a blank clears the key (built-in
   // default), a valid value is stored as a plain integer string, garbage 400s.
   const numbers = [
-    ['Output pacing', REALTIME_KEYS.outputPacingMs, body.outputPacingMs],
     ['Idle reset', REALTIME_KEYS.idleResetMs, body.idleResetMs],
-    ['Follow-up window', REALTIME_KEYS.followUpMs, body.followUpMs],
     ['Question follow-up window', REALTIME_KEYS.requestFollowUpMs, body.requestFollowUpMs],
   ] as const
   const canonical: Array<[string, string | null]> = []
@@ -72,8 +66,6 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    if (body.enabled) setSetting(REALTIME_KEYS.enabled, '1')
-    else deleteSetting(REALTIME_KEYS.enabled)
     for (const [key, value] of canonical) writeOrClear(key, value)
     // Chime defaults to off — persist '1' only to turn it on, else clear the key.
     if (body.followUpChime === true) setSetting(REALTIME_KEYS.followUpChime, '1')
@@ -81,7 +73,6 @@ export default defineEventHandler(async (event) => {
     // Wake beep defaults to on — persist '0' only to turn it off, else clear.
     if (body.wakeChime === false) setSetting(REALTIME_KEYS.wakeChime, '0')
     else deleteSetting(REALTIME_KEYS.wakeChime)
-    writeOrClear(REALTIME_KEYS.silentAck, body.silentAck === true ? '1' : null)
     writeOrClear(REALTIME_KEYS.language, language)
     // Transcription defaults to off — persist '1' only to turn it on, else clear.
     if (body.transcription === true) setSetting(REALTIME_KEYS.transcription, '1')

@@ -12,12 +12,9 @@ describe('resolveRealtimeConfig', () => {
   });
   afterEach(() => h.sqlite.close());
 
-  it('defaults to disabled with built-in pacing/idle/follow-up when nothing is stored', () => {
+  it('uses built-in defaults when nothing is stored', () => {
     expect(resolveRealtimeConfig(store)).toEqual({
-      enabled: false,
-      outputPacingMs: 20,
       idleResetMs: 90_000,
-      followUpMs: 8_000,
       requestFollowUpMs: 10_000,
       followUpChime: false,
       wakeChime: true,
@@ -26,15 +23,11 @@ describe('resolveRealtimeConfig', () => {
       transcriptionModel: 'whisper-1',
       noiseReduction: 'far_field',
       turnDetection: 'server_vad',
-      silentAck: false,
     });
   });
 
   it('reads stored values', () => {
-    store.set(REALTIME_KEYS.enabled, '1');
-    store.set(REALTIME_KEYS.outputPacingMs, '40');
     store.set(REALTIME_KEYS.idleResetMs, '5000');
-    store.set(REALTIME_KEYS.followUpMs, '12000');
     store.set(REALTIME_KEYS.requestFollowUpMs, '15000');
     store.set(REALTIME_KEYS.followUpChime, '0');
     store.set(REALTIME_KEYS.wakeChime, '0');
@@ -43,12 +36,8 @@ describe('resolveRealtimeConfig', () => {
     store.set(REALTIME_KEYS.transcriptionModel, 'gpt-4o-mini-transcribe');
     store.set(REALTIME_KEYS.noiseReduction, 'off');
     store.set(REALTIME_KEYS.turnDetection, 'semantic_low');
-    store.set(REALTIME_KEYS.silentAck, '1');
     expect(resolveRealtimeConfig(store)).toEqual({
-      enabled: true,
-      outputPacingMs: 40,
       idleResetMs: 5000,
-      followUpMs: 12000,
       requestFollowUpMs: 15000,
       followUpChime: false,
       wakeChime: false,
@@ -57,14 +46,12 @@ describe('resolveRealtimeConfig', () => {
       transcriptionModel: 'gpt-4o-mini-transcribe',
       noiseReduction: 'off',
       turnDetection: 'semantic_low',
-      silentAck: true,
     });
   });
 
   it('falls back to defaults for blank or non-numeric values', () => {
-    store.set(REALTIME_KEYS.outputPacingMs, '');
-    store.set(REALTIME_KEYS.idleResetMs, 'bogus');
-    store.set(REALTIME_KEYS.followUpMs, 'bogus');
+    store.set(REALTIME_KEYS.idleResetMs, '');
+    store.set(REALTIME_KEYS.requestFollowUpMs, 'bogus');
     store.set(REALTIME_KEYS.noiseReduction, 'bogus');
     store.set(REALTIME_KEYS.turnDetection, 'semantic_vad');
     store.set(REALTIME_KEYS.transcriptionModel, 'gpt-5-transcribe');
@@ -72,26 +59,21 @@ describe('resolveRealtimeConfig', () => {
     expect(cfg.noiseReduction).toBe('far_field');
     expect(cfg.turnDetection).toBe('server_vad');
     expect(cfg.transcriptionModel).toBe('whisper-1');
-    expect(cfg.outputPacingMs).toBe(20);
     expect(cfg.idleResetMs).toBe(90_000);
-    expect(cfg.followUpMs).toBe(8_000);
+    expect(cfg.requestFollowUpMs).toBe(10_000);
   });
 
   it('falls back to defaults for negative values', () => {
-    store.set(REALTIME_KEYS.outputPacingMs, '-5');
     store.set(REALTIME_KEYS.idleResetMs, '-1');
-    store.set(REALTIME_KEYS.followUpMs, '-100');
     store.set(REALTIME_KEYS.requestFollowUpMs, '-15000');
     const cfg = resolveRealtimeConfig(store);
-    expect(cfg.outputPacingMs).toBe(20);
     expect(cfg.idleResetMs).toBe(90_000);
-    expect(cfg.followUpMs).toBe(8_000);
     expect(cfg.requestFollowUpMs).toBe(10_000);
   });
 
   it('accepts follow-up disabled (0)', () => {
-    store.set(REALTIME_KEYS.followUpMs, '0');
-    expect(resolveRealtimeConfig(store).followUpMs).toBe(0);
+    store.set(REALTIME_KEYS.requestFollowUpMs, '0');
+    expect(resolveRealtimeConfig(store).requestFollowUpMs).toBe(0);
   });
 
   it('follow-up chime is off by default and only "1" turns it on', () => {
@@ -111,10 +93,5 @@ describe('resolveRealtimeConfig', () => {
     store.set(REALTIME_KEYS.transcription, '1');
     store.set(REALTIME_KEYS.noiseReduction, 'off');
     expect(resolveRealtimeConfig(store).wakeChime).toBe(false);
-  });
-
-  it('treats any non-"1" enabled value as disabled', () => {
-    store.set(REALTIME_KEYS.enabled, 'true');
-    expect(resolveRealtimeConfig(store).enabled).toBe(false);
   });
 });
