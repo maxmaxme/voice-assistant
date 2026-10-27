@@ -9,6 +9,9 @@
   "schedule": ["* 6-10 * * *"],
   "prHourlyLimit": 4,
   "minimumReleaseAge": "3 days",
+  "constraints": {
+    "npm": "<12"
+  },
   "prConcurrentLimit": 8,
   "lockFileMaintenance": {
     "description": "Daily lockfile refresh pulls transitive deps forward (what npm audit fix would do) and merges itself once CI is green",
