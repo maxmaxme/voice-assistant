@@ -7,6 +7,5 @@ node_modules
 .vscode
 .idea
 data
-.venv
-docs/superpowers
+docs
 tests

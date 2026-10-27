@@ -89,16 +89,14 @@ CI builds the root `Dockerfile` and publishes `ghcr.io/maxmaxme/voice-assistant:
 
 ## 📚 Docs
 
-|                                             |                                                                                                                            |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| ⚙️ Configuration, channels & auth           | [docs/configuration.md](docs/configuration.md)                                                                             |
-| 🛠️ Development: commands & tests            | [docs/development.md](docs/development.md)                                                                                 |
-| 🏠 Home Assistant setup                     | [docs/home-assistant-setup.md](docs/home-assistant-setup.md)                                                               |
-| 📱 iPhone Shortcuts                         | [docs/iphone-shortcuts.md](docs/iphone-shortcuts.md)                                                                       |
-| 🖥️ Web config panel                         | [web/README.md](web/README.md)                                                                                             |
-| 🧱 Architecture (for contributors / agents) | [CLAUDE.md](CLAUDE.md)                                                                                                     |
-| 📐 Design spec                              | [docs/superpowers/specs/2026-04-25-voice-assistant-design.md](docs/superpowers/specs/2026-04-25-voice-assistant-design.md) |
-| 🗺️ Roadmap                                  | [docs/superpowers/roadmap.md](docs/superpowers/roadmap.md)                                                                 |
+|                                             |                                                              |
+| ------------------------------------------- | ------------------------------------------------------------ |
+| ⚙️ Configuration, channels & auth           | [docs/configuration.md](docs/configuration.md)               |
+| 🛠️ Development: commands & tests            | [docs/development.md](docs/development.md)                   |
+| 🏠 Home Assistant setup                     | [docs/home-assistant-setup.md](docs/home-assistant-setup.md) |
+| 📱 iPhone Shortcuts                         | [docs/iphone-shortcuts.md](docs/iphone-shortcuts.md)         |
+| 🖥️ Web config panel                         | [web/README.md](web/README.md)                               |
+| 🧱 Architecture (for contributors / agents) | [CLAUDE.md](CLAUDE.md)                                       |
 
 ## 🤝 Contributing
 
