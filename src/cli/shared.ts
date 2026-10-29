@@ -2,10 +2,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import OpenAI from 'openai';
 import { loadConfig, type Config } from '../config.ts';
-import { HaMcpClient } from '../mcp/haMcpClient.ts';
+import { HttpMcpClient } from '../mcp/httpMcpClient.ts';
 import { NullMcpClient } from '../mcp/nullMcpClient.ts';
+import { MultiMcpClient, connectExtra, type ExtraMcpServer } from '../mcp/multiMcpClient.ts';
 import type { McpClient } from '../mcp/types.ts';
 import { resolveHaConfig } from '../integrations/homeAssistant.ts';
+import { resolveCustomMcpConfigs } from '../integrations/customMcp.ts';
 import { resolveOpenAiConfig, type OpenAiConfig } from '../integrations/openai.ts';
 import { resolveTelegramConfig, type TelegramConfig } from '../integrations/telegram.ts';
 import { resolveHttpConfig, type HttpConfig } from '../settings/httpConfig.ts';
@@ -43,7 +45,7 @@ export function withCachedToolList(mcp: McpClient, ttlMs = TOOL_LIST_TTL_MS): Mc
   };
 }
 
-async function connectMcpWithRetry(mcp: HaMcpClient): Promise<void> {
+async function connectMcpWithRetry(mcp: HttpMcpClient): Promise<void> {
   const maxAttempts = 20;
   const delayMs = 3000;
   let lastErr: unknown;
@@ -197,12 +199,23 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
   const haEnabled = ha !== null;
   let mcp: McpClient;
   if (ha) {
-    const haClient = new HaMcpClient({ url: ha.url, token: ha.token });
+    const haClient = new HttpMcpClient({ url: `${ha.url}/api/mcp`, token: ha.token });
     await connectMcpWithRetry(haClient);
     mcp = haClient;
   } else {
     log.warn('home-assistant integration not configured — HA MCP tools disabled');
     mcp = new NullMcpClient();
+  }
+  // User-added MCP servers (`mcp:<name>` integrations) ride alongside HA.
+  const extras: ExtraMcpServer[] = resolveCustomMcpConfigs(memory.integrations).map((c) => ({
+    name: c.name,
+    client: new HttpMcpClient({ url: c.url, ...(c.token ? { token: c.token } : {}) }),
+    tools: new Set(c.tools),
+    only: c.only,
+  }));
+  if (extras.length) {
+    await Promise.all(extras.map(connectExtra));
+    mcp = new MultiMcpClient(mcp, extras);
   }
 
   // Stamp when this process finished reading the applied-on-restart config

@@ -1,10 +1,11 @@
 import { deleteIntegration } from '../../utils/db/integrations'
 import { DbNotReadyError } from '../../utils/db/client'
+import { defFor } from '../../utils/integrations'
 
 export default defineEventHandler((event) => {
   const type = getRouterParam(event, 'type')
-  if (!type) {
-    throw createError({ statusCode: 400, statusMessage: 'Missing integration type' })
+  if (!type || !defFor(type)) {
+    throw createError({ statusCode: 400, statusMessage: 'Unknown integration type' })
   }
   try {
     if (!deleteIntegration(type)) {

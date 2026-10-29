@@ -40,7 +40,7 @@ export interface PromptRow {
 export interface IntegrationField {
   key: string
   label: string
-  type: 'text' | 'password' | 'enum' | 'boolean'
+  type: 'text' | 'password' | 'enum' | 'boolean' | 'tools'
   options?: string[]
   default?: string
   required?: boolean
@@ -53,9 +53,17 @@ export interface IntegrationDef {
   title: string
   description: string
   fields: IntegrationField[]
+  multi?: boolean
+}
+
+export interface McpToolInfo {
+  name: string
+  description?: string
 }
 
 export interface InstalledIntegration {
+  /** Stored row type — `def.type`, or `<def.type>:<name>` for a multi instance. */
+  type: string
   def: IntegrationDef
   config: Record<string, string>
   secretsSet: Record<string, boolean>

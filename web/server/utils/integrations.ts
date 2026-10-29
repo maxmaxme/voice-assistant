@@ -2,10 +2,14 @@
 // the DB only stores configured instances. Future work reads the configured
 // row (e.g. Home Assistant url/token) from the agent core instead of env.
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+
 export interface IntegrationField {
   key: string
   label: string
-  type: 'text' | 'password' | 'enum' | 'boolean'
+  /** `tools`: comma-separated tool names, picked from the server's live list. */
+  type: 'text' | 'password' | 'enum' | 'boolean' | 'tools'
   /** Allowed values for `type: 'enum'`. */
   options?: string[]
   /** Concrete default for an enum — when set, the field has no "(default)"
@@ -27,6 +31,9 @@ export interface IntegrationDef {
   /** Prompt names this integration owns. Such prompts only show in the Prompts
    *  page while the integration is enabled (the agent gates them too). */
   ownsPrompt?: (name: string) => boolean
+  /** Installable many times: each instance is its own `<type>:<name>` row,
+   *  named by the required `name` field. */
+  multi?: boolean
 }
 
 export const INTEGRATIONS: IntegrationDef[] = [
@@ -123,7 +130,38 @@ export const INTEGRATIONS: IntegrationDef[] = [
     ],
     test: testTelegram,
   },
+  {
+    type: 'mcp',
+    title: 'MCP server',
+    description:
+      'Any Streamable-HTTP MCP server. Its tools reach the assistant as <name>__<tool>.',
+    multi: true,
+    fields: [
+      {
+        key: 'name',
+        label: 'Name',
+        type: 'text',
+        required: true,
+        placeholder: 'zenmoney',
+        help: 'Lowercase letters, digits, - or _. Prefixes the tool names; fixed after install.',
+      },
+      { key: 'url', label: 'URL', type: 'text', required: true, placeholder: 'https://example.com/mcp' },
+      { key: 'token', label: 'Bearer token', type: 'password', help: 'Leave empty if the server needs no auth.' },
+      {
+        key: 'toolMode',
+        label: 'Expose tools',
+        type: 'enum',
+        options: ['except', 'only'],
+        default: 'except',
+        help: 'except: every tool but the checked ones (new tools appear automatically). only: just the checked ones.',
+      },
+      { key: 'tools', label: 'Tools', type: 'tools' },
+    ],
+    test: testMcp,
+  },
 ]
+
+const INSTANCE_NAME = /^[a-z0-9_-]{1,24}$/
 
 /** Which integration (by type) owns a given prompt name, or null if it's a
  *  core prompt owned by no integration. */
@@ -139,6 +177,24 @@ export function promptOwner(name: string): string | null {
 export const INTEGRATION_BY_TYPE: Map<string, IntegrationDef> = new Map(
   INTEGRATIONS.map(i => [i.type, i]),
 )
+
+/** Catalog entry for a stored row type: `mcp:zen` → the `mcp` entry. */
+export function defFor(type: string): IntegrationDef | undefined {
+  const sep = type.indexOf(':')
+  const def = INTEGRATION_BY_TYPE.get(sep === -1 ? type : type.slice(0, sep))
+  return def && Boolean(def.multi) === (sep !== -1) ? def : undefined
+}
+
+/** Row type a new install is stored under, or an error for a bad instance name. */
+export function rowTypeFor(def: IntegrationDef, config: Config): { type: string } | { error: string } {
+  if (!def.multi) {
+    return { type: def.type }
+  }
+  const name = config.name ?? ''
+  return INSTANCE_NAME.test(name)
+    ? { type: `${def.type}:${name}` }
+    : { error: 'Name must be 1-24 lowercase letters, digits, - or _' }
+}
 
 export function secretKeys(def: IntegrationDef): string[] {
   return def.fields.filter(f => f.type === 'password').map(f => f.key)
@@ -211,7 +267,7 @@ export interface TestResult {
 /** Run the integration's own `test` (if any). Server-side, so the token never
  *  reaches the browser. */
 export async function testIntegration(type: string, config: Config): Promise<TestResult> {
-  const def = INTEGRATION_BY_TYPE.get(type)
+  const def = defFor(type)
   if (!def?.test) {
     return { ok: true, message: 'No connection test available for this integration.' }
   }
@@ -220,7 +276,7 @@ export async function testIntegration(type: string, config: Config): Promise<Tes
 
 /** Catalog entry as sent to the client — drops the server-only `test` fn. */
 export function publicDef(def: IntegrationDef): Omit<IntegrationDef, 'test'> {
-  return { type: def.type, title: def.title, description: def.description, fields: def.fields }
+  return { type: def.type, title: def.title, description: def.description, fields: def.fields, multi: def.multi }
 }
 
 async function testHomeAssistant(config: Config): Promise<TestResult> {
@@ -294,6 +350,37 @@ async function testOpenai(config: Config): Promise<TestResult> {
       return { ok: false, message: `OpenAI returned HTTP ${res.status}.` }
     }
     return { ok: true, message: 'Connected to OpenAI.' }
+  }
+  catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export interface McpToolInfo {
+  name: string
+  description?: string
+}
+
+/** A real MCP handshake + tools/list against a custom server's config. */
+export async function listMcpTools(config: Config): Promise<McpToolInfo[]> {
+  const transport = new StreamableHTTPClientTransport(new URL(config.url ?? ''), {
+    requestInit: { headers: config.token ? { Authorization: `Bearer ${config.token}` } : {} },
+  })
+  const client = new Client({ name: 'voice-assistant-config', version: '0.1.0' })
+  try {
+    await client.connect(transport, { timeout: 10_000 })
+    const { tools } = await client.listTools(undefined, { timeout: 10_000 })
+    return tools.map(t => ({ name: t.name, description: t.description }))
+  }
+  finally {
+    await client.close().catch(() => {})
+  }
+}
+
+async function testMcp(config: Config): Promise<TestResult> {
+  try {
+    const names = (await listMcpTools(config)).map(t => t.name)
+    return { ok: true, message: `Connected — ${names.length} tools: ${names.join(', ')}` }
   }
   catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { IntegrationDef, InstalledIntegration, IntegrationsResponse } from '~/types'
+import type { IntegrationDef, InstalledIntegration, IntegrationsResponse, McpToolInfo } from '~/types'
 
 useHead({ title: 'Integrations' })
 
@@ -12,6 +12,8 @@ const ENUM_DEFAULT = '__default__'
 const formOpen = ref(false)
 const formMode = ref<'install' | 'edit'>('install')
 const formDef = ref<IntegrationDef>()
+// Stored row type of the instance being edited (multi instances differ from def.type).
+const formRowType = ref('')
 const form = reactive<{ values: Record<string, string>, secretsSet: Record<string, boolean> }>({
   values: {},
   secretsSet: {},
@@ -19,6 +21,35 @@ const form = reactive<{ values: Record<string, string>, secretsSet: Record<strin
 const saving = ref(false)
 // Set from a failed save (server rejects with the connection-test reason).
 const testResult = ref<{ ok: boolean, message: string } | null>(null)
+
+// Live tool list of the MCP server being edited, for `tools` fields.
+const serverTools = ref<McpToolInfo[]>([])
+const serverToolsError = ref('')
+const serverToolsLoading = ref(false)
+async function loadServerTools(rowType: string) {
+  serverTools.value = []
+  serverToolsError.value = ''
+  serverToolsLoading.value = true
+  try {
+    serverTools.value = (await $fetch<{ tools: McpToolInfo[] }>(`/api/integrations/${rowType}/tools`)).tools
+  }
+  catch (e: unknown) {
+    serverToolsError.value = errMessage(e)
+  }
+  finally {
+    serverToolsLoading.value = false
+  }
+}
+function selectedTools(key: string): Set<string> {
+  return new Set((form.values[key] ?? '').split(/[\s,]+/).filter(Boolean))
+}
+// Checked names the server no longer offers stay visible so they can be unchecked.
+function toolChoices(key: string): McpToolInfo[] {
+  const offered = new Set(serverTools.value.map(t => t.name))
+  const gone = [...selectedTools(key)].filter(n => !offered.has(n))
+  const note = serverToolsError.value ? undefined : 'Not offered by the server anymore.'
+  return [...serverTools.value, ...gone.map(name => ({ name, description: note }))]
+}
 
 function openInstall(def: IntegrationDef) {
   formMode.value = 'install'
@@ -31,12 +62,14 @@ function openInstall(def: IntegrationDef) {
 function openEdit(inst: InstalledIntegration) {
   formMode.value = 'edit'
   formDef.value = inst.def
+  formRowType.value = inst.type
   form.values = Object.fromEntries(
     inst.def.fields.map(f => [f.key, inst.config[f.key] ?? f.default ?? '']),
   )
   form.secretsSet = { ...inst.secretsSet }
   testResult.value = null
   formOpen.value = true
+  if (inst.def.fields.some(f => f.type === 'tools')) void loadServerTools(inst.type)
 }
 
 async function submit() {
@@ -44,13 +77,11 @@ async function submit() {
   if (!def) return
   saving.value = true
   try {
-    if (formMode.value === 'install') {
-      await $fetch('/api/integrations', { method: 'POST', body: { type: def.type, config: { ...form.values } } })
-    }
-    else {
-      await $fetch(`/api/integrations/${def.type}`, { method: 'PUT', body: { config: { ...form.values } } })
-    }
-    toast.add({ title: formMode.value === 'install' ? 'Installed' : 'Saved', color: 'success' })
+    const res = formMode.value === 'install'
+      ? await $fetch<{ message: string }>('/api/integrations', { method: 'POST', body: { type: def.type, config: { ...form.values } } })
+      : await $fetch<{ message: string }>(`/api/integrations/${formRowType.value}`, { method: 'PUT', body: { config: { ...form.values } } })
+    // The test message carries e.g. an MCP server's tool names.
+    toast.add({ title: formMode.value === 'install' ? 'Installed' : 'Saved', description: res.message, color: 'success' })
     formOpen.value = false
     await refresh()
   }
@@ -67,11 +98,11 @@ async function submit() {
 const deleteTarget = ref<InstalledIntegration>()
 const deleting = ref(false)
 async function confirmDelete() {
-  const def = deleteTarget.value?.def
-  if (!def) return
+  const type = deleteTarget.value?.type
+  if (!type) return
   deleting.value = true
   try {
-    await $fetch(`/api/integrations/${def.type}`, { method: 'DELETE' })
+    await $fetch(`/api/integrations/${type}`, { method: 'DELETE' })
     toast.add({ title: 'Removed', color: 'success' })
     deleteTarget.value = undefined
     await refresh()
@@ -91,9 +122,9 @@ function placeholderFor(key: string): string | undefined {
 
 const togglingType = ref<string | null>(null)
 async function setEnabled(inst: InstalledIntegration, enabled: boolean) {
-  togglingType.value = inst.def.type
+  togglingType.value = inst.type
   try {
-    await $fetch(`/api/integrations/${inst.def.type}/enabled`, { method: 'POST', body: { enabled } })
+    await $fetch(`/api/integrations/${inst.type}/enabled`, { method: 'POST', body: { enabled } })
     toast.add({ title: enabled ? 'Enabled' : 'Disabled', color: 'success' })
   }
   catch (e: unknown) {
@@ -128,7 +159,7 @@ async function setEnabled(inst: InstalledIntegration, enabled: boolean) {
       <div class="space-y-3">
         <UCard
           v-for="inst in data!.installed"
-          :key="inst.def.type"
+          :key="inst.type"
         >
           <div class="flex items-start justify-between gap-4">
             <div class="flex items-start gap-3 min-w-0">
@@ -154,7 +185,7 @@ async function setEnabled(inst: InstalledIntegration, enabled: boolean) {
             <div class="flex items-center gap-2 shrink-0">
               <USwitch
                 :model-value="inst.enabled"
-                :loading="togglingType === inst.def.type"
+                :loading="togglingType === inst.type"
                 @update:model-value="(v: boolean) => setEnabled(inst, v)"
               />
               <UButton
@@ -268,12 +299,43 @@ async function setEnabled(inst: InstalledIntegration, enabled: boolean) {
               ]"
               @update:model-value="(v: string) => (form.values[f.key] = v === ENUM_DEFAULT ? '' : v)"
             />
+            <div
+              v-else-if="f.type === 'tools'"
+              class="space-y-2"
+            >
+              <p
+                v-if="formMode === 'install'"
+                class="text-sm text-[var(--ui-text-muted)]"
+              >
+                Install first, then pick tools here via Edit.
+              </p>
+              <p
+                v-else-if="serverToolsLoading"
+                class="text-sm text-[var(--ui-text-muted)]"
+              >
+                Loading the server's tools…
+              </p>
+              <UAlert
+                v-else-if="serverToolsError"
+                color="error"
+                variant="subtle"
+                :title="serverToolsError"
+              />
+              <UCheckboxGroup
+                v-if="formMode === 'edit'"
+                :items="toolChoices(f.key).map(t => ({ label: t.name, description: t.description, value: t.name }))"
+                :ui="{ description: 'line-clamp-2' }"
+                :model-value="[...selectedTools(f.key)]"
+                @update:model-value="(v: unknown[]) => (form.values[f.key] = v.join(', '))"
+              />
+            </div>
             <UInput
               v-else
               v-model="form.values[f.key]"
               class="w-full"
               :type="f.type === 'password' ? 'password' : 'text'"
               :placeholder="placeholderFor(f.key)"
+              :disabled="formMode === 'edit' && formDef?.multi && f.key === 'name'"
             />
           </UFormField>
 

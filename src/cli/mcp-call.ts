@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { loadConfig } from '../config.ts';
 import { openMemoryStore } from '../memory/memoryStore.ts';
 import { resolveHaConfig } from '../integrations/homeAssistant.ts';
-import { HaMcpClient } from '../mcp/haMcpClient.ts';
+import { HttpMcpClient } from '../mcp/httpMcpClient.ts';
 
 function usage(): never {
   console.error('Usage:');
@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     );
     process.exit(2);
   }
-  const client = new HaMcpClient({ url: ha.url, token: ha.token });
+  const client = new HttpMcpClient({ url: `${ha.url}/api/mcp`, token: ha.token });
   await client.connect();
   try {
     if (cmd === 'list') {

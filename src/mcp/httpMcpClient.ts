@@ -9,17 +9,19 @@ interface SdkLike {
   callTool: (req: { name: string; arguments: Record<string, unknown> }) => Promise<McpToolResult>;
 }
 
-export interface HaMcpClientOptions {
+export interface HttpMcpClientOptions {
+  /** Full Streamable-HTTP endpoint, e.g. HA's `<base>/api/mcp`. */
   url: string;
-  token: string;
+  /** Bearer token; omitted for servers without auth. */
+  token?: string;
   /** For tests: inject a fake SDK client. Defaults to the real one. */
-  sdkClientFactory?: (opts: { url: string; token: string }) => SdkLike;
+  sdkClientFactory?: (opts: { url: string; token?: string }) => SdkLike;
 }
 
-function defaultSdkClientFactory({ url, token }: { url: string; token: string }): SdkLike {
-  const transport = new StreamableHTTPClientTransport(new URL(`${url}/api/mcp`), {
+function defaultSdkClientFactory({ url, token }: { url: string; token?: string }): SdkLike {
+  const transport = new StreamableHTTPClientTransport(new URL(url), {
     requestInit: {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     },
   });
   const client = new Client({ name: 'voice-assistant', version: '0.1.0' }, { capabilities: {} });
@@ -35,13 +37,13 @@ function defaultSdkClientFactory({ url, token }: { url: string; token: string })
   };
 }
 
-export class HaMcpClient implements McpClient {
+export class HttpMcpClient implements McpClient {
   private sdk: SdkLike | null = null;
   private reconnecting: Promise<void> | null = null;
-  private readonly factory: (opts: { url: string; token: string }) => SdkLike;
-  private readonly clientOpts: { url: string; token: string };
+  private readonly factory: (opts: { url: string; token?: string }) => SdkLike;
+  private readonly clientOpts: { url: string; token?: string };
 
-  constructor(opts: HaMcpClientOptions) {
+  constructor(opts: HttpMcpClientOptions) {
     this.factory = opts.sdkClientFactory ?? defaultSdkClientFactory;
     this.clientOpts = { url: opts.url, token: opts.token };
   }
@@ -62,7 +64,7 @@ export class HaMcpClient implements McpClient {
 
   private requireSdk(): SdkLike {
     if (this.sdk === null) {
-      throw new Error('HaMcpClient used before a successful connect()');
+      throw new Error('HttpMcpClient used before a successful connect()');
     }
     return this.sdk;
   }

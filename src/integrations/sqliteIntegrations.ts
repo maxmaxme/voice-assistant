@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, like } from 'drizzle-orm';
 import type { Db } from '../memory/db.ts';
 import { integrations } from '../memory/schema.ts';
 
@@ -32,6 +32,24 @@ export class SqliteIntegrations {
       return null;
     }
     return { config, enabled: row.enabled === 1 };
+  }
+
+  /** Every installed row whose type starts with `prefix` (multi-instance
+   *  integrations like `mcp:<name>`), corrupt configs skipped. */
+  listByPrefix(prefix: string): (IntegrationRow & { type: string })[] {
+    const rows = this.db
+      .select({
+        type: integrations.type,
+        config: integrations.config,
+        enabled: integrations.enabled,
+      })
+      .from(integrations)
+      .where(like(integrations.type, `${prefix}%`))
+      .all();
+    return rows.flatMap((row) => {
+      const config = parseConfig(row.config);
+      return config ? [{ type: row.type, config, enabled: row.enabled === 1 }] : [];
+    });
   }
 }
 
