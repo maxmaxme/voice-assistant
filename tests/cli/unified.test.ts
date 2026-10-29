@@ -10,7 +10,7 @@ import { SqliteRuntimeState } from '../../src/settings/sqliteRuntimeState.ts';
 import { SqlitePrompts } from '../../src/settings/sqlitePrompts.ts';
 import { SqliteIntegrations } from '../../src/integrations/sqliteIntegrations.ts';
 import { freshTestDb } from '../memory/helpers.ts';
-import type { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
+import type { HttpMcpClient } from '../../src/mcp/httpMcpClient.ts';
 import type { MemoryStore, ScheduledActionsAdapter } from '../../src/memory/types.ts';
 import type { TelegramSender, TelegramReceiver } from '../../src/telegram/types.ts';
 import type { GoalRunner } from '../../src/scheduling/goalRunner.ts';
@@ -52,7 +52,7 @@ function makeDeps(): CommonDeps {
   return {
     config: { http: { port: 3000 } } as unknown as CommonDeps['config'],
     llm: {} as unknown as OpenAI,
-    mcp: {} as unknown as HaMcpClient,
+    mcp: {} as unknown as HttpMcpClient,
     memory: makeMemoryStore(),
     senderFor: () => ({ send: async () => {} }) as TelegramSender,
     goalRunner: { fire: vi.fn(async () => {}) } satisfies GoalRunner,

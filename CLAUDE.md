@@ -458,14 +458,16 @@ The speaker's audio path (WS `/voice`, OpenAI Realtime session, wake/turn/follow
 - `src/mcpServer/toolRunner.ts` is the speaker's `tools/call` runner: the shared `executeRoutedTool` routing with the short-TTL `toolCache.ts` (`GetLiveContext`) layered on the MCP side. Errors come back as `{"error": …}` JSON, never as a throw.
 - **device token** = a `voice` identity (sha256 of the per-device token), registered via the Users page / `attach-voice`.
 
-### MCP client (`src/mcp/haMcpClient.ts`)
+### MCP client (`src/mcp/httpMcpClient.ts`)
 
-Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with Bearer auth against HA's `/api/mcp`. Single replaceable adapter — the `McpClient` interface is the contract used by everything else.
+Wraps `@modelcontextprotocol/sdk` Streamable HTTP transport with optional Bearer auth against a full endpoint URL (HA: `<url>/api/mcp`). Single replaceable adapter — the `McpClient` interface is the contract used by everything else.
+
+**Custom MCP servers** are a multi-instance integration: the panel's "MCP server" entry can be installed many times, each stored as an `integrations` row `mcp:<name>` (`name` = `[a-z0-9_-]{1,24}`, fixed after install) with `url`, optional `token`, and a tool filter: `toolMode` (`except` = all but `tools`, default; `only` = just `tools`) + `tools` (comma-separated upstream names, picked by checkbox in the panel's Edit dialog via `GET /api/integrations/<type>/tools`). `resolveCustomMcpConfigs` (`src/integrations/customMcp.ts`) reads the enabled ones; `cli/shared.ts` wraps the HA/null client in `MultiMcpClient` (`src/mcp/multiMcpClient.ts`), which exposes each server's tools as `<name>__<tool>` on every channel (Responses agent and voice `/mcp`), drops filtered / invalid / clashing names, and routes calls back by name. A custom server that is down or slow (10 s) only loses its own tools for that turn — HA errors still propagate as before. The panel's connection test does a real MCP handshake + `tools/list` and shows the tool names in the save toast.
 
 **Home Assistant is configured via the web panel, not env.** `HA_URL`/`HA_TOKEN`
 are gone. At startup `cli/shared.ts` reads the `home-assistant` row from the
 `integrations` table (`resolveHaConfig`, `src/integrations/`). HA is active iff
-the row is **present, `enabled`, and has url+token** → `HaMcpClient`; otherwise
+the row is **present, `enabled`, and has url+token** → `HttpMcpClient`; otherwise
 → `NullMcpClient` (`src/mcp/nullMcpClient.ts`), which exposes **zero tools**, so
 the agent runs fine without HA — no HA MCP tools on any channel, and
 `haEnabled=false` drops the `ha-addendum` from the system prompt. The

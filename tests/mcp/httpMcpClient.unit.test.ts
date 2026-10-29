@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { HaMcpClient } from '../../src/mcp/haMcpClient.ts';
+import { HttpMcpClient } from '../../src/mcp/httpMcpClient.ts';
 
 function makeFakeSdkClient() {
   return {
@@ -21,10 +21,10 @@ function makeFakeSdkClient() {
   };
 }
 
-describe('HaMcpClient', () => {
+describe('HttpMcpClient', () => {
   it('connect() delegates to the underlying SDK client', async () => {
     const sdk = makeFakeSdkClient();
-    const client = new HaMcpClient({
+    const client = new HttpMcpClient({
       url: 'http://h:8123',
       token: 't',
       sdkClientFactory: () => sdk,
@@ -35,7 +35,7 @@ describe('HaMcpClient', () => {
 
   it('listTools() returns mapped tools', async () => {
     const sdk = makeFakeSdkClient();
-    const client = new HaMcpClient({
+    const client = new HttpMcpClient({
       url: 'http://h:8123',
       token: 't',
       sdkClientFactory: () => sdk,
@@ -48,7 +48,7 @@ describe('HaMcpClient', () => {
 
   it('callTool() returns mapped result', async () => {
     const sdk = makeFakeSdkClient();
-    const client = new HaMcpClient({
+    const client = new HttpMcpClient({
       url: 'http://h:8123',
       token: 't',
       sdkClientFactory: () => sdk,
@@ -64,7 +64,7 @@ describe('HaMcpClient', () => {
 
   it('disconnect() closes the SDK client', async () => {
     const sdk = makeFakeSdkClient();
-    const client = new HaMcpClient({
+    const client = new HttpMcpClient({
       url: 'http://h:8123',
       token: 't',
       sdkClientFactory: () => sdk,
@@ -80,7 +80,7 @@ describe('HaMcpClient', () => {
       dead.callTool.mockRejectedValue(new Error('fetch failed'));
       const fresh = makeFakeSdkClient();
       const factory = vi.fn().mockReturnValueOnce(dead).mockReturnValueOnce(fresh);
-      const client = new HaMcpClient({
+      const client = new HttpMcpClient({
         url: 'http://h:8123',
         token: 't',
         sdkClientFactory: factory,
@@ -104,7 +104,7 @@ describe('HaMcpClient', () => {
       dead.listTools.mockRejectedValue(new Error('socket hang up'));
       const fresh = makeFakeSdkClient();
       const factory = vi.fn().mockReturnValueOnce(dead).mockReturnValueOnce(fresh);
-      const client = new HaMcpClient({
+      const client = new HttpMcpClient({
         url: 'http://h:8123',
         token: 't',
         sdkClientFactory: factory,
@@ -122,7 +122,7 @@ describe('HaMcpClient', () => {
       dead.callTool.mockRejectedValue(new Error('fetch failed'));
       const fresh = makeFakeSdkClient();
       const factory = vi.fn().mockReturnValueOnce(dead).mockReturnValueOnce(fresh);
-      const client = new HaMcpClient({
+      const client = new HttpMcpClient({
         url: 'http://h:8123',
         token: 't',
         sdkClientFactory: factory,
@@ -148,7 +148,7 @@ describe('HaMcpClient', () => {
       const stillDead = makeFakeSdkClient();
       stillDead.callTool.mockRejectedValue(new Error('still down'));
       const factory = vi.fn().mockReturnValueOnce(dead).mockReturnValueOnce(stillDead);
-      const client = new HaMcpClient({
+      const client = new HttpMcpClient({
         url: 'http://h:8123',
         token: 't',
         sdkClientFactory: factory,
@@ -166,7 +166,7 @@ describe('HaMcpClient', () => {
       const unreachable = makeFakeSdkClient();
       unreachable.connect.mockRejectedValue(new Error('ECONNREFUSED'));
       const factory = vi.fn().mockReturnValueOnce(dead).mockReturnValueOnce(unreachable);
-      const client = new HaMcpClient({
+      const client = new HttpMcpClient({
         url: 'http://h:8123',
         token: 't',
         sdkClientFactory: factory,
@@ -187,7 +187,7 @@ describe('HaMcpClient', () => {
         .mockReturnValueOnce(dead)
         .mockReturnValueOnce(unreachable)
         .mockReturnValueOnce(fresh);
-      const client = new HaMcpClient({
+      const client = new HttpMcpClient({
         url: 'http://h:8123',
         token: 't',
         sdkClientFactory: factory,
