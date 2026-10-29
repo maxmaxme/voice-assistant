@@ -93,6 +93,7 @@ export class MultiMcpClient implements McpClient {
 export async function connectExtra(e: ExtraMcpServer): Promise<void> {
   try {
     await e.client.connect();
+    log.info({ server: e.name }, 'mcp server connected');
   } catch (err) {
     log.warn({ server: e.name, err: String(err) }, 'mcp server connect failed');
   }
