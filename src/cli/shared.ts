@@ -213,6 +213,17 @@ export async function initializeCommonDependencies(): Promise<CommonDeps> {
     tools: new Set(c.tools),
     only: c.only,
   }));
+  // Always logged, so "none configured" is visible in the logs too.
+  log.info(
+    {
+      servers: extras.map((e) => ({
+        name: e.name,
+        filter: e.only ? 'only' : 'except',
+        tools: [...e.tools],
+      })),
+    },
+    'custom mcp servers loaded',
+  );
   if (extras.length) {
     await Promise.all(extras.map(connectExtra));
     mcp = new MultiMcpClient(mcp, extras);

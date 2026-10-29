@@ -50,22 +50,26 @@ export function upsertIntegration(type: string, config: Record<string, string>):
        ON CONFLICT(type) DO UPDATE SET config = excluded.config, updated_at = excluded.updated_at`,
     )
     .run(type, JSON.stringify(config), Date.now())
+  // Never the config itself — it holds secrets.
+  console.info(`[integrations] saved ${type}`)
 }
 
 export function setIntegrationEnabled(type: string, enabled: boolean): boolean {
   if (!tableExists('integrations')) {
     throw new DbNotReadyError('integrations')
   }
-  return (
-    getDb()
-      .prepare(`UPDATE integrations SET enabled = ?, updated_at = ? WHERE type = ?`)
-      .run(enabled ? 1 : 0, Date.now(), type).changes > 0
-  )
+  const changed = getDb()
+    .prepare(`UPDATE integrations SET enabled = ?, updated_at = ? WHERE type = ?`)
+    .run(enabled ? 1 : 0, Date.now(), type).changes > 0
+  if (changed) console.info(`[integrations] ${enabled ? 'enabled' : 'disabled'} ${type}`)
+  return changed
 }
 
 export function deleteIntegration(type: string): boolean {
   if (!tableExists('integrations')) {
     throw new DbNotReadyError('integrations')
   }
-  return getDb().prepare(`DELETE FROM integrations WHERE type = ?`).run(type).changes > 0
+  const deleted = getDb().prepare(`DELETE FROM integrations WHERE type = ?`).run(type).changes > 0
+  if (deleted) console.info(`[integrations] deleted ${type}`)
+  return deleted
 }
