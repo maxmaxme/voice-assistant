@@ -3,6 +3,7 @@ import { buildSpeakerToolRunner } from '../../src/mcpServer/toolRunner.ts';
 import { ToolResultCache } from '../../src/mcpServer/toolCache.ts';
 import { buildLocalToolset } from '../../src/agent/localTools.ts';
 import type { McpClient } from '../../src/mcp/types.ts';
+import { captureLogs } from '../helpers/captureLogs.ts';
 
 function fakeMcp(overrides: Partial<McpClient> = {}): McpClient {
   return {
@@ -39,8 +40,15 @@ describe('buildSpeakerToolRunner', () => {
     const run = makeRunner(
       fakeMcp({ callTool: vi.fn().mockRejectedValue(new Error('HA unreachable')) }),
     );
-    const out = await run('HassTurnOn', { name: 'Lamp' });
-    expect(JSON.parse(out)).toEqual({ error: 'HA unreachable' });
+    const logs = captureLogs();
+    try {
+      const out = await run('HassTurnOn', { name: 'Lamp' });
+      expect(JSON.parse(out)).toEqual({ error: 'HA unreachable' });
+      // pipecat logs any result as success — the warn is the only trace of a failure.
+      expect(logs.text()).toMatch(/"name":"HassTurnOn".*"args":\{"name":"Lamp"\}.*HA unreachable/);
+    } finally {
+      logs.restore();
+    }
   });
 
   it('tolerates non-object args (the model can emit malformed JSON)', async () => {
