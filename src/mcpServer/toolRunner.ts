@@ -61,6 +61,11 @@ export function buildSpeakerToolRunner(
       Object.assign(safeArgs, args);
     }
     const result = await executeRoutedTool(localToolset, cachedMcp, name, safeArgs);
-    return result.isError ? JSON.stringify({ error: result.text }) : result.text;
+    if (!result.isError) {
+      return result.text;
+    }
+    // The front-end sees a normal result either way, so this is the only trace.
+    log.warn({ name, args: safeArgs, error: result.text }, `${name} failed: ${result.text}`);
+    return JSON.stringify({ error: result.text });
   };
 }
