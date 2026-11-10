@@ -51,7 +51,54 @@ function toolChoices(key: string): McpToolInfo[] {
   return [...serverTools.value, ...gone.map(name => ({ name, description: note }))]
 }
 
+// OAuth sign-in that mints a bearer token for an MCP server's `token` field.
+// The provider redirects to a dead localhost page; the user pastes its address back.
+const oauth = reactive({ waiting: false, pasted: '', busy: false })
+async function oauthStart() {
+  oauth.busy = true
+  testResult.value = null
+  // Open the tab inside the click handler so popup blockers allow it.
+  const tab = window.open('', '_blank')
+  if (tab) tab.opener = null
+  try {
+    const { authorizationUrl } = await $fetch<{ authorizationUrl: string }>('/api/mcp-oauth/start', {
+      method: 'POST',
+      body: { url: form.values.url },
+    })
+    if (tab) tab.location.href = authorizationUrl
+    else window.open(authorizationUrl, '_blank', 'noopener')
+    oauth.waiting = true
+    oauth.pasted = ''
+  }
+  catch (e: unknown) {
+    tab?.close()
+    testResult.value = { ok: false, message: errMessage(e) }
+  }
+  finally {
+    oauth.busy = false
+  }
+}
+async function oauthFinish() {
+  oauth.busy = true
+  try {
+    const res = await $fetch<{ token: string, message: string }>('/api/mcp-oauth/finish', {
+      method: 'POST',
+      body: { redirectedUrl: oauth.pasted },
+    })
+    form.values.token = res.token
+    oauth.waiting = false
+    testResult.value = { ok: true, message: res.message }
+  }
+  catch (e: unknown) {
+    testResult.value = { ok: false, message: errMessage(e) }
+  }
+  finally {
+    oauth.busy = false
+  }
+}
+
 function openInstall(def: IntegrationDef) {
+  oauth.waiting = false
   formMode.value = 'install'
   formDef.value = def
   form.values = Object.fromEntries(def.fields.map(f => [f.key, f.default ?? '']))
@@ -60,6 +107,7 @@ function openInstall(def: IntegrationDef) {
   formOpen.value = true
 }
 function openEdit(inst: InstalledIntegration) {
+  oauth.waiting = false
   formMode.value = 'edit'
   formDef.value = inst.def
   formRowType.value = inst.type
@@ -329,14 +377,52 @@ async function setEnabled(inst: InstalledIntegration, enabled: boolean) {
                 @update:model-value="(v: unknown[]) => (form.values[f.key] = v.join(', '))"
               />
             </div>
-            <UInput
+            <div
               v-else
-              v-model="form.values[f.key]"
-              class="w-full"
-              :type="f.type === 'password' ? 'password' : 'text'"
-              :placeholder="placeholderFor(f.key)"
-              :disabled="formMode === 'edit' && formDef?.multi && f.key === 'name'"
-            />
+              class="space-y-2"
+            >
+              <UInput
+                v-model="form.values[f.key]"
+                class="w-full"
+                :type="f.type === 'password' ? 'password' : 'text'"
+                :placeholder="placeholderFor(f.key)"
+                :disabled="formMode === 'edit' && formDef?.multi && f.key === 'name'"
+              />
+              <template v-if="formDef?.type === 'mcp' && f.key === 'token'">
+                <UButton
+                  color="neutral"
+                  variant="outline"
+                  icon="i-lucide-log-in"
+                  :loading="oauth.busy && !oauth.waiting"
+                  :disabled="!form.values.url"
+                  @click="oauthStart"
+                >
+                  Get token via OAuth
+                </UButton>
+                <div
+                  v-if="oauth.waiting"
+                  class="space-y-2"
+                >
+                  <p class="text-sm text-[var(--ui-text-muted)]">
+                    Sign in in the new tab. It ends on a page that won't load (http://localhost/…) — copy that page's address and paste it here.
+                  </p>
+                  <div class="flex gap-2">
+                    <UInput
+                      v-model="oauth.pasted"
+                      class="flex-1"
+                      placeholder="http://localhost/voice-assistant-oauth?code=…"
+                    />
+                    <UButton
+                      :loading="oauth.busy"
+                      :disabled="!oauth.pasted"
+                      @click="oauthFinish"
+                    >
+                      Finish
+                    </UButton>
+                  </div>
+                </div>
+              </template>
+            </div>
           </UFormField>
 
           <UAlert
