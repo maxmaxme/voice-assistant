@@ -407,7 +407,7 @@ on agent flavour and response shape:
 - `POST /text` — `application/x-www-form-urlencoded` (`text` form field)
   or `application/json` (`{"text": "...", "conversation_id"?: "..."}`).
   Run through the **plain** agent, with a **server-side session** so
-  follow-ups chain ("send this to Вера?" → "yes" actually sends). The
+  follow-ups chain ("send this to Mom?" → "yes" actually sends). The
   session key is `text:<token-hash>:<conversation_id ?? 'default'>` —
   token-scoped, so two principals never share a chain and a client that
   omits `conversation_id` still gets its own; idle window 10 min. Mint a
