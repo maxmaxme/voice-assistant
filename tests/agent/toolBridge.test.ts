@@ -122,6 +122,16 @@ describe('mcpToolsToOpenAi', () => {
     });
   });
 
+  it("drops HA's GetDateTime in favour of the local get_current_time", () => {
+    const tool = (name: string): McpTool => ({ name, inputSchema: { type: 'object' } });
+    const out = mcpToolsToOpenAi([
+      tool('llm__GetDateTime'),
+      tool('GetDateTime'),
+      tool('HassTurnOn'),
+    ]);
+    expect(out.map((t) => t.name)).toEqual(['HassTurnOn']);
+  });
+
   it('handles empty list', () => {
     expect(mcpToolsToOpenAi([])).toEqual([]);
   });

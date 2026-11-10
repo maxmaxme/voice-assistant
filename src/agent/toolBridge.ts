@@ -150,7 +150,10 @@ export async function resolveTodoList(
  * every channel. Structural facts (required slots, allowed values) belong in
  * the schema; behavioural rules go in the suffix. */
 export function prepareHaTools(tools: McpTool[]): McpTool[] {
-  return enrichTodoSchemas(tools).map((t) => {
+  // HA's GetDateTime duplicates our local get_current_time (which the prompts
+  // name and which works without HA); with both, the model ping-pongs between them.
+  const kept = tools.filter((t) => bareToolName(t.name) !== 'GetDateTime');
+  return enrichTodoSchemas(kept).map((t) => {
     const suffix = haSuffixFor(t.name);
     if (!suffix) {
       return t;
