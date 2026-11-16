@@ -33,8 +33,8 @@
       "dependencyDashboardApproval": true
     },
     {
-      "description": "Node base image — only bump within the 24.x line; the Pi runs 24",
-      "matchPackageNames": ["node"],
+      "description": "Node (base image, .nvmrc, setup-node in CI) — only bump within the 24.x line; the Pi runs 24. depName, not packageName: setup-node's packageName is actions/node-versions",
+      "matchDepNames": ["node"],
       "allowedVersions": "/^24\\./"
     }
   ]
