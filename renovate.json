@@ -14,9 +14,10 @@
   },
   "prConcurrentLimit": 8,
   "lockFileMaintenance": {
-    "description": "Daily lockfile refresh pulls transitive deps forward (what npm audit fix would do) and merges itself once CI is green",
+    "description": "Daily lockfile refresh pulls transitive deps forward (what npm audit fix would do) and merges itself once CI is green. timestamp-optional: lockfile updates have no release timestamp, so the default would hold stability-days pending forever; npm still gets --before from minimumReleaseAge",
     "enabled": true,
     "automerge": true,
+    "minimumReleaseAgeBehaviour": "timestamp-optional",
     "schedule": ["* 6-10 * * *"]
   },
   "packageRules": [
