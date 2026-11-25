@@ -24,7 +24,7 @@ Talk to your house through a [Home Assistant Voice PE](https://www.home-assistan
 ```mermaid
 flowchart LR
     PE["🔊 Voice PE speaker"]
-    PV["🎙️ pipecat-voice<br/>OpenAI Realtime"
+    PV["🎙️ pipecat-voice<br/>OpenAI Realtime"]
     HTTP["🌐 HTTP · :3000<br/>/text /audio /assist"]
     TG["💬 Telegram"]
 
